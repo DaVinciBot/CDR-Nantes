@@ -3,7 +3,7 @@
 
 # Présentation
 
-> Bienvenue sur le dépot de l'équipe DaVinciBot (ESILV)
+> Bienvenue sur le dépot de l'équipe DaVinciBot- Nantes (ESILV)
 
 La Coupe de robotique regroupe près de 200 équipes constituées de clubs d'amateurs, d'écoles d'ingénieurs, d'IUT, d'universités, de quelques lycées ou de toute autre structure voulant participer à ce concours.
 
