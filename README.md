@@ -5,9 +5,7 @@
 
 > Bienvenue sur le dépot de l'équipe DaVinciBot- Nantes (ESILV)
 
-La Coupe de robotique regroupe près de 200 équipes constituées de clubs d'amateurs, d'écoles d'ingénieurs, d'IUT, d'universités, de quelques lycées ou de toute autre structure voulant participer à ce concours.
-
-Il s'agit d'un défi ludique, scientifique et technique où se rencontrent des robots autonomes réalisés par des équipes (de passionnés ou ayant des projets éducatifs vers les jeunes). Les robots des différentes équipes s'opposent dans de véritables matchs technologiques pendant 90 secondes. Les règles du jeu varient chaque année, ce qui impose la construction de nouveaux robots.
+Vous etes nuls paris.
 
 ## Description du projet
 
