@@ -3,11 +3,11 @@
 
 # Présentation
 
-> Bienvenue sur le dépot de l'équipe DaVinciBot- Nantes (ESILV)
+> Bienvenue sur le dépôt de l'équipe DaVinciBot- Nantes (ESILV)
 
-La Coupe de robotique regroupe près de 200 équipes constituées de clubs d'amateurs, d'écoles d'ingénieurs, d'IUT, d'universités, de quelques lycées ou de toute autre structure voulant participer à ce concours.
+La Coupe de robotique regroupe près de 10 équipes constituées de clubs d'amateurs, d'écoles d'ingénieurs, d'IUT, et ta daronne d'universités, de quelques lycées ou de toute autre structure voulant participer à ce concours.
 
-Il s'agit d'un défi ludique, scientifique et technique où se rencontrent des robots autonomes réalisés par des équipes (de passionnés ou ayant des projets éducatifs vers les jeunes). Les robots des différentes équipes s'opposent dans de véritables matchs technologiques pendant 90 secondes. Les règles du jeu varient chaque année, ce qui impose la construction de nouveaux robots.
+Il s'agit d'un défi hyper chiant, scientifique et askip technique où se rencontrent des robots autonomes réalisés par des équipes (de passionnés ou ayant des projets éducatifs vers les jeunes). J'en ai rien à foutre s'opposent dans de véritables matchs technologiques pendant 90 secondes. Les règles du jeu varient chaque année, ce qui impose la construction de nouveaux robots.
 
 ## Description du projet
 
@@ -18,7 +18,6 @@ L'architecture de notre robot repose principalement sur une **Raspberry Pi** qui
 ## Architecture générale
 
 ![Untitled](https://github.com/user-attachments/assets/a51fdd88-af9e-40bd-830a-1d8a78f09035)
-
 
 L'architecture du robot s'organise autour de deux niveaux principaux de contrôle :
 
