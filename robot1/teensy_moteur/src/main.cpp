@@ -1,3 +1,4 @@
+#pragma once
 // Externe libraries used: Arduino, TimerOne, ATOMIC
 #include <Arduino.h>      // Arduino framework
 #include <TimerOne.h>     // Timer interrupt library
