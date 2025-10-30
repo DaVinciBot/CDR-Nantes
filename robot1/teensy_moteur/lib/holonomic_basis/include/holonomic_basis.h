@@ -1,128 +1,138 @@
 /**
- * This is the Holonomic Basis class header.
- * The Holonomic Basis class is the core of the Motor teensy code.
- * It provides method to control the 3 motors, the speed and the orientation.
- * It computes the odometry and correct the motors error with the PID class.
- * ADAPTED FOR 3-WHEEL HOLONOMIC BASE (120° between wheels)
+ * This is the Holonomic Basis class header for STEPPER MOTORS WITH ENCODERS.
+ * Combines stepper control with encoder feedback for precise odometry.
+ * ADAPTED FOR 3-WHEEL HOLONOMIC BASE
  */
 
 #pragma once
 
 #include <Arduino.h>
-#include <motors_driver.h>
+#include <AccelStepper.h>
 #include <pid.h>
 #include "structures.h"
-#include <com.h>  // Communication object to manage the communication between the teensy and the Raspberry Pi
+#include <com.h>
+
+// Structure pour gérer un moteur stepper avec son encodeur
+struct StepperWithEncoder {
+    AccelStepper* stepper;
+    volatile long ticks;  // Encoder ticks (accessible depuis interruptions)
+    double distance;      // Distance parcourue depuis dernier handle
+    byte enable_pin;
+    
+    StepperWithEncoder() : stepper(nullptr), ticks(0), distance(0.0), enable_pin(0) {}
+};
 
 class Holonomic_Basis {
    public:
-    // PID controllers (3 instead of 2)
+    // PID controllers (3 for X, Y, THETA)
     PID x_pid;
     PID y_pid;
     PID theta_pid;
 
-    // Holonomic basis's params
-    inline double wheel_perimeter() { return this->wheel_diameter * PI; };
+    // Robot geometry parameters
+    inline double wheel_circumference() { return this->wheel_diameter * PI; };
     inline double wheel_unit_tick_cm() {
-        return this->wheel_perimeter() / this->encoder_resolution;
+        return this->wheel_circumference() / this->encoder_resolution;
     };
 
-    // Properties
-    /**
-     * @brief Get current position (X, Y and THETA) of the robot
-     *
-     * @return Current position
-     */
-    Point get_current_position();
+    // Stepper motors with encoders (public pour accès depuis interruptions)
+    StepperWithEncoder* wheel1;  // Front wheel (0°)
+    StepperWithEncoder* wheel2;  // Back-left wheel (120°)
+    StepperWithEncoder* wheel3;  // Back-right wheel (240°)
 
-    // Holonomic basis's motors (3 wheels)
-    Motor* wheel1;  // Front wheel (0°)
-    Motor* wheel2;  // Back-left wheel (120°)
-    Motor* wheel3;  // Back-right wheel (240°)
+    // Odometrie - Position du robot
+    double X = 0.0;
+    double Y = 0.0;
+    double THETA = 0.0;
 
-    // Odometrie
-    double X = 0.0f;
-    double Y = 0.0f;
-    double THETA = 0.0f;
-
-    // Holonomic basis params
+    // Robot parameters
     unsigned short encoder_resolution;
-    double robot_radius;      // Distance from center to wheels
-    double wheel_diameter;
+    double robot_radius;      // Distance from center to wheels (cm)
+    double wheel_diameter;    // Wheel diameter (cm)
+    double max_speed;         // Maximum speed (steps/sec)
+    double max_acceleration;  // Maximum acceleration (steps/sec²)
+    unsigned short steps_per_revolution;
+    unsigned short microsteps;
 
     // Constructor
     /**
-     * @brief constructor of the Holonomic Basis class
-     *
-     * Initializes the parameters of the Holonomic Basis
+     * @brief Constructor of the Holonomic Basis class
      */
     Holonomic_Basis(unsigned short encoder_resolution,
                     double robot_radius,
                     double wheel_diameter,
+                    double max_speed,
+                    double max_acceleration,
+                    unsigned short steps_per_revolution,
+                    unsigned short microsteps,
                     const PID& x_pid,
                     const PID& y_pid,
                     const PID& theta_pid);
 
     /**
-     * @brief Destructor of Holonomic Basis class
+     * @brief Destructor
      */
-    ~Holonomic_Basis() = default;
+    ~Holonomic_Basis();
 
-    // Inits function
+    // Initialization functions
     /**
-     * @brief Define wheel 1 (front - 0°) with pins, related encoders pin and properties
-     * of the wheel attached to the motor.
+     * @brief Define wheel 1 with stepper pins and encoder
      */
-    void define_wheel1(byte enca,
-                       byte encb,
-                       byte pwm,
-                       byte in2,
-                       byte in1,
-                       byte max_pwm);
+    void define_wheel1(byte step_pin, byte dir_pin, byte enable_pin);
+    
     /**
-     * @brief Define wheel 2 (back-left - 120°) with pins, related encoders pin and properties
-     * of the wheel attached to the motor.
+     * @brief Define wheel 2 with stepper pins and encoder
      */
-    void define_wheel2(byte enca,
-                       byte encb,
-                       byte pwm,
-                       byte in2,
-                       byte in1,
-                       byte max_pwm);
+    void define_wheel2(byte step_pin, byte dir_pin, byte enable_pin);
+    
     /**
-     * @brief Define wheel 3 (back-right - 240°) with pins, related encoders pin and properties
-     * of the wheel attached to the motor.
+     * @brief Define wheel 3 with stepper pins and encoder
      */
-    void define_wheel3(byte enca,
-                       byte encb,
-                       byte pwm,
-                       byte in2,
-                       byte in1,
-                       byte max_pwm);
+    void define_wheel3(byte step_pin, byte dir_pin, byte enable_pin);
+
     /**
      * @brief Initialize all three motors
      */
     void init_motors();
+
     /**
      * @brief Initialize Holonomic Basis state with starting position
      */
     void init_holonomic_basis(double x, double y, double theta);
 
-    // Odometrie function
     /**
-     * @brief Handle the odometry computation for holonomic base
-     *
-     * Update motors position then compute displacement of all three motors.
-     * With these results, estimate the robot position and orientation using
-     * forward kinematics for holonomic base.
+     * @brief Enable all motors
+     */
+    void enable_motors();
+
+    /**
+     * @brief Disable all motors
+     */
+    void disable_motors();
+
+    // Odometry and control
+    /**
+     * @brief Handle encoder-based odometry computation
      */
     void odometrie_handle();
     
     /**
-     * @brief Handle the correction computation for holonomic base
-     *
-     * Compute the X, Y and theta error in terms of position.
-     * Compute the 3 PIDs and set the motors new command using inverse kinematics.
+     * @brief Handle control loop (PID + inverse kinematics)
      */
     void handle(Point target_position, Com* com);
+
+    /**
+     * @brief Update all stepper motors (must be called frequently in loop)
+     */
+    void run_motors();
+
+    /**
+     * @brief Get current position
+     */
+    Point get_current_position();
+
+    /**
+     * @brief Emergency stop
+     */
+    void emergency_stop();
 };

@@ -1,7 +1,7 @@
 /*
  * This file is dedicated to the configuration of the robot: all the constants
  * and the pinout are defined here.
- * ADAPTED FOR HOLONOMIC 3-WHEEL BASE
+ * ADAPTED FOR HOLONOMIC 3-WHEEL BASE WITH STEPPER MOTORS + ENCODERS
  */
 
 // Default position  
@@ -9,37 +9,45 @@
 #define START_Y 0.0
 #define START_THETA 0.0
 
-// Motor Wheel 1 (Front - 0°)
+// ========== STEPPER MOTOR 1 (Front - 0°) ==========
+#define W1_STEP_PIN 2
+#define W1_DIR_PIN 3
+#define W1_ENABLE_PIN 4
 #define W1_ENCA 12
 #define W1_ENCB 11
-#define W1_PWM 5
-#define W1_IN2 3
-#define W1_IN1 4
-
-// Motor Wheel 2 (Back-Left - 120°)
+// ========== STEPPER MOTOR 2 (Back-Left - 120°) ==========
+#define W2_STEP_PIN 5
+#define W2_DIR_PIN 6
+#define W2_ENABLE_PIN 7
 #define W2_ENCA 14
 #define W2_ENCB 13
-#define W2_PWM 2
-#define W2_IN2 1
-#define W2_IN1 0
 
-// Motor Wheel 3 (Back-Right - 240°)
-#define W3_ENCA 16  // NOUVEAU - A définir selon ton PCB
-#define W3_ENCB 15  // NOUVEAU - A définir selon ton PCB
-#define W3_PWM 6    // NOUVEAU - A définir selon ton PCB
-#define W3_IN2 7    // NOUVEAU - A définir selon ton PCB
-#define W3_IN1 8    // NOUVEAU - A définir selon ton PCB
+// ========== STEPPER MOTOR 3 (Back-Right - 240°) ==========
+#define W3_STEP_PIN 8
+#define W3_DIR_PIN 9
+#define W3_ENABLE_PIN 10
+#define W3_ENCA 16
+#define W3_ENCB 15
 
-// Creation Holonomic Basis
-// Motor
-#define MAX_PWM 240
 
-// Encoder
-#define ENCODER_RESOLUTION 1024
-#define ROBOT_RADIUS 15.0  // cm - Distance du centre aux roues (à mesurer sur ton robot)
-#define WHEEL_DIAMETER 5.9 // cm - Diameter of the wheels
+// ========== STEPPER MOTORS CONFIGURATION ==========
+// Stepper motor specifications
+#define STEPS_PER_REVOLUTION 200      // 200 steps = 1.8° per step (standard NEMA 17)
+#define MICROSTEPS 16                 // Microstepping (1, 2, 4, 8, 16, 32)
+#define TOTAL_STEPS_PER_REV (STEPS_PER_REVOLUTION * MICROSTEPS)
 
-// PIDs - 3 PID pour X, Y et THETA
+// Speed and acceleration limits
+#define MAX_SPEED 2000.0              // steps/second
+#define MAX_ACCELERATION 1000.0       // steps/second²
+
+// ========== ENCODERS CONFIGURATION ==========
+#define ENCODER_RESOLUTION 1024       // PPR (Pulses Per Revolution)
+
+// ========== ROBOT GEOMETRY ==========
+#define ROBOT_RADIUS 15.0             // cm - Distance du centre aux roues
+#define WHEEL_DIAMETER 5.9            // cm - Diameter of the wheels
+
+// ========== PID CONTROLLERS ==========
 // PID X (déplacement horizontal)
 #define KP_X 1.2
 #define KI_X 0.02
@@ -55,18 +63,19 @@
 #define KI_THETA 0.1
 #define KD_THETA 0.20
 
-
-
 // PID IDs pour la communication
 #define X_PID_ID 0
 #define Y_PID_ID 1
 #define THETA_PID_ID 2
 
-// PWM frequency
-#define PWM_FREQUENCY 40000
+// ========== CONTROL LOOP ==========
+// Asservissement échantillonnage fréquence (en microsecondes)
+#define ASSERVISSEMENT_FREQUENCY 10000  // 10ms = 100Hz
 
-// Asservissement échantillonnage fréquence
-#define ASSERVISSEMENT_FREQUENCY 5000
-
+// ========== COMMUNICATION ==========
 // Com baudrate
 #define BAUDRATE 115200
+
+// ========== PWM (non utilisé pour steppers, mais gardé pour compatibilité) ==========
+#define PWM_FREQUENCY 40000
+#define MAX_PWM 240

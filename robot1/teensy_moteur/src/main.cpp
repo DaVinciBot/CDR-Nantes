@@ -1,52 +1,54 @@
 #pragma once
-// Externe libraries used: Arduino, TimerOne, ATOMIC
+// External libraries used: Arduino, TimerOne, ATOMIC
 #include <Arduino.h>      // Arduino framework
 #include <TimerOne.h>     // Timer interrupt library
 #include <util/atomic.h>  // Atomic block library
 
-// Custom libraries used: Holonomic_Basis, Com
-#include <holonomic_basis.h>  // Holonomic Basis object to manage the motors and robot position
+// Custom libraries
+#include <holonomic_basis.h>  // Holonomic Basis with steppers + encoders
+#include <config.h>           // Configuration file
 
-// Configuration file (contains all the constants and pinout), it is just a
-// main.cpp header file
-#include <config.h>
-
-// 1. Instanciate the Holonomic Basis object
-// a. Define the 3 PID controllers (X, Y, THETA)
+// 1. Instantiate the 3 PID controllers (X, Y, THETA)
 PID x_pid(KP_X,
           KI_X,
           KD_X,
-          -240,
-          240,
+          -MAX_PWM,
+          MAX_PWM,
           5.0);
 
 PID y_pid(KP_Y,
           KI_Y,
           KD_Y,
-          -240,
-          240,
+          -MAX_PWM,
+          MAX_PWM,
           5.0);
 
 PID theta_pid(KP_THETA,
               KI_THETA,
               KD_THETA,
-              -200,
-              200,
+              -MAX_PWM,
+              MAX_PWM,
               2.0);
 
-// b. Instanciate the Holonomic Basis object
-Holonomic_Basis* holonomic_basis_ptr = new Holonomic_Basis(ENCODER_RESOLUTION,
-                                                           ROBOT_RADIUS,
-                                                           WHEEL_DIAMETER,
-                                                           x_pid,
-                                                           y_pid,
-                                                           theta_pid);
+// 2. Instantiate the Holonomic Basis object
+Holonomic_Basis* holonomic_basis_ptr = new Holonomic_Basis(
+    ENCODER_RESOLUTION,
+    ROBOT_RADIUS,
+    WHEEL_DIAMETER,
+    MAX_SPEED,
+    MAX_ACCELERATION,
+    STEPS_PER_REVOLUTION,
+    MICROSTEPS,
+    x_pid,
+    y_pid,
+    theta_pid
+);
 
-// 2. Instanciate the Communication object
+// 3. Instantiate the Communication object
 Com* com;
 
-// c. Define the 3 motors interrupt functions
-/******* Attach Interrupt *******/
+// 4. Define encoder interrupt functions
+/******* Encoder Interrupts *******/
 inline void wheel1_read_encoder() {
     if (digitalRead(W1_ENCB))
         holonomic_basis_ptr->wheel1->ticks--;
@@ -68,11 +70,10 @@ inline void wheel3_read_encoder() {
         holonomic_basis_ptr->wheel3->ticks++;
 }
 
-// 3. Define all com callback functions
-// a. define globals variables to keep in memory callback functions updated
+// 5. Define global variables for callback functions
 Point target_position(START_X, START_Y, START_THETA);
 
-// b. define the callback functions 
+// 6. Define callback functions for communication
 void set_target_position(byte* msg, byte size) {
     msg_set_target_position* target_position_msg =
         (msg_set_target_position*)msg;
@@ -122,12 +123,12 @@ void set_odometrie(byte* msg, byte size) {
 }
 
 void reset_teensy(byte* msg, byte size) {
-    // TODO: reset the teensy, à tester !
+    // Reset the teensy
     void (*reboot)(void) = 0;
     reboot();
 }
 
-// c. assign the callback functions to the right message id
+// 7. Assign callback functions to message IDs
 void (*callback_functions[256])(byte* msg, byte size);
 
 void initialize_callback_functions() {
@@ -137,48 +138,54 @@ void initialize_callback_functions() {
     callback_functions[RESET_TEENSY] = &reset_teensy;
 }
 
-// 4. Define the timer interrupt handle function (this function will be called
-// every 10ms, and which manage the robot position and speed: asservissement)
+// 8. Timer interrupt handler (called every 10ms for control loop)
 void handle() {
     holonomic_basis_ptr->odometrie_handle();
     holonomic_basis_ptr->handle(target_position, com);
 }
 
 void setup() {
+    // Initialize serial communication
     com = new Com(&Serial, BAUDRATE);
 
-    // Change pwm frequency for all 3 wheels
-    analogWriteFrequency(W1_PWM, PWM_FREQUENCY);
-    analogWriteFrequency(W2_PWM, PWM_FREQUENCY);
-    analogWriteFrequency(W3_PWM, PWM_FREQUENCY);
-
-    // Init Holonomic Basis - Define all 3 wheels
-    holonomic_basis_ptr->define_wheel1(W1_ENCA, W1_ENCB, W1_PWM, W1_IN2, W1_IN1, MAX_PWM);
-    holonomic_basis_ptr->define_wheel2(W2_ENCA, W2_ENCB, W2_PWM, W2_IN2, W2_IN1, MAX_PWM);
-    holonomic_basis_ptr->define_wheel3(W3_ENCA, W3_ENCB, W3_PWM, W3_IN2, W3_IN1, MAX_PWM);
+    // Define the 3 stepper motors with their pins
+    holonomic_basis_ptr->define_wheel1(W1_STEP_PIN, W1_DIR_PIN, W1_ENABLE_PIN);
+    holonomic_basis_ptr->define_wheel2(W2_STEP_PIN, W2_DIR_PIN, W2_ENABLE_PIN);
+    holonomic_basis_ptr->define_wheel3(W3_STEP_PIN, W3_DIR_PIN, W3_ENABLE_PIN);
     
+    // Initialize motors
     holonomic_basis_ptr->init_motors();
     holonomic_basis_ptr->init_holonomic_basis(START_X, START_Y, START_THETA);
     
-    // Attach interrupts for all 3 encoders
+    // Enable motors
+    holonomic_basis_ptr->enable_motors();
+    
+    // Attach encoder interrupts (for odometry)
     attachInterrupt(digitalPinToInterrupt(W1_ENCA), wheel1_read_encoder, RISING);
     attachInterrupt(digitalPinToInterrupt(W2_ENCA), wheel2_read_encoder, RISING);
     attachInterrupt(digitalPinToInterrupt(W3_ENCA), wheel3_read_encoder, RISING);
 
-    // Init motors handle timer
+    // Initialize control loop timer (10ms = 100Hz)
     Timer1.initialize(ASSERVISSEMENT_FREQUENCY);
     Timer1.attachInterrupt(handle);
 
     // Initialize callback functions
     initialize_callback_functions();
+
+    // Optional: Wait for serial connection
+    delay(100);
 }
 
 uint_fast32_t counter = 0;
+
 void loop() {
-    // Handle the communication
+    // CRITICAL: Run stepper motors (must be called as often as possible)
+    holonomic_basis_ptr->run_motors();
+
+    // Handle communication
     com->handle_callback(callback_functions);
 
-    // Send holonomic basis state
+    // Send holonomic basis state periodically
     if (counter++ > 4096)  // 4096 = 2^12
     {
         msg_update_rolling_basis holonomic_basis_msg;
@@ -201,6 +208,6 @@ void loop() {
   / _/ / // _ \
  /_/  /_/ \___/
  
- Adapted for 3-wheel holonomic base
+ Adapted for 3-wheel holonomic base with STEPPER MOTORS + ENCODERS
 
 */
