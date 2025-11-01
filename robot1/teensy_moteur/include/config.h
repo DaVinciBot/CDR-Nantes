@@ -1,7 +1,7 @@
 /*
  * This file is dedicated to the configuration of the robot: all the constants
  * and the pinout are defined here.
- * ADAPTED FOR HOLONOMIC 3-WHEEL BASE WITH STEPPER MOTORS + ENCODERS
+ * ADAPTED FOR HOLONOMIC 3-WHEEL BASE WITH STEPPER MOTORS (NO ENCODERS)
  */
 
 // Default position  
@@ -13,22 +13,16 @@
 #define W1_STEP_PIN 2
 #define W1_DIR_PIN 3
 #define W1_ENABLE_PIN 4
-#define W1_ENCA 12
-#define W1_ENCB 11
+
 // ========== STEPPER MOTOR 2 (Back-Left - 120°) ==========
 #define W2_STEP_PIN 5
 #define W2_DIR_PIN 6
 #define W2_ENABLE_PIN 7
-#define W2_ENCA 14
-#define W2_ENCB 13
 
 // ========== STEPPER MOTOR 3 (Back-Right - 240°) ==========
 #define W3_STEP_PIN 8
 #define W3_DIR_PIN 9
 #define W3_ENABLE_PIN 10
-#define W3_ENCA 16
-#define W3_ENCB 15
-
 
 // ========== STEPPER MOTORS CONFIGURATION ==========
 // Stepper motor specifications
@@ -40,12 +34,9 @@
 #define MAX_SPEED 2000.0              // steps/second
 #define MAX_ACCELERATION 1000.0       // steps/second²
 
-// ========== ENCODERS CONFIGURATION ==========
-#define ENCODER_RESOLUTION 1024       // PPR (Pulses Per Revolution)
-
 // ========== ROBOT GEOMETRY ==========
-#define ROBOT_RADIUS 15.0             // cm - Distance du centre aux roues
-#define WHEEL_DIAMETER 5.9            // cm - Diameter of the wheels
+#define ROBOT_RADIUS 150.0  // mm - Distance du centre aux roues
+#define WHEEL_DIAMETER 59.0 // mm - Diameter of the wheels
 
 // ========== PID CONTROLLERS ==========
 // PID X (déplacement horizontal)

@@ -1,6 +1,6 @@
 /**
- * This is the Holonomic Basis class header for STEPPER MOTORS WITH ENCODERS.
- * Combines stepper control with encoder feedback for precise odometry.
+ * This file is the Holonomic Basis class header for STEPPER MOTORS (NO ENCODERS).
+ * Uses steppers for control only without encoder feedback.
  * ADAPTED FOR 3-WHEEL HOLONOMIC BASE
  */
 
@@ -12,16 +12,6 @@
 #include "structures.h"
 #include <com.h>
 
-// Structure pour gérer un moteur stepper avec son encodeur
-struct StepperWithEncoder {
-    AccelStepper* stepper;
-    volatile long ticks;  // Encoder ticks (accessible depuis interruptions)
-    double distance;      // Distance parcourue depuis dernier handle
-    byte enable_pin;
-    
-    StepperWithEncoder() : stepper(nullptr), ticks(0), distance(0.0), enable_pin(0) {}
-};
-
 class Holonomic_Basis {
    public:
     // PID controllers (3 for X, Y, THETA)
@@ -31,14 +21,11 @@ class Holonomic_Basis {
 
     // Robot geometry parameters
     inline double wheel_circumference() { return this->wheel_diameter * PI; };
-    inline double wheel_unit_tick_cm() {
-        return this->wheel_circumference() / this->encoder_resolution;
-    };
 
-    // Stepper motors with encoders (public pour accès depuis interruptions)
-    StepperWithEncoder* wheel1;  // Front wheel (0°)
-    StepperWithEncoder* wheel2;  // Back-left wheel (120°)
-    StepperWithEncoder* wheel3;  // Back-right wheel (240°)
+    // Stepper motors (no encoders)
+    AccelStepper* wheel1;  // Front wheel (0°)
+    AccelStepper* wheel2;  // Back-left wheel (120°)
+    AccelStepper* wheel3;  // Back-right wheel (240°)
 
     // Odometrie - Position du robot
     double X = 0.0;
@@ -46,9 +33,8 @@ class Holonomic_Basis {
     double THETA = 0.0;
 
     // Robot parameters
-    unsigned short encoder_resolution;
-    double robot_radius;      // Distance from center to wheels (cm)
-    double wheel_diameter;    // Wheel diameter (cm)
+    double robot_radius;      // Distance from center to wheels (mm)
+    double wheel_diameter;    // Wheel diameter (mm)
     double max_speed;         // Maximum speed (steps/sec)
     double max_acceleration;  // Maximum acceleration (steps/sec²)
     unsigned short steps_per_revolution;
@@ -58,8 +44,7 @@ class Holonomic_Basis {
     /**
      * @brief Constructor of the Holonomic Basis class
      */
-    Holonomic_Basis(unsigned short encoder_resolution,
-                    double robot_radius,
+    Holonomic_Basis(double robot_radius,
                     double wheel_diameter,
                     double max_speed,
                     double max_acceleration,
@@ -76,17 +61,17 @@ class Holonomic_Basis {
 
     // Initialization functions
     /**
-     * @brief Define wheel 1 with stepper pins and encoder
+     * @brief Define wheel 1 with stepper pins
      */
     void define_wheel1(byte step_pin, byte dir_pin, byte enable_pin);
     
     /**
-     * @brief Define wheel 2 with stepper pins and encoder
+     * @brief Define wheel 2 with stepper pins
      */
     void define_wheel2(byte step_pin, byte dir_pin, byte enable_pin);
     
     /**
-     * @brief Define wheel 3 with stepper pins and encoder
+     * @brief Define wheel 3 with stepper pins
      */
     void define_wheel3(byte step_pin, byte dir_pin, byte enable_pin);
 
@@ -110,12 +95,7 @@ class Holonomic_Basis {
      */
     void disable_motors();
 
-    // Odometry and control
-    /**
-     * @brief Handle encoder-based odometry computation
-     */
-    void odometrie_handle();
-    
+    // Control
     /**
      * @brief Handle control loop (PID + inverse kinematics)
      */
@@ -135,4 +115,9 @@ class Holonomic_Basis {
      * @brief Emergency stop
      */
     void emergency_stop();
+
+   private:
+    byte wheel1_enable_pin;
+    byte wheel2_enable_pin;
+    byte wheel3_enable_pin;
 };

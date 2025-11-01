@@ -5,7 +5,7 @@
 #include <util/atomic.h>  // Atomic block library
 
 // Custom libraries
-#include <holonomic_basis.h>  // Holonomic Basis with steppers + encoders
+#include <holonomic_basis.h>  // Holonomic Basis with steppers
 #include <config.h>           // Configuration file
 
 // 1. Instantiate the 3 PID controllers (X, Y, THETA)
@@ -32,7 +32,6 @@ PID theta_pid(KP_THETA,
 
 // 2. Instantiate the Holonomic Basis object
 Holonomic_Basis* holonomic_basis_ptr = new Holonomic_Basis(
-    ENCODER_RESOLUTION,
     ROBOT_RADIUS,
     WHEEL_DIAMETER,
     MAX_SPEED,
@@ -47,33 +46,10 @@ Holonomic_Basis* holonomic_basis_ptr = new Holonomic_Basis(
 // 3. Instantiate the Communication object
 Com* com;
 
-// 4. Define encoder interrupt functions
-/******* Encoder Interrupts *******/
-inline void wheel1_read_encoder() {
-    if (digitalRead(W1_ENCB))
-        holonomic_basis_ptr->wheel1->ticks--;
-    else
-        holonomic_basis_ptr->wheel1->ticks++;
-}
-
-inline void wheel2_read_encoder() {
-    if (digitalRead(W2_ENCB))
-        holonomic_basis_ptr->wheel2->ticks--;
-    else
-        holonomic_basis_ptr->wheel2->ticks++;
-}
-
-inline void wheel3_read_encoder() {
-    if (digitalRead(W3_ENCB))
-        holonomic_basis_ptr->wheel3->ticks--;
-    else
-        holonomic_basis_ptr->wheel3->ticks++;
-}
-
-// 5. Define global variables for callback functions
+// 4. Define global variables for callback functions
 Point target_position(START_X, START_Y, START_THETA);
 
-// 6. Define callback functions for communication
+// 5. Define callback functions for communication
 void set_target_position(byte* msg, byte size) {
     msg_set_target_position* target_position_msg =
         (msg_set_target_position*)msg;
@@ -128,7 +104,7 @@ void reset_teensy(byte* msg, byte size) {
     reboot();
 }
 
-// 7. Assign callback functions to message IDs
+// 6. Assign callback functions to message IDs
 void (*callback_functions[256])(byte* msg, byte size);
 
 void initialize_callback_functions() {
@@ -138,9 +114,8 @@ void initialize_callback_functions() {
     callback_functions[RESET_TEENSY] = &reset_teensy;
 }
 
-// 8. Timer interrupt handler (called every 10ms for control loop)
+// 7. Timer interrupt handler (called every 10ms for control loop)
 void handle() {
-    holonomic_basis_ptr->odometrie_handle();
     holonomic_basis_ptr->handle(target_position, com);
 }
 
@@ -159,11 +134,6 @@ void setup() {
     
     // Enable motors
     holonomic_basis_ptr->enable_motors();
-    
-    // Attach encoder interrupts (for odometry)
-    attachInterrupt(digitalPinToInterrupt(W1_ENCA), wheel1_read_encoder, RISING);
-    attachInterrupt(digitalPinToInterrupt(W2_ENCA), wheel2_read_encoder, RISING);
-    attachInterrupt(digitalPinToInterrupt(W3_ENCA), wheel3_read_encoder, RISING);
 
     // Initialize control loop timer (10ms = 100Hz)
     Timer1.initialize(ASSERVISSEMENT_FREQUENCY);
@@ -208,6 +178,6 @@ void loop() {
   / _/ / // _ \
  /_/  /_/ \___/
  
- Adapted for 3-wheel holonomic base with STEPPER MOTORS + ENCODERS
+ Adapted for 3-wheel holonomic base with STEPPER MOTORS (NO ENCODERS)
 
 */
