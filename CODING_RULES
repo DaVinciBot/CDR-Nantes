@@ -1,0 +1,75 @@
+Ce document va permettre de réunir les régles nécessaire, voir les étapes pour permettre la meilleur gestion du github et éviter le chaos après quelques mois.
+Elle sont majoritairement inspiré de celle de Paris ( merci pour l'aide et le notion):
+
+
+
+# Règles basiques
+
+- **READ THE FUCKING MANUAL :** Avant de coder lit la DOC des fonctions/classes que tu va potentiellement utiliser/modifier.
+- **Lisibilité** : Rajouter des **Docstring et des commentaires**, les noms de variables doivent être **claires etexplicites** ⇒ Votre code doit être compréhensible pour un **A1 voir un Terminal**.
+- **Fonctions courtes** : Divisez le code en petites fonctions ou méthodes qui accomplissent une **seule tâche**. Ca simplifie largement le code et sa compréhension.
+- **Réutilisabilité** : Évitez la duplication de code en créant des fonctions réutilisables. La POO est faites pour la réutiliser au maximum le code. Penser toujours à **l’héritage, le polymorphisme** et autre concept de la POO. Si on vous apprend ça en cours c’est pas pour rien ! Alors avant de développer une nouvelle feature regardez si elle peut pas réutiliser un fonction/classe déjà existante, et si l’on peut utiliser les concepts de POO pour la développé. Il faut **toujours** rester dans cette dynamique POO.
+
+## Norme PEP8
+
+https://peps.python.org/pep-0008/
+
+https://marketplace.visualstudio.com/items?itemName=ms-python.black-formatter
+
+### 1. **Longueur des lignes**
+
+- Limitez la longueur des lignes à **79** caractères pour le code et à **72** caractères pour les commentaires.
+
+### 2. **Espaces**
+
+- Utilisez des espaces autour des opérateurs et après les virgules, mais **pas à l'intérieur** des parenthèses, crochets ou accolades.
+
+### 3. **Commentaires**
+
+- Les commentaires doivent être *clairs et utiles*. Utilisez des commentaires en ligne pour expliquer des parties complexes du code.
+- Les docstrings (chaînes de documentation) doivent être utilisées pour documenter les modules, fonctions, classes et méthodes.
+
+### 4. **Nommage**
+
+- Utilisez des noms **explicites** pour les variables, fonctions, classes et modules.
+- Les noms de variables et de fonctions doivent être en **minuscules** avec des mots séparés par des **underscores** (ex : `my_variable`).
+- Les noms de classes doivent utiliser le style **CamelCase** (ex : `MyClass`).
+
+### 5. **Importations**
+
+- Utilisez des importations absolues plutôt que relatives.
+
+### 6. **Espaces blancs**
+
+- *Évitez les espaces blancs superflus à la fin des lignes ou à l'intérieur des parenthèses, crochets ou accolades*.
+
+### 7. **Structures de contrôle**
+
+- Utilisez des lignes vides pour séparer les blocs de code logiquement distincts.
+- Utilisez des parenthèses pour les expressions complexes dans les instructions `if`, `for`, `while`, etc.
+
+# Tests
+
+Vos features doivent être **TOUJOURS** testées. Cela paraît logique et basique mais *il faut le faire.*
+
+**Testez vos features sur le robot** ! Ou alors lorsque ce n’est pas possible créez des **tests unitaires** pour vérifier que tout fonctionne !
+
+**Faites des tests régressifs** ! Quand vous testez votre changement, vérifiez bien quece changement *ne change pas* le comportement du code de base. Si vous faites du refactoring c’est la même chose, le comportement du code ne doit pas *se dégrader*.
+
+⇒ https://www.youtube.com/watch?v=YMPlQCYp7xg
+
+**KEEP IT SIMPLE, STUPID.**
+
+Evitez la complexité inutile. Si une solution simple fonctionne, utilisez-la.
+
+**Prenez du recul**. Lorsqu’on est dans un effet tunnel on ne prend pas assez de recul. On fonce tête baissée dans une solution qu’on pense être la meilleure, mais parfois ce n’est pas la plus simple.
+
+A partir de maintenant les personnes pouvant merge dans la branche dev sont limités. A definir pour la suite.
+
+Pour faire un merge il faut d’abord faire une Pull Request. Et les personnes habilités vont pouvoir relire, tester, demander des amendements et enfin merge dans dev.
+
+Ces Pull Request seront gérer une fois par semaine.
+
+Gérer les Pull Request c’est long. ***Très long***. Surtout quand on est 10 à développer. Donc pour faciliter cette tâche et ne pas perdre du temps **TOUTES** les règles ci-dessus sont à respecter, sinon on vous renvoie la balle jusqu’à ce que vous avez tout fixe.
+
+Ca vous fait chiez ? Les master aussi. Mais si **TOUT** le monde respecte ces règles ci-dessus, tout le monde s’entendra bien et tout ira beaucoup plus vite, croyez le moi😉.
