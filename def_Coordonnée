@@ -1,0 +1,89 @@
+import math
+
+class Terrain:
+    def __init__(self, team_color):
+        """
+        team_color : "BLUE" ou "YELLOW"
+        """
+        # [cite_start]--- CONSTANTES DIMENSIONNELLES (en mm) [cite: 87, 162] ---
+        self.WIDTH = 3000
+        self.HEIGHT = 2000
+        self.ROBOT_RADIUS = 120
+
+        # Standardisation de la couleur
+        self.team_color = team_color.upper()
+
+        self.obstacles = []
+
+        # On lance la création de la carte tout de suite
+        self._init_static_map()
+
+    def _init_static_map(self):
+        """
+        Définit les obstacles en pensant UNIQUEMENT "Équipe Bleue".
+        Le code inversera tout seul si team_color est YELLOW.
+        
+        [cite_start]Rappel du contexte Bleu[cite: 135]: 
+        - Je suis à Droite (x=2400 à 3000).
+        - L'adversaire est à Gauche (x=0 à 600).
+        """
+        
+        # 1. OBSTACLES CENTRAUX (Symétriques par nature)
+        # Grenier (Centré) : x=600 en bleu -> deviendra x=600 en jaune (car 3000-600-1800 = 600)
+        self.add_symmetric_obstacle("Grenier", 600, 1550, 1800, 450)
+
+        # 2. ZONE DE DÉPART ADVERSE
+        # [cite_start]Si je suis Bleu, l'ennemi est Jaune (à Gauche, x=0) [cite: 135]
+        # Je déclare donc l'obstacle en x=0. 
+        # Si le programme tourne en mode Yellow, il le transformera automatiquement en x=2400.
+        self.add_symmetric_obstacle("Nid Adverse", 0, 1550, 600, 450)
+
+    def add_symmetric_obstacle(self, name, x_blue, y_blue, width, height):
+        """ 
+        Ajoute un obstacle en appliquant la symétrie selon la couleur d'équipe.
+        x_blue, y_blue : Coordonnées si on était l'équipe BLEUE.
+        """
+        
+        # Par défaut, on prend les coordonnées fournies
+        final_x = x_blue
+        final_y = y_blue
+        
+        # Si on est JAUNE, on inverse le X en tenant compte de la largeur
+        if self.team_color == "YELLOW":
+            # Formule de symétrie pour un RECTANGLE (Miroir)
+            # Le bord droit (x + width) devient le bord gauche du symétrique
+            final_x = self.WIDTH - x_blue - width
+            # Y ne change pas
+            final_y = y_blue
+            
+        self.obstacles.append({
+            'name': name,
+            'rect': (final_x, final_y, width, height)
+        })
+
+    def apply_symmetry(self, x, y, theta=0):
+        """
+        Convertit un POINT cible (Stratégie Bleu -> Réel).
+        Utilisé pour le déplacement du robot, pas pour la construction de map.
+        """
+        if self.team_color == "BLUE":
+            return x, y, theta
+        else:
+            # Pour un point, la formule est simple
+            real_x = self.WIDTH - x
+            real_y = y 
+            real_theta = math.atan2(math.sin(math.pi - theta), math.cos(math.pi - theta))
+            return real_x, real_y, real_theta
+
+    def is_collision(self, x, y):
+        # Vérification BORDURES
+        if (x < self.ROBOT_RADIUS) or (x > self.WIDTH - self.ROBOT_RADIUS): return True
+        if (y < self.ROBOT_RADIUS) or (y > self.HEIGHT - self.ROBOT_RADIUS): return True
+
+        # Vérification OBSTACLES
+        for obs in self.obstacles:
+            ox, oy, ow, oh = obs['rect']
+            if (ox - self.ROBOT_RADIUS < x < ox + ow + self.ROBOT_RADIUS) and \
+               (oy - self.ROBOT_RADIUS < y < oy + oh + self.ROBOT_RADIUS):
+                return True
+        return False
