@@ -1,0 +1,88 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.patches import Circle # On importe l'objet "Cercle"
+
+# --- 1. FONCTION MATHÉMATIQUE (L'abstraction) ---
+def ajuster_forme_cercle(cluster_points):
+    """
+    Transforme une liste de points en un objet (X, Y, Rayon)
+    """
+    # 1. Le centre de l'ennemi est la moyenne de tous les points (Centre de gravité)
+    centre_x = np.mean(cluster_points[:, 0])
+    centre_y = np.mean(cluster_points[:, 1])
+    
+    # 2. Le rayon est la distance moyenne des points par rapport au centre
+    # On calcule la distance de chaque point vers le centre
+    distances_au_centre = np.linalg.norm(cluster_points - [centre_x, centre_y], axis=1)
+    # On prend la moyenne (ou le max si on veut englober tout le monde)
+    rayon = np.max(distances_au_centre)
+    
+    return centre_x, centre_y, rayon
+
+# --- 2. FONCTION DE TRAITEMENT ---
+def trouver_ennemi_abstrait(angles, distances):
+    # Conversion Polaire -> Cartésien
+    x = distances * np.cos(angles)
+    y = distances * np.sin(angles)
+    points = np.column_stack((x, y))
+    
+    # Clustering (découpage par saut de distance > 100mm)
+    diffs = np.linalg.norm(points[:-1] - points[1:], axis=1)
+    ruptures = np.where(diffs > 100)[0]
+    clusters = np.split(points, ruptures + 1)
+    
+    objets_detectes = []
+    
+    for cluster in clusters:
+        if len(cluster) < 5: continue # Ignore le bruit (moins de 5 points)
+        
+        # --- C'EST ICI QUE LA MAGIE OPÈRE ---
+        # On ne garde plus les points, on transforme le cluster en FORME
+        cx, cy, rayon = ajuster_forme_cercle(cluster)
+        
+        # Filtre : Si le diamètre est cohérent pour un robot (entre 20cm et 50cm)
+        diametre = rayon * 2
+        dist_robot = np.hypot(cx, cy)
+        
+        if 200 < diametre < 500 and dist_robot < 3000:
+            # On stocke uniquement l'objet abstrait
+            objets_detectes.append({'x': cx, 'y': cy, 'r': rayon})
+            
+    return x, y, objets_detectes
+
+# --- 3. SIMULATION ET AFFICHAGE ---
+# (Je génère les mêmes fausses données que tout à l'heure)
+angles = np.linspace(0, 2*np.pi, 360)
+distances = np.full(360, 4000) + np.random.normal(0, 10, 360)
+indices_ennemi = range(85, 98)
+distances[indices_ennemi] = 1500 + np.random.normal(0, 20, len(indices_ennemi))
+
+# Exécution
+points_x, points_y, ennemis = trouver_ennemi_abstrait(angles, distances)
+
+# Affichage
+fig, ax = plt.subplots(figsize=(8, 8))
+
+# On affiche les points gris (le décor) juste pour comprendre
+ax.scatter(points_x, points_y, s=1, c='lightgray', label='Scan Brut')
+ax.scatter(0, 0, c='blue', marker='^', s=100, label='Moi')
+
+# On dessine L'OBJET ENNEMI (Pas des points, mais une forme !)
+for ennemi in ennemis:
+    print(f"Ennemi identifié : Centre=({ennemi['x']:.0f}, {ennemi['y']:.0f}) Rayon={ennemi['r']:.0f}mm")
+    
+    # On crée un cercle rouge transparent
+    cercle_visuel = Circle((ennemi['x'], ennemi['y']), ennemi['r'], 
+                           color='red', alpha=0.5, label='Ennemi Détecté')
+    ax.add_patch(cercle_visuel)
+    
+    # On ajoute une croix au centre
+    ax.scatter(ennemi['x'], ennemi['y'], c='black', marker='x', s=100)
+
+ax.set_aspect('equal')
+ax.set_xlim(-2000, 2000)
+ax.set_ylim(-2000, 2000)
+plt.legend()
+plt.grid(True)
+plt.title("Visualisation par Objets (et non par points)")
+plt.show()
