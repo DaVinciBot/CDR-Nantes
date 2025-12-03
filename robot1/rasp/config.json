@@ -1,0 +1,25 @@
+{
+    "usb_com": {
+        "module_path": "../../common/usb_com/python",
+        "classes": {
+            "Com": "com.com.Com",
+            "DummyCom": "com.dummy.DummyCom",
+            "Messages": "messages.Messages"
+        }
+    },
+    "teensy": {
+        "module_path": "../../common/teensy",
+        "classes": {
+            "BaseTeensy": "base_teensy.BaseTeensy",
+            "GPIOTeensy": "gpio_teensy.GPIOTeensy"
+        }
+    },
+    "serial_config": {
+        "serial_number": 12345678,
+        "vid": 5824,
+        "pid": 1155,
+        "baudrate": 115200,
+        "enable_crc": true,
+        "enable_dummy": false
+    }
+}

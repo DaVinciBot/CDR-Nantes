@@ -1,58 +1,67 @@
 import struct
-from common.usb_com.python.com.com import Com
-from usb_com.python.messages import Messages
 import math
+from loader import loader
+import logging
 
-SET_TARGET_POSITION = 0x01  # ID du message, doit correspondre à Teensy
+# Créer un logger simple
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Charger les classes via le loader
+Com = loader.load_class('usb_com', 'Com')
+Messages = loader.load_class('usb_com', 'Messages')
+
+SET_TARGET_POSITION = 0x01
 
 def send_target_coordonates(target_x_pos: float, target_y_pos: float, target_theta: float, com: Com) -> None:
-    """
-    Envoie les coordonnées cibles (x, y, theta) à la Teensy via USB.
-
-    Args:
-        target_x_pos (float): coordonnée X
-        target_y_pos (float): coordonnée Y
-        target_theta (float): orientation theta en radians
-        com (Com): instance de la classe Com déjà initialisée
-    """
-    
-    """Envoyer une position cible au Teensy"""
+    """Envoie les coordonnées cibles (x, y, theta) à la Teensy via USB."""
     msg = Messages.SET_TARGET_POSITION.to_bytes() 
     msg += struct.pack('<ddd', target_x_pos, target_y_pos, target_theta)
     com.send_bytes(msg)
-
-    # Affichage clair avec unités et arrondi
     print(f"Coordonnées envoyées : X={target_x_pos}mm, Y={target_y_pos}mm, θ={target_theta:.2f}rad")
 
-#ligne droite horizontal
-send_target_coordonates(200,0,0) 
-
-#ligne droite verticale 
-send_target_coordonates(0,200,0)
-
-#carré
-send_target_coordonates(200,0,0)
-send_target_coordonates(200,-200,0)
-send_target_coordonates(0,-200,0)
-send_target_coordonates(0,0,0)
-
-#triangle rectangle
-send_target_coordonates(200,0,0)
-send_target_coordonates(200,200,0)
-send_target_coordonates(0,0,0)
-
-# Cercle - coordonnées absolues
-nb_pas = 1000
-rayon = 100
-
-for i in range(nb_pas + 1):
-    angle = i * 2 * math.pi / nb_pas  # Angle sur le cercle
+def main():
+    # Récupérer la configuration série
+    serial_config = loader.get_config('serial_config')
     
-    # Coordonnées absolues du point sur le cercle
-    x = rayon * math.cos(angle)
-    y = rayon * math.sin(angle)
+    # Initialiser la communication avec TOUS les paramètres requis
+    com = Com(
+        logger=logger,
+        serial_number=serial_config['serial_number'],
+        vid=serial_config['vid'],
+        pid=serial_config['pid'],
+        baudrate=serial_config['baudrate'],
+        enable_crc=serial_config['enable_crc'],
+        enable_dummy=serial_config['enable_dummy']
+    )
     
-    # Theta = tangente au cercle (direction du mouvement)
-    theta = angle + math.pi / 2
-    
-    send_target_coordonates(x, y, theta)
+    # Ligne droite horizontale
+    send_target_coordonates(200, 0, 0, com) 
+
+    # Ligne droite verticale 
+    send_target_coordonates(0, 200, 0, com)
+
+    # Carré
+    send_target_coordonates(200, 0, 0, com)
+    send_target_coordonates(200, -200, 0, com)
+    send_target_coordonates(0, -200, 0, com)
+    send_target_coordonates(0, 0, 0, com)
+
+    # Triangle rectangle
+    send_target_coordonates(200, 0, 0, com)
+    send_target_coordonates(200, 200, 0, com)
+    send_target_coordonates(0, 0, 0, com)
+
+    # Cercle
+    nb_pas = 1000
+    rayon = 100
+
+    for i in range(nb_pas + 1):
+        angle = i * 2 * math.pi / nb_pas
+        x = rayon * math.cos(angle)
+        y = rayon * math.sin(angle)
+        theta = angle + math.pi / 2
+        send_target_coordonates(x, y, theta, com)
+
+if __name__ == "__main__":
+    main()

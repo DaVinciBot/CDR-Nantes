@@ -140,14 +140,14 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     double vy_steps = vy_robot * speed_factor;
     double omega_steps = omega * robot_radius * speed_factor;
     
-    // Wheel 1 (front - 0°)
-    double wheel1_speed = vx_steps + omega_steps;
+    // Wheel 1 (front - roue A)
+    double wheel1_speed = 0.5 * vx_steps - (sqrt(3.0) / 2.0) * vy_steps - omega_steps;
     
-    // Wheel 2 (back-left - 120°)
-    double wheel2_speed = -0.5 * vx_steps + (sqrt(3.0) / 2.0) * vy_steps + omega_steps;
+    // Wheel 2 (back-left - roue B)
+    double wheel2_speed = 0.5 * vx_steps + (sqrt(3.0) / 2.0) * vy_steps - omega_steps;
     
-    // Wheel 3 (back-right - 240°)
-    double wheel3_speed = -0.5 * vx_steps - (sqrt(3.0) / 2.0) * vy_steps + omega_steps;
+    // Wheel 3 (back-right - roue C)
+    double wheel3_speed = -vx_steps - omega_steps;
     
     // Clamp speeds
     wheel1_speed = constrain(wheel1_speed, -max_speed, max_speed);
