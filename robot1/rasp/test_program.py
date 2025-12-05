@@ -11,14 +11,20 @@ logger = logging.getLogger(__name__)
 Com = loader.load_class('usb_com', 'Com')
 Messages = loader.load_class('usb_com', 'Messages')
 
-SET_TARGET_POSITION = 0x01
-
 def send_target_coordonates(target_x_pos: float, target_y_pos: float, target_theta: float, com: Com) -> None:
     """Envoie les coordonnées cibles (x, y, theta) à la Teensy via USB."""
     msg = Messages.SET_TARGET_POSITION.to_bytes() 
     msg += struct.pack('<ddd', target_x_pos, target_y_pos, target_theta)
     com.send_bytes(msg)
     print(f"Coordonnées envoyées : X={target_x_pos}mm, Y={target_y_pos}mm, θ={target_theta:.2f}rad")
+
+def handle_rolling_basis_update(data: bytes) -> None:
+    """Callback pour recevoir la position du robot depuis la Teensy."""
+    if len(data) >= 24:  # 3 doubles = 24 bytes
+        x, y, theta = struct.unpack('<ddd', data[:24])
+        logger.info(f"Position robot: X={x:.2f}mm, Y={y:.2f}mm, θ={theta:.4f}rad")
+    else:
+        logger.warning(f"Message UPDATE_ROLLING_BASIS trop court: {len(data)} bytes")
 
 def main():
     # Récupérer la configuration série
@@ -34,6 +40,11 @@ def main():
         enable_crc=serial_config['enable_crc'],
         enable_dummy=serial_config['enable_dummy']
     )
+    
+    # Enregistrer le callback pour recevoir les mises à jour de position
+    com.add_callback(handle_rolling_basis_update, Messages.UPDATE_ROLLING_BASIS.value)
+    
+    logger.info("Connexion établie avec la Teensy!")
     
     # Ligne droite horizontale
     send_target_coordonates(200, 0, 0, com) 

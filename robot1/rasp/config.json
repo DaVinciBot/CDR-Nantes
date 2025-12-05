@@ -15,7 +15,7 @@
         }
     },
     "serial_config": {
-        "serial_number": 12345678,
+        "serial_number":18421350,
         "vid": 5824,
         "pid": 1155,
         "baudrate": 115200,
