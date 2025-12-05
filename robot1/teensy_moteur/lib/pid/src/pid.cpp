@@ -2,9 +2,8 @@
  * This is the implementation of the PID class.
  * The PID class compute the error for the servo-control of the motors.
  */
-
-#include "PID.h"
 #include <Arduino.h>
+#include "PID.h"
 
 PID::PID(double kp,
          double ki,
