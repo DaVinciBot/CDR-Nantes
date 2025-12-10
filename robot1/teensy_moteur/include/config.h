@@ -26,13 +26,13 @@
 
 // ========== STEPPER MOTORS CONFIGURATION ==========
 // Stepper motor specifications
-#define STEPS_PER_REVOLUTION 200      // 200 steps = 1.8° per step (standard NEMA 17)
-#define MICROSTEPS 16                 // Microstepping (1, 2, 4, 8, 16, 32)
+#define STEPS_PER_REVOLUTION 20      // 200 steps = 1.8° per step (standard NEMA 17)
+#define MICROSTEPS 1                 // Microstepping (1, 2, 4, 8, 16, 32)
 #define TOTAL_STEPS_PER_REV (STEPS_PER_REVOLUTION * MICROSTEPS)
 
 // Speed and acceleration limits
-#define MAX_SPEED 2000.0              // steps/second
-#define MAX_ACCELERATION 1000.0       // steps/second²
+#define MAX_SPEED 400.0              // steps/second
+#define MAX_ACCELERATION 200.0       // steps/second²
 
 // ========== ROBOT GEOMETRY ==========
 #define ROBOT_RADIUS 150.0  // mm - Distance du centre aux roues
