@@ -49,19 +49,19 @@ Holonomic_Basis::~Holonomic_Basis() {
 
 // Define wheels avec TeensyStep
 void Holonomic_Basis::define_wheel1(byte step_pin, byte dir_pin, byte enable_pin) {
-    wheel1 = new TeensyStep::Stepper(step_pin, dir_pin);
+    wheel1 = new Stepper(step_pin, dir_pin);
     wheel1_enable_pin = enable_pin;
     pinMode(enable_pin, OUTPUT);
 }
 
 void Holonomic_Basis::define_wheel2(byte step_pin, byte dir_pin, byte enable_pin) {
-    wheel2 = new TeensyStep::Stepper(step_pin, dir_pin);
+    wheel2 = new Stepper(step_pin, dir_pin);
     wheel2_enable_pin = enable_pin;
     pinMode(enable_pin, OUTPUT);
 }
 
 void Holonomic_Basis::define_wheel3(byte step_pin, byte dir_pin, byte enable_pin) {
-    wheel3 = new TeensyStep::Stepper(step_pin, dir_pin);
+    wheel3 = new Stepper(step_pin, dir_pin);
     wheel3_enable_pin = enable_pin;
     pinMode(enable_pin, OUTPUT);
 }

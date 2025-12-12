@@ -135,3 +135,9 @@ class Holonomic_Basis {
     byte wheel2_enable_pin;
     byte wheel3_enable_pin;
 };
+
+void Holonomic_Basis::define_wheel1(byte step_pin, byte dir_pin, byte enable_pin) {
+    wheel1 = new Stepper(step_pin, dir_pin);
+    wheel1_enable_pin = enable_pin;
+    pinMode(enable_pin, OUTPUT);
+}
