@@ -1,4 +1,4 @@
-// External libraries used: Arduino, IntervalTimer
+// External libraries used: Arduino, TeensyStep
 #include <Arduino.h>      // Arduino framework
 
 // Custom libraries
@@ -112,9 +112,6 @@ void initialize_callback_functions() {
 }
 
 // 7. Timer interrupt handlers
-IntervalTimer controlTimer;
-IntervalTimer movementTimer;
-
 void handle() {
     holonomic_basis_ptr->handle(target_position, com);
 }
@@ -139,11 +136,8 @@ void setup() {
     // Enable motors
     holonomic_basis_ptr->enable_motors();
 
-    // Initialize control loop timer (10ms = 100Hz) - IntervalTimer natif Teensy
-    controlTimer.begin(handle, ASSERVISSEMENT_FREQUENCY);
-    
-    // Initialize movement execution timer (5ms = 200Hz) - IntervalTimer natif Teensy
-    movementTimer.begin(execute_movement_timer, MOVEMENT_FREQUENCY);
+    // TeensyStep gère ses propres timers automatiquement
+    // Pas d'initialisation de timer nécessaire
 
     // Initialize callback functions
     initialize_callback_functions();
@@ -153,10 +147,26 @@ void setup() {
 }
 
 uint_fast32_t counter = 0;
+unsigned long last_handle_time = 0;
+unsigned long last_movement_time = 0;
 
 void loop() {
+    unsigned long current_time = millis();
+    
     // Handle communication
     com->handle_callback(callback_functions);
+    
+    // PID control à 100Hz (10ms)
+    if (current_time - last_handle_time >= 10) {
+        handle();
+        last_handle_time = current_time;
+    }
+    
+    // Movement execution à 200Hz (5ms)
+    if (current_time - last_movement_time >= 5) {
+        execute_movement_timer();
+        last_movement_time = current_time;
+    }
 
     // Send holonomic basis state periodically
     if (counter++ > 4096)  // 4096 = 2^12
