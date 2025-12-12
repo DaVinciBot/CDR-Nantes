@@ -113,9 +113,13 @@ void initialize_callback_functions() {
     callback_functions[RESET_TEENSY] = &reset_teensy;
 }
 
-// 7. Timer interrupt handler (called every 10ms for control loop)
+// 7. Timer interrupt handlers
 void handle() {
     holonomic_basis_ptr->handle(target_position, com);
+}
+
+void execute_movement_timer() {
+    holonomic_basis_ptr->execute_movement();
 }
 
 void setup() {
@@ -137,6 +141,10 @@ void setup() {
     // Initialize control loop timer (10ms = 100Hz)
     Timer1.initialize(ASSERVISSEMENT_FREQUENCY);
     Timer1.attachInterrupt(handle);
+    
+    // Initialize movement execution timer (5ms = 200Hz)
+    Timer3.initialize(MOVEMENT_FREQUENCY);
+    Timer3.attachInterrupt(execute_movement_timer);
 
     // Initialize callback functions
     initialize_callback_functions();
@@ -148,9 +156,6 @@ void setup() {
 uint_fast32_t counter = 0;
 
 void loop() {
-    // CRITICAL: Run stepper motors (must be called as often as possible)
-    holonomic_basis_ptr->run_motors();
-
     // Handle communication
     com->handle_callback(callback_functions);
 

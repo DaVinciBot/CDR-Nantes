@@ -36,38 +36,37 @@ Holonomic_Basis::Holonomic_Basis(double robot_radius,
       x_pid(x_pid),
       y_pid(y_pid),
       theta_pid(theta_pid) {
-    wheel1 = new AccelStepper();
-    wheel2 = new AccelStepper();
-    wheel3 = new AccelStepper();
+    // TeensyStep ne nécessite pas d'allocation dynamique
+    wheel1 = nullptr;
+    wheel2 = nullptr;
+    wheel3 = nullptr;
 }
 
 // Destructor
 Holonomic_Basis::~Holonomic_Basis() {
-    if (wheel1) delete wheel1;
-    if (wheel2) delete wheel2;
-    if (wheel3) delete wheel3;
+    // TeensyStep utilise des objets statiques, pas de delete nécessaire
 }
 
-// Define wheels
+// Define wheels avec TeensyStep
 void Holonomic_Basis::define_wheel1(byte step_pin, byte dir_pin, byte enable_pin) {
-    wheel1 = new AccelStepper(AccelStepper::DRIVER, step_pin, dir_pin);
+    wheel1 = new Stepper(step_pin, dir_pin);
     wheel1_enable_pin = enable_pin;
     pinMode(enable_pin, OUTPUT);
 }
 
 void Holonomic_Basis::define_wheel2(byte step_pin, byte dir_pin, byte enable_pin) {
-    wheel2 = new AccelStepper(AccelStepper::DRIVER, step_pin, dir_pin);
+    wheel2 = new Stepper(step_pin, dir_pin);
     wheel2_enable_pin = enable_pin;
     pinMode(enable_pin, OUTPUT);
 }
 
 void Holonomic_Basis::define_wheel3(byte step_pin, byte dir_pin, byte enable_pin) {
-    wheel3 = new AccelStepper(AccelStepper::DRIVER, step_pin, dir_pin);
+    wheel3 = new Stepper(step_pin, dir_pin);
     wheel3_enable_pin = enable_pin;
     pinMode(enable_pin, OUTPUT);
 }
 
-// Initialize motors
+// Initialize motors avec TeensyStep
 void Holonomic_Basis::init_motors() {
     if (wheel1) {
         wheel1->setMaxSpeed(max_speed);
@@ -154,25 +153,42 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     wheel2_speed = constrain(wheel2_speed, -max_speed, max_speed);
     wheel3_speed = constrain(wheel3_speed, -max_speed, max_speed);
     
-    // Set motor speeds
-    wheel1->setSpeed(wheel1_speed);
-    wheel2->setSpeed(wheel2_speed);
-    wheel3->setSpeed(wheel3_speed);
+    // Stocker les vitesses calculées (ne pas appliquer ici)
+    last_wheel1_speed = wheel1_speed;
+    last_wheel2_speed = wheel2_speed;
+    last_wheel3_speed = wheel3_speed;
+}
 }
 
-// Run motors (must be called frequently)
+// Run motors (TeensyStep gère automatiquement)
 void Holonomic_Basis::run_motors() {
-    wheel1->runSpeed();
-    wheel2->runSpeed();
-    wheel3->runSpeed();
+    // TeensyStep gère les moteurs automatiquement via des interruptions
+    // Cette fonction peut rester vide ou être utilisée pour d'autres tâches
+}
+
+// Execute movement avec TeensyStep
+void Holonomic_Basis::execute_movement() {
+    // Période fixe correspondant au timer (5ms)
+    float dt = 0.005; // 5ms = fréquence du Timer3
+    
+    // Calculer les steps pour cette période (vitesse en steps/sec * temps en sec)
+    int32_t steps1 = (int32_t)(last_wheel1_speed * dt);
+    int32_t steps2 = (int32_t)(last_wheel2_speed * dt);
+    int32_t steps3 = (int32_t)(last_wheel3_speed * dt);
+    
+    // Appliquer les steps incrémentaux
+    wheel1->setTargetRel(steps1);
+    wheel2->setTargetRel(steps2);
+    wheel3->setTargetRel(steps3);
+    
+    // Mouvement coordonné
+    controller.move(*wheel1, *wheel2, *wheel3);
 }
 
 // Emergency stop
 void Holonomic_Basis::emergency_stop() {
-    wheel1->stop();
-    wheel2->stop();
-    wheel3->stop();
-    wheel1->setSpeed(0);
-    wheel2->setSpeed(0);
-    wheel3->setSpeed(0);
+    controller.emergencyStop();
+    wheel1->setTargetRel(0);
+    wheel2->setTargetRel(0);
+    wheel3->setTargetRel(0);
 }

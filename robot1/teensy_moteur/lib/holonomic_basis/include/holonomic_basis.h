@@ -7,7 +7,7 @@
 #pragma once
 
 #include <Arduino.h>
-#include <AccelStepper.h>
+#include <TeensyStep.h>
 #include <pid.h>
 #include "structures.h"
 #include <com.h>
@@ -22,10 +22,13 @@ class Holonomic_Basis {
     // Robot geometry parameters
     inline double wheel_circumference() { return this->wheel_diameter * PI; };
 
-    // Stepper motors (no encoders)
-    AccelStepper* wheel1;  // Front wheel (0°)
-    AccelStepper* wheel2;  // Back-left wheel (120°)
-    AccelStepper* wheel3;  // Back-right wheel (240°)
+    // Stepper motors (TeensyStep)
+    Stepper* wheel1;  // Front wheel (0°)
+    Stepper* wheel2;  // Back-left wheel (120°)
+    Stepper* wheel3;  // Back-right wheel (240°)
+    
+    // Step control for coordinated movement
+    StepControl controller;
 
     // Odometrie - Position du robot
     double X = 0.0;
@@ -39,6 +42,11 @@ class Holonomic_Basis {
     double max_acceleration;  // Maximum acceleration (steps/sec²)
     unsigned short steps_per_revolution;
     unsigned short microsteps;
+
+    // Variables pour stocker les vitesses calculées
+    double last_wheel1_speed = 0.0;
+    double last_wheel2_speed = 0.0;
+    double last_wheel3_speed = 0.0;
 
     // Constructor
     /**
@@ -105,6 +113,11 @@ class Holonomic_Basis {
      * @brief Update all stepper motors (must be called frequently in loop)
      */
     void run_motors();
+
+    /**
+     * @brief Execute calculated wheel movements (TeensyStep)
+     */
+    void execute_movement();
 
     /**
      * @brief Get current position
