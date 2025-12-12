@@ -1,7 +1,5 @@
-// External libraries used: Arduino, TimerOne, ATOMIC
+// External libraries used: Arduino, IntervalTimer
 #include <Arduino.h>      // Arduino framework
-#include <TimerOne.h>     // Timer interrupt library
-#include <util/atomic.h>  // Atomic block library
 
 // Custom libraries
 #include <holonomic_basis.h>  // Holonomic Basis with steppers
@@ -114,6 +112,9 @@ void initialize_callback_functions() {
 }
 
 // 7. Timer interrupt handlers
+IntervalTimer controlTimer;
+IntervalTimer movementTimer;
+
 void handle() {
     holonomic_basis_ptr->handle(target_position, com);
 }
@@ -138,13 +139,11 @@ void setup() {
     // Enable motors
     holonomic_basis_ptr->enable_motors();
 
-    // Initialize control loop timer (10ms = 100Hz)
-    Timer1.initialize(ASSERVISSEMENT_FREQUENCY);
-    Timer1.attachInterrupt(handle);
+    // Initialize control loop timer (10ms = 100Hz) - IntervalTimer natif Teensy
+    controlTimer.begin(handle, ASSERVISSEMENT_FREQUENCY);
     
-    // Initialize movement execution timer (5ms = 200Hz)
-    Timer3.initialize(MOVEMENT_FREQUENCY);
-    Timer3.attachInterrupt(execute_movement_timer);
+    // Initialize movement execution timer (5ms = 200Hz) - IntervalTimer natif Teensy
+    movementTimer.begin(execute_movement_timer, MOVEMENT_FREQUENCY);
 
     // Initialize callback functions
     initialize_callback_functions();

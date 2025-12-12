@@ -5,7 +5,6 @@
 
 #include <Arduino.h>
 #include <holonomic_basis.h>
-#include <util/atomic.h>
 
 double normalizeAngle(double theta) {
     // shift by +PI, take modulo 2*PI, remap to [0,2*PI)
@@ -105,11 +104,11 @@ void Holonomic_Basis::disable_motors() {
 // Get current position
 Point Holonomic_Basis::get_current_position() {
     Point position;
-    ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
-        position.x = this->X;
-        position.y = this->Y;
-        position.theta = this->THETA;
-    }
+    __disable_irq();
+    position.x = this->X;
+    position.y = this->Y;
+    position.theta = this->THETA;
+    __enable_irq();
     return position;
 }
 
@@ -181,8 +180,8 @@ void Holonomic_Basis::execute_movement() {
     wheel2->setTargetRel(steps2);
     wheel3->setTargetRel(steps3);
     
-    // Mouvement coordonné
-    controller.move(*wheel1, *wheel2, *wheel3);
+    // Mouvement coordonné NON-BLOQUANT
+    controller.moveAsync(*wheel1, *wheel2, *wheel3);
 }
 
 // Emergency stop

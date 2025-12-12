@@ -27,7 +27,7 @@
 // ========== STEPPER MOTORS CONFIGURATION ==========
 // Stepper motor specifications
 #define STEPS_PER_REVOLUTION 200      // 200 steps = 1.8° per step (standard NEMA 17)
-#define MICROSTEPS 1                  // Microstepping (1, 2, 4, 8, 16, 32) - RÉDUIT POUR TEST
+#define MICROSTEPS 32                  // Microstepping (1, 2, 4, 8, 16, 32) - RÉDUIT POUR TEST
 #define TOTAL_STEPS_PER_REV (STEPS_PER_REVOLUTION * MICROSTEPS)
 
 // Speed and acceleration limits
