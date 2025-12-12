@@ -12,6 +12,8 @@
 #include "structures.h"
 #include <com.h>
 
+using namespace TeensyStep;
+
 class Holonomic_Basis {
    public:
     // PID controllers (3 for X, Y, THETA)
