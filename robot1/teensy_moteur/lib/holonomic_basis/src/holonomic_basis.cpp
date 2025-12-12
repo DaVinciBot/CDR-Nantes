@@ -4,6 +4,7 @@
  */
 
 #include <Arduino.h>
+#include <TeensyStep.h>
 #include <holonomic_basis.h>
 
 double normalizeAngle(double theta) {
@@ -157,7 +158,7 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     last_wheel2_speed = wheel2_speed;
     last_wheel3_speed = wheel3_speed;
 }
-}
+
 
 // Run motors (TeensyStep gère automatiquement)
 void Holonomic_Basis::run_motors() {

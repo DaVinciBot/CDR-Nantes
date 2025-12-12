@@ -28,7 +28,8 @@ class Holonomic_Basis {
     TeensyStep::Stepper* wheel3;  // Back-right wheel (240°)
     
     // Step control for coordinated movement  
-    StepControl controller;
+    TeensyStep::StepControl controller;
+
 
     // Odometrie - Position du robot
     double X = 0.0;
