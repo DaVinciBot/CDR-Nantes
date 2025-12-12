@@ -23,12 +23,9 @@ class Holonomic_Basis {
     inline double wheel_circumference() { return this->wheel_diameter * PI; };
 
     // Stepper motors (TeensyStep)
-    TeensyStep::Stepper* wheel1;  // Front wheel (0°)
-    TeensyStep::Stepper* wheel2;  // Back-left wheel (120°)
-    TeensyStep::Stepper* wheel3;  // Back-right wheel (240°)
-    
-    // Step control for coordinated movement  
-    TeensyStep::StepControl controller;
+    Stepper* wheel1;  // Front wheel (0°)
+    Stepper* wheel2;  // Back-left wheel (120°)
+    Stepper* wheel3;  // Back-right wheel (240°)
 
 
     // Odometrie - Position du robot

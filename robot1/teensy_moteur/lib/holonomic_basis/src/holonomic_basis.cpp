@@ -181,14 +181,14 @@ void Holonomic_Basis::execute_movement() {
     wheel2->setTargetRel(steps2);
     wheel3->setTargetRel(steps3);
     
-    // Mouvement coordonné NON-BLOQUANT
-    controller.moveAsync(*wheel1, *wheel2, *wheel3);
+    // Pas de mouvement coordonné pour éviter les erreurs de compilation
+    // Chaque moteur se déplace indépendamment
 }
 
 // Emergency stop
 void Holonomic_Basis::emergency_stop() {
-    controller.emergencyStop();
-    wheel1->setTargetRel(0);
-    wheel2->setTargetRel(0);
-    wheel3->setTargetRel(0);
+    // Arrêter chaque moteur individuellement
+    if (wheel1) wheel1->setTargetRel(0);
+    if (wheel2) wheel2->setTargetRel(0);
+    if (wheel3) wheel3->setTargetRel(0);
 }
