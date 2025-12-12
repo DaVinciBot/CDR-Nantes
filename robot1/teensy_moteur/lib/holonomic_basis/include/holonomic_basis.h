@@ -26,9 +26,6 @@ class Holonomic_Basis {
     Stepper* wheel1;  // Front wheel (0°)
     Stepper* wheel2;  // Back-left wheel (120°)
     Stepper* wheel3;  // Back-right wheel (240°)
-    
-    // Step control for coordinated movement
-    StepControl controller;
 
 
     // Odometrie - Position du robot
