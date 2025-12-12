@@ -12,8 +12,6 @@
 #include "structures.h"
 #include <com.h>
 
-using namespace TeensyStep;
-
 class Holonomic_Basis {
    public:
     // PID controllers (3 for X, Y, THETA)
@@ -25,11 +23,11 @@ class Holonomic_Basis {
     inline double wheel_circumference() { return this->wheel_diameter * PI; };
 
     // Stepper motors (TeensyStep)
-    Stepper* wheel1;  // Front wheel (0°)
-    Stepper* wheel2;  // Back-left wheel (120°)
-    Stepper* wheel3;  // Back-right wheel (240°)
+    TeensyStep::Stepper* wheel1;  // Front wheel (0°)
+    TeensyStep::Stepper* wheel2;  // Back-left wheel (120°)
+    TeensyStep::Stepper* wheel3;  // Back-right wheel (240°)
     
-    // Step control for coordinated movement
+    // Step control for coordinated movement  
     StepControl controller;
 
     // Odometrie - Position du robot
