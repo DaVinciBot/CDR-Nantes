@@ -7,6 +7,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include <TeensyStep.h>
 #include <pid.h>
 #include "structures.h"
 #include <com.h>
@@ -21,10 +22,13 @@ class Holonomic_Basis {
     // Robot geometry parameters
     inline double wheel_circumference() { return this->wheel_diameter * PI; };
 
-    // Stepper motor pins (approche simple)
-    int wheel1_step_pin, wheel1_dir_pin, wheel1_enable_pin;
-    int wheel2_step_pin, wheel2_dir_pin, wheel2_enable_pin;
-    int wheel3_step_pin, wheel3_dir_pin, wheel3_enable_pin;
+    // Stepper motors (TeensyStep)
+    Stepper* wheel1;  // Front wheel (0°)
+    Stepper* wheel2;  // Back-left wheel (120°)
+    Stepper* wheel3;  // Back-right wheel (240°)
+    
+    // Step control for coordinated movement
+    StepControl controller;
 
 
     // Odometrie - Position du robot
@@ -131,9 +135,3 @@ class Holonomic_Basis {
     byte wheel2_enable_pin;
     byte wheel3_enable_pin;
 };
-
-void Holonomic_Basis::define_wheel1(byte step_pin, byte dir_pin, byte enable_pin) {
-    wheel1 = new Stepper(step_pin, dir_pin);
-    wheel1_enable_pin = enable_pin;
-    pinMode(enable_pin, OUTPUT);
-}
