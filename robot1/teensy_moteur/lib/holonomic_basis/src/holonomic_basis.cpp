@@ -26,18 +26,19 @@ Holonomic_Basis::Holonomic_Basis(double robot_radius,
                                  const PID& x_pid,
                                  const PID& y_pid,
                                  const PID& theta_pid)
-    : robot_radius(robot_radius),
+    : x_pid(x_pid),
+      y_pid(y_pid),
+      theta_pid(theta_pid),
+      robot_radius(robot_radius),
       wheel_diameter(wheel_diameter),
       max_speed(max_speed),
       max_acceleration(max_acceleration),
       steps_per_revolution(steps_per_revolution),
-      microsteps(microsteps),
-      x_pid(x_pid),
-      y_pid(y_pid),
-      theta_pid(theta_pid) {
+      microsteps(microsteps) {
     wheel1 = nullptr;
     wheel2 = nullptr;
     wheel3 = nullptr;
+    stepperGroup = nullptr;
 }
 
 // Destructor
@@ -176,19 +177,21 @@ void Holonomic_Basis::execute_movement() {
     int32_t steps2 = (int32_t)(last_wheel2_speed * dt);
     int32_t steps3 = (int32_t)(last_wheel3_speed * dt);
     
-    // Appliquer les steps incrémentaux
-    wheel1->setTargetRel(steps1);
-    wheel2->setTargetRel(steps2);
-    wheel3->setTargetRel(steps3);
+    // Ciblage : définir les positions cibles relatives
+    wheel1->setTargetAbs(wheel1->getPosition() + steps1);
+    wheel2->setTargetAbs(wheel2->getPosition() + steps2);
+    wheel3->setTargetAbs(wheel3->getPosition() + steps3);
     
-    // CORRECTION MAJEURE : Utilisation de moveAsync (NON-BLOQUANT)
-    controller.moveAsync(*wheel1, *wheel2, *wheel3);
+    // Exécution : lancer le mouvement non-bloquant synchronisé
+    if (stepperGroup) {
+        stepperGroup->startMove();
+    }
 }
 
 // Emergency stop
 void Holonomic_Basis::emergency_stop() {
-    controller.emergencyStop();
-    wheel1->setTargetRel(0);
-    wheel2->setTargetRel(0);
-    wheel3->setTargetRel(0);
+    // Arrêt brutal de tous les moteurs
+    if (wheel1) wheel1->emergencyStop();
+    if (wheel2) wheel2->emergencyStop();
+    if (wheel3) wheel3->emergencyStop();
 }

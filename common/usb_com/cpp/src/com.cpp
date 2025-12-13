@@ -184,7 +184,7 @@ void Com::send_msg(byte* msg, byte size, bool is_nack) {
     this->stream->write(this->signature, 4);
     this->stream->flush();
 
-    free(full_msg);
+    delete[] full_msg;
 }
 
 /**
@@ -197,11 +197,12 @@ void Com::send_msg(byte* msg, byte size, bool is_nack) {
  */
 void Com::print(char* text) {
     // Use send_msg to send the text input
-    byte* msg = new byte[strlen(text) + 2];
+    size_t text_len = strlen(text);
+    byte* msg = new byte[text_len + 2];
     msg[0] = PRINT;
-    for (byte i = 0; i <= strlen(text); i++) {
-        msg[i + 1] = text[i];
+    for (size_t i = 0; i <= text_len; i++) {
+        msg[i + 1] = (byte)text[i];
     }
-    this->send_msg(msg, strlen(msg) + 1);
-    free(msg);
+    this->send_msg(msg, text_len + 1);
+    delete[] msg;
 }

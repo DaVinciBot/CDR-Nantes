@@ -2,8 +2,11 @@
 #include <Arduino.h>      // Arduino framework
 // NOTE: Suppression de TimerOne et util/atomic (incompatibles/conflits)
 
+#include <com.h>              // Communication class (includes messages.h)
 #include <holonomic_basis.h>  // Holonomic Basis with steppers
 #include <config.h>           // Configuration file
+
+using namespace TS4;  // Pour TS4::begin()
 
 // 1. Instantiate the 3 PID controllers (X, Y, THETA)
 PID x_pid(KP_X,
@@ -124,6 +127,9 @@ IntervalTimer timer_handle;
 IntervalTimer timer_movement;
 
 void setup() {
+    // Initialize TeensyStep4 timers
+    TS4::begin();
+    
     // Initialize serial communication
     com = new Com(&Serial, BAUDRATE);
 

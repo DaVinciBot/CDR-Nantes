@@ -7,7 +7,8 @@
 #pragma once
 
 #include <Arduino.h>
-#include <TeensyStep.h>
+#include <TeensyStep4.h>
+using namespace TS4;
 #include <pid.h>
 #include "structures.h"
 
@@ -25,13 +26,13 @@ class Holonomic_Basis {
     // Robot geometry parameters
     inline double wheel_circumference() { return this->wheel_diameter * PI; };
 
-    // Stepper motors (TeensyStep)
+    // Stepper motors (TeensyStep4)
     Stepper* wheel1;  // Front wheel (0°)
     Stepper* wheel2;  // Back-left wheel (120°)
     Stepper* wheel3;  // Back-right wheel (240°)
     
-    // CORRECTION 2 : L'objet StepControl est OBLIGATOIRE pour utiliser moveAsync()
-    StepControl controller;
+    // StepperGroup pour gérer les mouvements synchronisés
+    StepperGroup* stepperGroup;
 
     // Odometrie - Position du robot
     double X = 0.0;
