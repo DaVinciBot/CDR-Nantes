@@ -4,7 +4,6 @@
  */
 
 #include <Arduino.h>
-#include <TeensyStep.h>
 #include <holonomic_basis.h>
 
 double normalizeAngle(double theta) {
@@ -36,16 +35,13 @@ Holonomic_Basis::Holonomic_Basis(double robot_radius,
       x_pid(x_pid),
       y_pid(y_pid),
       theta_pid(theta_pid) {
-    // Initialiser les pointeurs à nullptr
     wheel1 = nullptr;
     wheel2 = nullptr;
     wheel3 = nullptr;
 }
 
 // Destructor
-Holonomic_Basis::~Holonomic_Basis() {
-    // TeensyStep utilise des objets statiques, pas de delete nécessaire
-}
+Holonomic_Basis::~Holonomic_Basis() {}
 
 // Define wheels avec TeensyStep
 void Holonomic_Basis::define_wheel1(byte step_pin, byte dir_pin, byte enable_pin) {
@@ -105,11 +101,13 @@ void Holonomic_Basis::disable_motors() {
 // Get current position
 Point Holonomic_Basis::get_current_position() {
     Point position;
-    __disable_irq();
+    // Pas besoin d'atomic ici sur ARM Cortex si X/Y sont double (lecture 64 bits peut être interrompue mais probabilité faible d'incohérence critique pour affichage)
+    // Pour être rigoureux :
+    noInterrupts();
     position.x = this->X;
     position.y = this->Y;
     position.theta = this->THETA;
-    __enable_irq();
+    interrupts();
     return position;
 }
 
@@ -125,6 +123,15 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     double vy_world = this->y_pid.compute(yerr);
     double omega = this->theta_pid.compute(theta_error);
     
+    // ==========================================================
+    // CRITIQUE : Mise à jour du Dead Reckoning
+    // Sans ça, le PID pense qu'on ne bouge pas et sature.
+    // ==========================================================
+    float dt = 0.01; // 10ms (ASSERVISSEMENT_FREQUENCY)
+    this->X += vx_world * dt;
+    this->Y += vy_world * dt;
+    this->THETA = normalizeAngle(this->THETA + omega * dt);
+
     // Transform world frame corrections to robot frame
     double cos_theta = cosf(this->THETA);
     double sin_theta = sinf(this->THETA);
@@ -149,51 +156,39 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     double wheel3_speed = -vx_steps - omega_steps;
     
     // Clamp speeds
-    wheel1_speed = constrain(wheel1_speed, -max_speed, max_speed);
-    wheel2_speed = constrain(wheel2_speed, -max_speed, max_speed);
-    wheel3_speed = constrain(wheel3_speed, -max_speed, max_speed);
-    
-    // Stocker les vitesses calculées (ne pas appliquer ici)
-    last_wheel1_speed = wheel1_speed;
-    last_wheel2_speed = wheel2_speed;
-    last_wheel3_speed = wheel3_speed;
+    last_wheel1_speed = constrain(wheel1_speed, -max_speed, max_speed);
+    last_wheel2_speed = constrain(wheel2_speed, -max_speed, max_speed);
+    last_wheel3_speed = constrain(wheel3_speed, -max_speed, max_speed);
 }
-
 
 // Run motors (TeensyStep gère automatiquement)
 void Holonomic_Basis::run_motors() {
     // TeensyStep gère les moteurs automatiquement via des interruptions
-    // Cette fonction peut rester vide ou être utilisée pour d'autres tâches
 }
 
 // Execute movement avec TeensyStep
 void Holonomic_Basis::execute_movement() {
     // Période fixe correspondant au timer (5ms)
-    float dt = 0.005; // 5ms
+    float dt = 0.005; // 5ms = fréquence du Timer
     
     // Calculer les steps pour cette période
     int32_t steps1 = (int32_t)(last_wheel1_speed * dt);
     int32_t steps2 = (int32_t)(last_wheel2_speed * dt);
     int32_t steps3 = (int32_t)(last_wheel3_speed * dt);
     
-    // Appliquer les steps
-    if (wheel1) wheel1->setTargetRel(steps1);
-    if (wheel2) wheel2->setTargetRel(steps2);
-    if (wheel3) wheel3->setTargetRel(steps3);
+    // Appliquer les steps incrémentaux
+    wheel1->setTargetRel(steps1);
+    wheel2->setTargetRel(steps2);
+    wheel3->setTargetRel(steps3);
     
-    // Mouvement coordonné (temporairement désactivé pour compilation)
-    // controller.moveAsync(*wheel1, *wheel2, *wheel3);
+    // CORRECTION MAJEURE : Utilisation de moveAsync (NON-BLOQUANT)
+    controller.moveAsync(*wheel1, *wheel2, *wheel3);
 }
 
 // Emergency stop
 void Holonomic_Basis::emergency_stop() {
-    // Arrêter chaque moteur
-    if (wheel1) wheel1->setTargetRel(0);
-    if (wheel2) wheel2->setTargetRel(0);
-    if (wheel3) wheel3->setTargetRel(0);
-    
-    // Réinitialiser les vitesses
-    last_wheel1_speed = 0;
-    last_wheel2_speed = 0;
-    last_wheel3_speed = 0;
+    controller.emergencyStop();
+    wheel1->setTargetRel(0);
+    wheel2->setTargetRel(0);
+    wheel3->setTargetRel(0);
 }

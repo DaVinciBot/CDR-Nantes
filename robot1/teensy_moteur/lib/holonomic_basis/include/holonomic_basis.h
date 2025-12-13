@@ -10,7 +10,10 @@
 #include <TeensyStep.h>
 #include <pid.h>
 #include "structures.h"
-#include <com.h>
+
+// CORRECTION 1 : Forward declaration au lieu de l'include direct
+// (Évite l'erreur "Redéfinition de class Com" car com.h n'a pas de #pragma once)
+class Com;
 
 class Holonomic_Basis {
    public:
@@ -26,7 +29,9 @@ class Holonomic_Basis {
     Stepper* wheel1;  // Front wheel (0°)
     Stepper* wheel2;  // Back-left wheel (120°)
     Stepper* wheel3;  // Back-right wheel (240°)
-
+    
+    // CORRECTION 2 : L'objet StepControl est OBLIGATOIRE pour utiliser moveAsync()
+    StepControl controller;
 
     // Odometrie - Position du robot
     double X = 0.0;
@@ -47,9 +52,6 @@ class Holonomic_Basis {
     double last_wheel3_speed = 0.0;
 
     // Constructor
-    /**
-     * @brief Constructor of the Holonomic Basis class
-     */
     Holonomic_Basis(double robot_radius,
                     double wheel_diameter,
                     double max_speed,
@@ -60,71 +62,26 @@ class Holonomic_Basis {
                     const PID& y_pid,
                     const PID& theta_pid);
 
-    /**
-     * @brief Destructor
-     */
     ~Holonomic_Basis();
 
     // Initialization functions
-    /**
-     * @brief Define wheel 1 with stepper pins
-     */
     void define_wheel1(byte step_pin, byte dir_pin, byte enable_pin);
-    
-    /**
-     * @brief Define wheel 2 with stepper pins
-     */
     void define_wheel2(byte step_pin, byte dir_pin, byte enable_pin);
-    
-    /**
-     * @brief Define wheel 3 with stepper pins
-     */
     void define_wheel3(byte step_pin, byte dir_pin, byte enable_pin);
 
-    /**
-     * @brief Initialize all three motors
-     */
     void init_motors();
-
-    /**
-     * @brief Initialize Holonomic Basis state with starting position
-     */
     void init_holonomic_basis(double x, double y, double theta);
 
-    /**
-     * @brief Enable all motors
-     */
     void enable_motors();
-
-    /**
-     * @brief Disable all motors
-     */
     void disable_motors();
 
     // Control
-    /**
-     * @brief Handle control loop (PID + inverse kinematics)
-     */
+    // Com* fonctionne grâce à la ligne "class Com;" plus haut
     void handle(Point target_position, Com* com);
 
-    /**
-     * @brief Update all stepper motors (must be called frequently in loop)
-     */
     void run_motors();
-
-    /**
-     * @brief Execute calculated wheel movements (TeensyStep)
-     */
     void execute_movement();
-
-    /**
-     * @brief Get current position
-     */
     Point get_current_position();
-
-    /**
-     * @brief Emergency stop
-     */
     void emergency_stop();
 
    private:

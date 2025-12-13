@@ -1,7 +1,7 @@
-// External libraries used: Arduino, TeensyStep
+// External libraries used: Arduino
 #include <Arduino.h>      // Arduino framework
+// NOTE: Suppression de TimerOne et util/atomic (incompatibles/conflits)
 
-// Custom libraries
 #include <holonomic_basis.h>  // Holonomic Basis with steppers
 #include <config.h>           // Configuration file
 
@@ -9,22 +9,22 @@
 PID x_pid(KP_X,
           KI_X,
           KD_X,
-          -MAX_PWM,
-          MAX_PWM,
+          -MAX_SPEED,  // Attention: Limite en steps/s, pas en PWM
+          MAX_SPEED,
           5.0);
 
 PID y_pid(KP_Y,
           KI_Y,
           KD_Y,
-          -MAX_PWM,
-          MAX_PWM,
+          -MAX_SPEED,
+          MAX_SPEED,
           5.0);
 
 PID theta_pid(KP_THETA,
               KI_THETA,
               KD_THETA,
-              -MAX_PWM,
-              MAX_PWM,
+              -MAX_SPEED,
+              MAX_SPEED,
               2.0);
 
 // 2. Instantiate the Holonomic Basis object
@@ -89,16 +89,15 @@ void set_odometrie(byte* msg, byte size) {
     holonomic_basis_ptr->Y = odometrie->y;
     holonomic_basis_ptr->THETA = odometrie->theta;
 
-    // Update target position: avoid the usage of old stored target point
+    // Update target position to avoid sudden jump
     target_position.x = odometrie->x;
     target_position.y = odometrie->y;
     target_position.theta = odometrie->theta;
 }
 
 void reset_teensy(byte* msg, byte size) {
-    // Reset the teensy
-    void (*reboot)(void) = 0;
-    reboot();
+    // Soft Reset spécifique ARM Cortex-M7 (Teensy 4.x)
+    SCB_AIRCR = 0x05FA0004;
 }
 
 // 6. Assign callback functions to message IDs
@@ -120,6 +119,10 @@ void execute_movement_timer() {
     holonomic_basis_ptr->execute_movement();
 }
 
+// DEFINITION DES TIMERS NATIFS (IntervalTimer)
+IntervalTimer timer_handle;
+IntervalTimer timer_movement;
+
 void setup() {
     // Initialize serial communication
     com = new Com(&Serial, BAUDRATE);
@@ -136,63 +139,37 @@ void setup() {
     // Enable motors
     holonomic_basis_ptr->enable_motors();
 
-    // TeensyStep gère ses propres timers automatiquement
-    // Pas d'initialisation de timer nécessaire
+    // UTILISATION DE IntervalTimer (Safe pour Teensy 4.x avec TeensyStep)
+    // Control loop (10ms = 100Hz)
+    timer_handle.begin(handle, ASSERVISSEMENT_FREQUENCY); 
+    
+    // Movement execution (5ms = 200Hz)
+    timer_movement.begin(execute_movement_timer, MOVEMENT_FREQUENCY);
 
     // Initialize callback functions
     initialize_callback_functions();
 
-    // Optional: Wait for serial connection
     delay(100);
 }
 
 uint_fast32_t counter = 0;
-unsigned long last_handle_time = 0;
-unsigned long last_movement_time = 0;
 
 void loop() {
-    unsigned long current_time = millis();
-    
     // Handle communication
     com->handle_callback(callback_functions);
-    
-    // PID control à 100Hz (10ms)
-    if (current_time - last_handle_time >= 10) {
-        handle();
-        last_handle_time = current_time;
-    }
-    
-    // Movement execution à 200Hz (5ms)
-    if (current_time - last_movement_time >= 5) {
-        execute_movement_timer();
-        last_movement_time = current_time;
-    }
 
     // Send holonomic basis state periodically
-    if (counter++ > 4096)  // 4096 = 2^12
+    if (counter++ > 100000)  // Ajusté pour la vitesse du Teensy 4 (très rapide)
     {
         msg_update_rolling_basis holonomic_basis_msg;
-        // Holonomic Basis position
-        holonomic_basis_msg.x = holonomic_basis_ptr->X;
-        holonomic_basis_msg.y = holonomic_basis_ptr->Y;
-        holonomic_basis_msg.theta = holonomic_basis_ptr->THETA;
+        Point current = holonomic_basis_ptr->get_current_position();
+        
+        holonomic_basis_msg.x = current.x;
+        holonomic_basis_msg.y = current.y;
+        holonomic_basis_msg.theta = current.theta;
 
         com->send_msg((byte*)&holonomic_basis_msg,
                       sizeof(msg_update_rolling_basis));
         counter = 0;
     }
 }
-
-/*
-
- This code was realized by Florian BARRE
-    ____ __
-   / __// /___
-  / _/ / // _ \
- /_/  /_/ \___/
- 
- Adapted for 3-wheel holonomic base with STEPPER MOTORS (NO ENCODERS)
-
-*/
-
-*/
