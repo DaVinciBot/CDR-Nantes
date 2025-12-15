@@ -1,6 +1,5 @@
 import struct
 import math
-import time
 from loader import loader
 import logging
 
@@ -49,30 +48,20 @@ def main():
     
     # Ligne droite horizontale
     send_target_coordonates(200, 0, 0, com) 
-    time.sleep(5)
-    logger.info("Ligne droite terminée.")
+
     # Ligne droite verticale 
     send_target_coordonates(0, 200, 0, com)
-    time.sleep(5)
-    logger.info("Lignes droites terminées.")
+
     # Carré
     send_target_coordonates(200, 0, 0, com)
-    time.sleep(5)
     send_target_coordonates(200, -200, 0, com)
-    time.sleep(5)
     send_target_coordonates(0, -200, 0, com)
-    time.sleep(5)
-    logger.info("Carré terminé.")
     send_target_coordonates(0, 0, 0, com)
 
     # Triangle rectangle
     send_target_coordonates(200, 0, 0, com)
-    time.sleep(5)
     send_target_coordonates(200, 200, 0, com)
-    time.sleep(5)
     send_target_coordonates(0, 0, 0, com)
-    time.sleep(5)
-    logger.info("Triangle terminé.")
 
     # Cercle
     nb_pas = 1000
@@ -84,7 +73,6 @@ def main():
         y = rayon * math.sin(angle)
         theta = angle + math.pi / 2
         send_target_coordonates(x, y, theta, com)
-        time.sleep(1)
 
 if __name__ == "__main__":
     main()
