@@ -77,6 +77,12 @@ void Holonomic_Basis::init_motors() {
         wheel3->setMaxSpeed(max_speed);
         wheel3->setAcceleration(max_acceleration);
     }
+     if (wheel1 && wheel2 && wheel3) {
+        stepperGroup = new StepperGroup();
+        stepperGroup->addStepper(*wheel1);
+        stepperGroup->addStepper(*wheel2);
+        stepperGroup->addStepper(*wheel3);
+    }
 }
 
 // Initialize position
