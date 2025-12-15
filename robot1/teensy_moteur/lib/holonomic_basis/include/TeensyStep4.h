@@ -17,6 +17,7 @@ namespace TS4 {
         long getPosition();
         void move(long steps);
         void stop();
+        void emergencyStop(); // Ajouté
         
     private:
         int step_pin, dir_pin;
@@ -27,6 +28,7 @@ namespace TS4 {
         StepperGroup();
         void addStepper(Stepper& stepper);
         void move();
+        void startMove(); // Ajouté
         void emergencyStop();
         
     private:
