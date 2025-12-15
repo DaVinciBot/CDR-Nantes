@@ -7,7 +7,7 @@
 #pragma once
 
 #include <Arduino.h>
-#include <TeensyStep4.h>
+#include "TeensyStep4.h"
 using namespace TS4;
 #include <pid.h>
 #include "structures.h"
