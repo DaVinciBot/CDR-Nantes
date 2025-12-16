@@ -1,19 +1,14 @@
-/**
- * This file is the Holonomic Basis class header for STEPPER MOTORS (NO ENCODERS).
- * Uses steppers for control only without encoder feedback.
- * ADAPTED FOR 3-WHEEL HOLONOMIC BASE
- */
-
 #pragma once
 
 #include <Arduino.h>
-#include <TeensyStep4.h>
-using namespace TS4;
+
+// IMPORTANT : On inclut notre librairie "Maison" au lieu de TeensyStep4
+// Le chemin relatif dépend de l'arborescence, ici on remonte vers KaribouMotion
+#include "../../KaribouMotion/stepper.h"
+
 #include <pid.h>
 #include "structures.h"
 
-// CORRECTION 1 : Forward declaration au lieu de l'include direct
-// (Évite l'erreur "Redéfinition de class Com" car com.h n'a pas de #pragma once)
 class Com;
 
 class Holonomic_Basis {
@@ -26,12 +21,13 @@ class Holonomic_Basis {
     // Robot geometry parameters
     inline double wheel_circumference() { return this->wheel_diameter * PI; };
 
-    // Stepper motors (TeensyStep4)
+    // Stepper motors (KaribouMotion)
+    // On utilise nos propres classes Stepper maintenant
     Stepper* wheel1;  // Front wheel (0°)
     Stepper* wheel2;  // Back-left wheel (120°)
     Stepper* wheel3;  // Back-right wheel (240°)
     
-    // StepperGroup pour gérer les mouvements synchronisés
+    // Le groupe de synchronisation KaribouMotion
     StepperGroup* stepperGroup;
 
     // Odometrie - Position du robot
@@ -47,7 +43,7 @@ class Holonomic_Basis {
     unsigned short steps_per_revolution;
     unsigned short microsteps;
 
-    // Variables pour stocker les vitesses calculées
+    // Variables pour stocker les vitesses calculées par le PID
     double last_wheel1_speed = 0.0;
     double last_wheel2_speed = 0.0;
     double last_wheel3_speed = 0.0;
@@ -77,11 +73,17 @@ class Holonomic_Basis {
     void disable_motors();
 
     // Control
-    // Com* fonctionne grâce à la ligne "class Com;" plus haut
     void handle(Point target_position, Com* com);
 
-    void run_motors();
-    void execute_movement();
+    // Mouvement
+    void run_motors();        // Obsolète (gardé pour compatibilité)
+    void execute_movement();  // Convertit vitesse -> pas relatifs
+    
+    // === NOUVELLES MÉTHODES (Celles qui manquaient) ===
+    void compute_steppers();  // Calcul des profils (Timer Lent)
+    void step_steppers();     // Génération des pas (Timer Rapide)
+    // ==================================================
+
     Point get_current_position();
     void emergency_stop();
 

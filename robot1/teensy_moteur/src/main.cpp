@@ -1,36 +1,15 @@
 // External libraries used: Arduino
 #include <Arduino.h>      // Arduino framework
-// NOTE: Suppression de TimerOne et util/atomic (incompatibles/conflits)
 
 #include <com.h>              // Communication class (includes messages.h)
-#include <holonomic_basis.h>  // Holonomic Basis with steppers
+#include <holonomic_basis.h>  // Holonomic Basis with KaribouMotion
 #include <config.h>           // Configuration file
 
-using namespace TS4;  // Pour TS4::begin()
 
-// 1. Instantiate the 3 PID controllers (X, Y, THETA)
-PID x_pid(KP_X,
-          KI_X,
-          KD_X,
-          -MAX_SPEED,  // Attention: Limite en steps/s, pas en PWM
-          MAX_SPEED,
-          5.0);
+PID x_pid(KP_X, KI_X, KD_X, -MAX_SPEED, MAX_SPEED, 5.0);
+PID y_pid(KP_Y, KI_Y, KD_Y, -MAX_SPEED, MAX_SPEED, 5.0);
+PID theta_pid(KP_THETA, KI_THETA, KD_THETA, -MAX_SPEED, MAX_SPEED, 2.0);
 
-PID y_pid(KP_Y,
-          KI_Y,
-          KD_Y,
-          -MAX_SPEED,
-          MAX_SPEED,
-          5.0);
-
-PID theta_pid(KP_THETA,
-              KI_THETA,
-              KD_THETA,
-              -MAX_SPEED,
-              MAX_SPEED,
-              2.0);
-
-// 2. Instantiate the Holonomic Basis object
 Holonomic_Basis* holonomic_basis_ptr = new Holonomic_Basis(
     ROBOT_RADIUS,
     WHEEL_DIAMETER,
@@ -43,67 +22,49 @@ Holonomic_Basis* holonomic_basis_ptr = new Holonomic_Basis(
     theta_pid
 );
 
-// 3. Instantiate the Communication object
 Com* com;
-
-// 4. Define global variables for callback functions
 Point target_position(START_X, START_Y, START_THETA);
 
-// 5. Define callback functions for communication
-void set_target_position(byte* msg, byte size) {
-    msg_set_target_position* target_position_msg =
-        (msg_set_target_position*)msg;
+// Timers Hardware (Teensy 4.1 possède 4 IntervalTimers)
+IntervalTimer timer_compute; // Pour l'asservissement (Lent)
+IntervalTimer timer_step;    // Pour les moteurs (Rapide)
 
-    // Update position
-    target_position.x = target_position_msg->target_position_x;
-    target_position.y = target_position_msg->target_position_y;
-    target_position.theta = target_position_msg->target_position_theta;
+void set_target_position(byte* msg, byte size) {
+    msg_set_target_position* target_msg = (msg_set_target_position*)msg;
+    target_position.x = target_msg->target_position_x;
+    target_position.y = target_msg->target_position_y;
+    target_position.theta = target_msg->target_position_theta;
 }
 
 void set_pid(byte* msg, byte size) {
     msg_set_pid* pid_msg = (msg_set_pid*)msg;
     PID* pid = nullptr;
-    bool is_valid_pid = true;
     
     switch (pid_msg->pid_type) {
-        case X_PID_ID:
-            pid = &holonomic_basis_ptr->x_pid;
-            break;
-        case Y_PID_ID:
-            pid = &holonomic_basis_ptr->y_pid;
-            break;
-        case THETA_PID_ID:
-            pid = &holonomic_basis_ptr->theta_pid;
-            break;
-        default:
-            is_valid_pid = false;
-            break;
+        case X_PID_ID: pid = &holonomic_basis_ptr->x_pid; break;
+        case Y_PID_ID: pid = &holonomic_basis_ptr->y_pid; break;
+        case THETA_PID_ID: pid = &holonomic_basis_ptr->theta_pid; break;
     }
     
-    if (is_valid_pid) {
+    if (pid) {
         pid->updateParameters(pid_msg->kp, pid_msg->ki, pid_msg->kd);
     }
 }
 
 void set_odometrie(byte* msg, byte size) {
-    msg_set_odometrie* odometrie = (msg_set_odometrie*)msg;
+    msg_set_odometrie* odo = (msg_set_odometrie*)msg;
+    
+    holonomic_basis_ptr->init_holonomic_basis(odo->x, odo->y, odo->theta);
 
-    holonomic_basis_ptr->X = odometrie->x;
-    holonomic_basis_ptr->Y = odometrie->y;
-    holonomic_basis_ptr->THETA = odometrie->theta;
-
-    // Update target position to avoid sudden jump
-    target_position.x = odometrie->x;
-    target_position.y = odometrie->y;
-    target_position.theta = odometrie->theta;
+    target_position.x = odo->x;
+    target_position.y = odo->y;
+    target_position.theta = odo->theta;
 }
 
 void reset_teensy(byte* msg, byte size) {
-    // Soft Reset spécifique ARM Cortex-M7 (Teensy 4.x)
-    SCB_AIRCR = 0x05FA0004;
+    SCB_AIRCR = 0x05FA0004; // Reset Hardware ARM
 }
 
-// 6. Assign callback functions to message IDs
 void (*callback_functions[256])(byte* msg, byte size);
 
 void initialize_callback_functions() {
@@ -113,69 +74,74 @@ void initialize_callback_functions() {
     callback_functions[RESET_TEENSY] = &reset_teensy;
 }
 
-// 7. Timer interrupt handlers
-void handle() {
+
+// [TIMER LENT] - 100 Hz (10ms)
+// Gère l'intelligence : PID, Cinématique, Planification de trajectoire
+void interruption_compute() {
+    // 1. Calcul du PID et mise à jour de l'odométrie (Dead Reckoning)
     holonomic_basis_ptr->handle(target_position, com);
-}
-
-void execute_movement_timer() {
+    
+    // 2. Conversion des vitesses PID en commandes de pas (Relatif)
     holonomic_basis_ptr->execute_movement();
+    
+    // 3. Mise à jour du profil de vitesse trapézoïdal des steppers
+    holonomic_basis_ptr->compute_steppers();
 }
 
-// DEFINITION DES TIMERS NATIFS (IntervalTimer)
-IntervalTimer timer_handle;
-IntervalTimer timer_movement;
+// [TIMER RAPIDE] - 25 kHz (40µs)
+// Gère la physique : Génération des signaux STEP pour les drivers
+// Plus ce timer est rapide, plus la vitesse max est élevée et le mouvement fluide.
+// Teensy 4.1 peut encaisser 50kHz ou 100kHz sans problème si le code est optimisé.
+void interruption_step() {
+    holonomic_basis_ptr->step_steppers();
+}
 
 void setup() {
-    // Initialize TeensyStep4 timers
-    TS4::begin();
     
-    // Initialize serial communication
     com = new Com(&Serial, BAUDRATE);
 
-    // Define the 3 stepper motors with their pins
+    // Configuration des Pins Moteurs
     holonomic_basis_ptr->define_wheel1(W1_STEP_PIN, W1_DIR_PIN, W1_ENABLE_PIN);
     holonomic_basis_ptr->define_wheel2(W2_STEP_PIN, W2_DIR_PIN, W2_ENABLE_PIN);
     holonomic_basis_ptr->define_wheel3(W3_STEP_PIN, W3_DIR_PIN, W3_ENABLE_PIN);
     
-    // Initialize motors
+    // Initialisation (Création du StepperGroup KaribouMotion)
     holonomic_basis_ptr->init_motors();
     holonomic_basis_ptr->init_holonomic_basis(START_X, START_Y, START_THETA);
-    
-    // Enable motors
     holonomic_basis_ptr->enable_motors();
 
-    // UTILISATION DE IntervalTimer (Safe pour Teensy 4.x avec TeensyStep)
-    // Control loop (10ms = 100Hz)
-    timer_handle.begin(handle, ASSERVISSEMENT_FREQUENCY); 
-    
-    // Movement execution (5ms = 200Hz)
-    timer_movement.begin(execute_movement_timer, MOVEMENT_FREQUENCY);
-
-    // Initialize callback functions
+    // Init Callbacks
     initialize_callback_functions();
+
+    // Démarrage des Timers
+    // timer_compute : 100Hz = 10000 µs
+    timer_compute.begin(interruption_compute, ASSERVISSEMENT_FREQUENCY); 
+    
+    // timer_step : 25kHz = 40 µs
+    // C'est ici qu'on remplace la magie de TeensyStep4 par notre contrôle direct
+    timer_step.begin(interruption_step, 40);
 
     delay(100);
 }
 
+
 uint_fast32_t counter = 0;
 
 void loop() {
-    // Handle communication
+    // Gestion des messages entrants (USB)
     com->handle_callback(callback_functions);
 
-    // Send holonomic basis state periodically
-    if (counter++ > 100000)  // Ajusté pour la vitesse du Teensy 4 (très rapide)
-    {
-        msg_update_rolling_basis holonomic_basis_msg;
+    // Envoi périodique de la télémétrie vers la Raspberry Pi
+    // On utilise un compteur simple pour ne pas saturer le port série
+    if (counter++ > 50000) { 
+        msg_update_rolling_basis odo_msg;
         Point current = holonomic_basis_ptr->get_current_position();
         
-        holonomic_basis_msg.x = current.x;
-        holonomic_basis_msg.y = current.y;
-        holonomic_basis_msg.theta = current.theta;
+        odo_msg.x = current.x;
+        odo_msg.y = current.y;
+        odo_msg.theta = current.theta;
 
-        com->send_msg((byte*)&holonomic_basis_msg,
-                      sizeof(msg_update_rolling_basis));
+        com->send_msg((byte*)&odo_msg, sizeof(msg_update_rolling_basis));
         counter = 0;
     }
 }
