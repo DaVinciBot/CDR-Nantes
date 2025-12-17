@@ -12,7 +12,7 @@
       "problemMatcher": []
     },
     {
-      "command": "ssh cdr-nantes@172.20.10.3' 'sudo teensy_loader_cli -w -s --mcu=teensy41 /tmp/firmware.hex; exit'",
+      "command": "ssh cdr-nantes@172.20.10.3 'sudo teensy_loader_cli -w -s --mcu=teensy41 /tmp/firmware.hex; exit'",
       "label": "Flash local hex robot1",
       "problemMatcher": [],
       "type": "shell"
@@ -24,7 +24,7 @@
       "type": "PlatformIO"
     },
     {
-      "command": "scp .pio\\build\\teensy41\\firmware.hex dvb@rob.local:/tmp ",
+      "command": "scp .pio\\build\\teensy41\\firmware.hex cdr-nantes@172.20.10.3:/tmp",
       "label": "Copy Hex on remote",
       "problemMatcher": [],
       "type": "shell"
