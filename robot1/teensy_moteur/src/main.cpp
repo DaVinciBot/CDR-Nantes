@@ -1,7 +1,6 @@
 // External libraries used: Arduino
 #include <Arduino.h>      // Arduino framework
-
-#include <com.h>              // Communication class (includes messages.h)
+            // Communication class (includes messages.h)
 #include <holonomic_basis.h>  // Holonomic Basis with KaribouMotion
 #include <config.h>           // Configuration file
 
@@ -62,7 +61,8 @@ void set_odometrie(byte* msg, byte size) {
 }
 
 void reset_teensy(byte* msg, byte size) {
-    SCB_AIRCR = 0x05FA0004; // Reset Hardware ARM
+    void(*reboot)(void)=0;
+    reboot(); // Reset Hardware ARM
 }
 
 void (*callback_functions[256])(byte* msg, byte size);
@@ -110,8 +110,7 @@ void setup() {
     holonomic_basis_ptr->init_holonomic_basis(START_X, START_Y, START_THETA);
     holonomic_basis_ptr->enable_motors();
 
-    // Init Callbacks
-    initialize_callback_functions();
+    
 
     // Démarrage des Timers
     // timer_compute : 100Hz = 10000 µs
@@ -121,6 +120,9 @@ void setup() {
     // C'est ici qu'on remplace la magie de TeensyStep4 par notre contrôle direct
     timer_step.begin(interruption_step, 40);
 
+    // Init Callbacks
+    initialize_callback_functions();
+    
     delay(100);
 }
 

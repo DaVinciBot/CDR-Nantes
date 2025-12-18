@@ -8,8 +8,8 @@
 
 #include <pid.h>
 #include "structures.h"
+#include <com.h>
 
-class Com;
 
 class Holonomic_Basis {
    public:
@@ -79,10 +79,8 @@ class Holonomic_Basis {
     void run_motors();        // Obsolète (gardé pour compatibilité)
     void execute_movement();  // Convertit vitesse -> pas relatifs
     
-    // === NOUVELLES MÉTHODES (Celles qui manquaient) ===
     void compute_steppers();  // Calcul des profils (Timer Lent)
     void step_steppers();     // Génération des pas (Timer Rapide)
-    // ==================================================
 
     Point get_current_position();
     void emergency_stop();
