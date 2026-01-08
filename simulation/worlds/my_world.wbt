@@ -1,0 +1,169 @@
+#VRML_SIM R2025a utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/appearances/protos/Asphalt.proto"
+
+WorldInfo {
+}
+Viewpoint {
+  orientation -0.38657882776515246 0.5348740739501207 0.7513098794370545 1.2354097082423097
+  position -1.1646757267001104 -1.9570146246799398 2.4856926699966126
+}
+TexturedBackground {
+}
+TexturedBackgroundLight {
+}
+RectangleArena {
+  floorSize 3 2
+  wallHeight 0.07
+}
+Robot {
+  translation -0.3629269887776735 -0.3598992465785701 0.027287300605410236
+  rotation 2.3805514078294252e-08 1.249139351247806e-08 -0.9999999999999996 -2.0798965047311286
+  children [
+    DEF CORPS_DEPLACE Pose {
+      translation 0 0 0.22
+      children [
+        DEF CORPS_SHAPE Shape {
+          appearance PBRAppearance {
+            baseColor 0 0 0
+            roughness 0.5
+            metalness 0
+          }
+          geometry Box {
+            size 0.3 0.4 0.375
+          }
+        }
+      ]
+    }
+    DEF WHEEL_A_WRAPPER Pose {
+      rotation 0 0 1 -1.0472
+      children [
+        DEF WHEEL_A_RADIUS Pose {
+          translation 0 0.2 0
+          children [
+            HingeJoint {
+              jointParameters HingeJointParameters {
+                position -19.18617703595723
+                axis 0 1 0
+              }
+              device [
+                RotationalMotor {
+                  name "motor1"
+                  maxVelocity 20
+                }
+                PositionSensor {
+                  name "encoder1"
+                }
+              ]
+              endPoint Solid {
+                rotation -0.9723210594375964 0.16521434085367492 -0.16521494772094947 4.684319772770894
+                children [
+                  DEF ROUE_VISUEL Shape {
+                    appearance Asphalt {
+                    }
+                    geometry Cylinder {
+                      height 0.02
+                      radius 0.03
+                    }
+                  }
+                ]
+                name "wheel_solid_1"
+                boundingObject USE ROUE_VISUEL
+                physics Physics {
+                }
+                linearVelocity 4.633287865291124e-15 -1.4283399195309911e-15 -1.5932748331252735e-15
+                angularVelocity 8.509962067469226e-14 1.7830237620109302e-13 -1.4218224579323798e-15
+              }
+            }
+          ]
+        }
+      ]
+    }
+    DEF WHEEL_B_WRAPPER Pose {
+      rotation 0 0 1 1.0472
+      children [
+        DEF WHEEL_B_RADIUS Pose {
+          translation 0 0.2 0
+          children [
+            HingeJoint {
+              jointParameters HingeJointParameters {
+                position 44.6776802381991
+                axis 0 1 0
+              }
+              device [
+                RotationalMotor {
+                  name "motor2"
+                  maxVelocity 20
+                }
+                PositionSensor {
+                  name "encoder2"
+                }
+              ]
+              endPoint Solid {
+                rotation -0.8899221378759307 -0.32251963068155093 0.3225208153644801 4.5960274830137
+                children [
+                  USE ROUE_VISUEL
+                ]
+                name "wheel_solid_2"
+                boundingObject USE ROUE_VISUEL
+                physics Physics {
+                }
+                linearVelocity 9.927874375652652e-16 4.2161832323633855e-15 -6.654770988802957e-15
+                angularVelocity -1.214342418437191e-13 1.2140330572844094e-14 -6.241688970279222e-16
+              }
+            }
+          ]
+        }
+      ]
+    }
+    DEF WHEEL_C_WRAPPER Pose {
+      rotation 0 0 1 3.14159
+      children [
+        DEF WHEEL_C_RADIUS Pose {
+          translation 0 0.2 0
+          children [
+            HingeJoint {
+              jointParameters HingeJointParameters {
+                position 70.2135431728868
+                axis 0 1 0
+              }
+              device [
+                RotationalMotor {
+                  name "motor3"
+                  maxVelocity 20
+                }
+                PositionSensor {
+                  name "encoder3"
+                }
+              ]
+              endPoint Solid {
+                rotation -0.7560858177726626 -0.46278108366891024 0.4627827835618706 4.43635845535787
+                children [
+                  USE ROUE_VISUEL
+                ]
+                name "wheel_solid_3"
+                boundingObject USE ROUE_VISUEL
+                physics Physics {
+                }
+                linearVelocity 6.757763744593029e-15 3.7367075579282166e-15 4.1813388574094175e-15
+                angularVelocity -1.5312792089199882e-13 3.043505635045071e-13 -7.265852323286057e-16
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+  name "cdr"
+  boundingObject USE CORPS_DEPLACE
+  physics Physics {
+    density -1
+    mass 10
+  }
+  controller "test_holonome"
+  linearVelocity 5.602626838212364e-15 1.8864083934749336e-15 -7.730704965069891e-16
+  angularVelocity 1.5621949052092102e-15 9.531143707616852e-15 -1.4276842445493245e-15
+}
