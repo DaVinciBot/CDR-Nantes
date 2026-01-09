@@ -8,8 +8,8 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 WorldInfo {
 }
 Viewpoint {
-  orientation 0.05439636709449205 0.18719040814764543 -0.9808163876814249 0.5760368468794441
-  position -0.765313781604235 0.7198708249631676 0.20340504316006408
+  orientation 0.005224996920118138 0.0006187541277130743 0.999986158179459 3.3769253013795324
+  position 0.7902762258390914 0.5035664590475699 0.23740970603155323
 }
 TexturedBackground {
 }
@@ -20,8 +20,8 @@ RectangleArena {
   wallHeight 0.07
 }
 Robot {
-  translation -0.3629269887711747 -0.35989924657899675 0.02728730067876825
-  rotation -2.3805514764243777e-08 -1.2491394867363944e-08 0.9999999999999996 2.0798965047311215
+  translation -0.537122949781434 -0.6748662822096296 0.0272873173516531
+  rotation -1.2359185296109382e-05 1.2720249317123675e-05 -0.9999999998427228 -2.2782058691065394
   children [
     DEF CORPS_DEPLACE Pose {
       translation 0 0 0.22
@@ -46,7 +46,7 @@ Robot {
           children [
             HingeJoint {
               jointParameters HingeJointParameters {
-                position -19.18617703595721
+                position -10.505404003513412
                 axis 0 1 0
               }
               device [
@@ -59,7 +59,7 @@ Robot {
                 }
               ]
               endPoint Solid {
-                rotation -0.9723210594375992 0.16521434085366646 -0.1652149477209411 4.6843197727708965
+                rotation 0.3904874565941913 0.6509671393893384 -0.6509695305295488 2.397036929331441
                 children [
                   DEF ROUE_VISUEL Shape {
                     appearance Asphalt {
@@ -74,8 +74,8 @@ Robot {
                 boundingObject USE ROUE_VISUEL
                 physics Physics {
                 }
-                linearVelocity 2.3588671609293395e-13 2.8487091849901465e-13 4.0434015502422404e-07
-                angularVelocity -1.2065342750317823e-11 6.981439607216892e-12 -4.815804908976055e-13
+                linearVelocity 0.11100884330996881 -0.08558310471907421 2.0713481922735374e-05
+                angularVelocity 2.830158861293779 -0.9951570610276962 -0.09098619832790199
               }
             }
           ]
@@ -90,7 +90,7 @@ Robot {
           children [
             HingeJoint {
               jointParameters HingeJointParameters {
-                position 44.6776802381991
+                position 117.22229302956572
                 axis 0 1 0
               }
               device [
@@ -103,7 +103,7 @@ Robot {
                 }
               ]
               endPoint Solid {
-                rotation -0.8899221378759307 -0.32251963068155065 0.32252081536448024 4.596027483013699
+                rotation -0.354149103551127 0.6612772489463269 -0.6612796779577539 3.8223230076515216
                 children [
                   USE ROUE_VISUEL
                 ]
@@ -111,8 +111,8 @@ Robot {
                 boundingObject USE ROUE_VISUEL
                 physics Physics {
                 }
-                linearVelocity 2.6525319415727324e-13 1.5329826592043198e-14 4.043388804149337e-07
-                angularVelocity 6.097659576669105e-13 1.1131899263907518e-11 -4.806608300819795e-13
+                linearVelocity 0.08758710542250407 -0.10566252007740945 -1.4245087986380285e-05
+                angularVelocity -0.5530561243158727 2.948657161242062 -0.09081858861983542
               }
             }
           ]
@@ -127,7 +127,7 @@ Robot {
           children [
             HingeJoint {
               jointParameters HingeJointParameters {
-                position 70.2135431728882
+                position 118.29704906148814
                 axis 0 1 0
               }
               device [
@@ -140,7 +140,7 @@ Robot {
                 }
               ]
               endPoint Solid {
-                rotation -0.7560858177721559 -0.46278108366932463 0.46278278356228386 4.436358455357224
+                rotation -0.7615406695681078 0.45828717287450743 -0.45828885626038224 4.443281743698427
                 children [
                   USE ROUE_VISUEL
                 ]
@@ -148,8 +148,8 @@ Robot {
                 boundingObject USE ROUE_VISUEL
                 physics Physics {
                 }
-                linearVelocity 1.3956680970734847e-13 -1.3946153703450734e-13 4.043377988065061e-07
-                angularVelocity 6.1391088795947155e-12 3.1591089846933036e-12 -4.805671173701094e-13
+                linearVelocity 0.11668398222573229 -0.11591436246901529 -6.501944276474405e-06
+                angularVelocity 4.5521014055607365 3.908900399740344 -0.09361064177710658
               }
             }
           ]
@@ -163,29 +163,34 @@ Robot {
     density -1
     mass 10
   }
-  controller "<none>"
-  linearVelocity 1.6312620367030164e-13 4.014182737673869e-14 -4.674073807109434e-10
-  angularVelocity 6.113874548655712e-14 -2.2584695564818965e-13 -4.806392820658863e-13
+  controller "test_holonome"
+  linearVelocity 0.10511290347260896 -0.1023997314981849 -3.4046587370538604e-08
+  angularVelocity 5.749652622628165e-05 9.156698196245328e-05 -0.08906358350342403
 }
 DEF ROBOT_2 Robot {
-  translation -0.1879557735806065 0.4974286677684216 0.0260037605837524
-  rotation 0.04394233714877695 0.005470088248379557 -0.9990190934814299 2.330857674933964
+  translation -0.000882932337911594 4.064511890883394e-05 0.028509951576114363
+  rotation 2.4635005568637615e-06 -6.401137007350481e-06 0.9999999999764783 0.7081805567939816
   children [
-    Transform {
-      scale 0.001 0.001 0.001
+    DEF CORPS_PRINCIPAL Pose {
+      translation 0 0 0.05
       children [
-        Shape {
-          appearance PBRAppearance {
-            baseColor 0 0.2 0.8
-            roughness 0.5
-            metalness 0
-          }
-          geometry Mesh {
-            url [
-              "../protos/meshes/base_link.stl"
-            ]
-          }
-          castShadows FALSE
+        Transform {
+          scale 0.001 0.001 0.001
+          children [
+            Shape {
+              appearance PBRAppearance {
+                baseColor 0 0.2 0.8
+                roughness 0.5
+                metalness 0
+              }
+              geometry Mesh {
+                url [
+                  "../protos/meshes/base_link.stl"
+                ]
+              }
+              castShadows FALSE
+            }
+          ]
         }
       ]
     }
@@ -197,7 +202,7 @@ DEF ROBOT_2 Robot {
           children [
             HingeJoint {
               jointParameters HingeJointParameters {
-                position 19.79518403505203
+                position -2.6549934978458087
                 axis 0 1 0
               }
               device [
@@ -210,8 +215,7 @@ DEF ROBOT_2 Robot {
                 }
               ]
               endPoint Solid {
-                translation 0.008882960903167978 0.0005151193999379592 0.006923049726363807
-                rotation 0.4153288578056473 0.41288572204136537 0.810572217885758 1.7816972239018114
+                rotation 0 -1 0 2.6549934978458087
                 children [
                   DEF VISUAL_WHEEL_1 Transform {
                     rotation 0 0 1 -1.57
@@ -230,22 +234,29 @@ DEF ROBOT_2 Robot {
                       }
                     ]
                   }
+                  DEF ROUE_COLLISION Pose {
+                    rotation 1 0 0 1.5708
+                    children [
+                      Shape {
+                        appearance PBRAppearance {
+                          baseColor 0.1 0.1 0.1
+                          transparency 1
+                          roughness 0.8
+                          metalness 0
+                        }
+                        geometry Cylinder {
+                          height 0.02
+                          radius 0.03
+                        }
+                      }
+                    ]
+                  }
                 ]
                 name "wheel_solid_1"
-                boundingObject Pose {
-                  rotation 1 0 0 1.5708
-                  children [
-                    Cylinder {
-                      height 0.02
-                      radius 0.03
-                    }
-                  ]
-                }
+                boundingObject USE ROUE_COLLISION
                 physics Physics {
                   mass 0.2
                 }
-                linearVelocity -0.14054105171108053 0.04369810955989987 -0.0789557690981034
-                angularVelocity -1.0766348896989104 -5.080412516957727 -0.939071925275877
               }
             }
           ]
@@ -260,7 +271,7 @@ DEF ROBOT_2 Robot {
           children [
             HingeJoint {
               jointParameters HingeJointParameters {
-                position 19.796138394669548
+                position 61.20924016754824
                 axis 0 1 0
               }
               device [
@@ -273,11 +284,9 @@ DEF ROBOT_2 Robot {
                 }
               ]
               endPoint Solid {
-                translation 0.0004958286018585419 -0.005517414482112849 0.0005333111821480905
-                rotation 0.41310446607816936 0.41584829957228425 0.8101943543675865 1.7818142127229741
+                rotation 0 -1 0 1.622612904247627
                 children [
                   DEF VISUAL_WHEEL_2 Transform {
-                    translation 0.080024 -0.0299363 0
                     rotation 0 0 1 -1.57
                     scale 0.001 0.001 0.001
                     children [
@@ -294,23 +303,13 @@ DEF ROBOT_2 Robot {
                       }
                     ]
                   }
+                  USE ROUE_COLLISION
                 ]
                 name "wheel_solid_2"
-                boundingObject Pose {
-                  translation 0.080024 -0.0299363 0
-                  rotation 1 0 0 1.5708
-                  children [
-                    Cylinder {
-                      height 0.02
-                      radius 0.03
-                    }
-                  ]
-                }
+                boundingObject USE ROUE_COLLISION
                 physics Physics {
                   mass 0.2
                 }
-                linearVelocity 0.031213490945169238 -0.06017492833360329 -0.06753877792881233
-                angularVelocity 4.776792036528464 1.2526365985862693 -0.279113285908716
               }
             }
           ]
@@ -325,7 +324,7 @@ DEF ROBOT_2 Robot {
           children [
             HingeJoint {
               jointParameters HingeJointParameters {
-                position 19.79576521919437
+                position 36.747884323039926
                 axis 0 1 0
               }
               device [
@@ -338,8 +337,7 @@ DEF ROBOT_2 Robot {
                 }
               ]
               endPoint Solid {
-                translation 0.000778141308755957 0.0005737255185149781 0.0020992818374732016
-                rotation -0.4118356639436848 -0.4173320429347267 -0.8100773739859617 4.5029216682295985
+                rotation 0 -1 0 0.9512275200375923
                 children [
                   DEF VISUAL_WHEEL_3 Transform {
                     rotation 0 0 1 -1.57
@@ -358,22 +356,13 @@ DEF ROBOT_2 Robot {
                       }
                     ]
                   }
+                  USE ROUE_COLLISION
                 ]
                 name "wheel_solid_3"
-                boundingObject Pose {
-                  rotation 1 0 0 1.5708
-                  children [
-                    Cylinder {
-                      height 0.02
-                      radius 0.03
-                    }
-                  ]
-                }
+                boundingObject USE ROUE_COLLISION
                 physics Physics {
                   mass 0.2
                 }
-                linearVelocity 0.1151617258225123 0.1006989970411419 -0.05300214294387065
-                angularVelocity -3.6638564022727667 3.1827747339039094 -0.7603033903812209
               }
             }
           ]
@@ -395,6 +384,4 @@ DEF ROBOT_2 Robot {
     mass 5
   }
   controller "test_holonome"
-  linearVelocity 0.0077235825047228665 0.0003509542618375487 -0.022618901717794893
-  angularVelocity 0.008376447189782574 -0.20866332473155347 -0.6386250935413449
 }
