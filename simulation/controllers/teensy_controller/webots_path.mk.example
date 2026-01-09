@@ -1,0 +1,17 @@
+# Fichier de configuration personnel pour Webots
+# Ce fichier permet à chaque membre de l'équipe de définir son propre chemin
+# vers l'installation de Webots sans modifier le Makefile principal.
+#
+# INSTRUCTIONS POUR VOTRE ÉQUIPE:
+# 1. Copiez ce fichier et renommez-le en "webots_path.mk"
+# 2. Décommentez et modifiez la ligne ci-dessous avec VOTRE chemin vers Webots
+# 3. N'ajoutez PAS "webots_path.mk" au git (ajoutez-le dans .gitignore)
+#
+# Exemples de chemins selon votre système:
+# Windows: WEBOTS_HOME = C:/Program Files/Webots
+# Windows: WEBOTS_HOME = D:/Logiciels/Webots
+# Linux:   WEBOTS_HOME = /usr/local/webots
+# macOS:   WEBOTS_HOME = /Applications/Webots.app
+
+# Décommentez et modifiez cette ligne avec votre chemin:
+# WEBOTS_HOME = C:/Program Files/Webots
