@@ -1,0 +1,3 @@
+# Marqueur de mode simulation
+# Ce fichier indique que le code s'exécute en mode simulation Webots
+# Il est utilisé par robot_context.py pour la détection automatique

@@ -1,3 +1,6 @@
+#ifndef MESSAGES_H
+#define MESSAGES_H
+
 #pragma pack(1)
 // dans nos structures, nous avons des variables plus petites que la taille
 // défaut du processeur (processeur 32 bits et variables 8 bits de type byte)
@@ -143,3 +146,5 @@ struct msg_unknown_msg_type {
     byte command = UNKNOWN_MSG_TYPE;
     byte type_id;  // ID of the unknown message
 };
+
+#endif // MESSAGES_H

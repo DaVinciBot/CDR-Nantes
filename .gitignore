@@ -205,4 +205,27 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# ============================================
+# Webots Simulation
+# ============================================
+# Build artifacts C++
+simulation/controllers/**/build/
+simulation/controllers/**/*.exe
+simulation/controllers/**/*.o
+simulation/controllers/**/*.d
+
+# Visual Studio / IDE (simulation spécifique)
+simulation/controllers/**/.vs/
+simulation/controllers/**/*.sln
+simulation/controllers/**/*.vcxproj
+simulation/controllers/**/*.vcxproj.*
+simulation/controllers/**/*.user
+simulation/controllers/**/UpgradeLog.htm
+
+# Webots generated
 webots_path.mk
+
+
+/simulation/controllers/teensy_controller/.vs
+/simulation/controllers/teensy_controller/.vs

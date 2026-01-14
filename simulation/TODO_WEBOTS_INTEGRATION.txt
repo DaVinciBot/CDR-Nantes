@@ -1,0 +1,245 @@
+================================================================================
+TODO SYNTHÈSE - INTÉGRATION WEBOTS CDR-NANTES
+================================================================================
+🎯 Plan d'action en 9 étapes
+
+État actuel : 6/9 étapes complétées
+Dernière mise à jour : 11 janvier 2026
+
+
+================================================================================
+✅ ÉTAPE 1 : Créer fake_stepper_FIXED.cpp (2h) - TERMINÉ
+================================================================================
+Objectif : Implémenter l'interface stepper.h de KaribouMotion pour Webots
+
+Actions réalisées :
+ ✅ Créé simulation/controllers/teensy_controller/fake_stepper.cpp
+ ✅ Utilise std::map<Stepper*, WebotsMotorData> pour stocker les tags Webots
+ ✅ Implémenté TOUTES les méthodes de stepper.h (compute, step, setMaxSpeed, etc.)
+ ✅ Constructeur récupère motor1/2/3 et encoder1/2/3 via wb_robot_get_device()
+ ✅ step() adapté pour envoyer vitesses à Webots
+ ✅ Profils trapézoïdaux, synchronisation, calculs préservés
+
+Test de validation :
+ ✅ Compilation sans erreur
+ ✅ Moteurs détectés (motor1, motor2, motor3)
+ ✅ Encodeurs détectés (encoder1, encoder2, encoder3)
+
+
+================================================================================
+✅ ÉTAPE 2 : Corriger ArduinoFake.h (30min) - TERMINÉ
+================================================================================
+Objectif : Corriger les bugs de timing et port série
+
+Actions réalisées :
+ ✅ millis() et micros() utilisent wb_robot_get_time()
+ ✅ SerialMock avec API Windows (CreateFile, ReadFile, WriteFile)
+ ✅ Logs de debug ajoutés
+ ⚠️  Port série actuellement COM2 (à changer en COM8 pour com0com)
+
+Test de validation :
+ ✅ Recompilé sans erreur
+ ✅ Logs au lancement : "[Webots] INFO: Pas de COM2. Mode simulation hors ligne."
+
+À FAIRE pour finaliser :
+ [ ] Modifier ArduinoFake.h ligne 86 : "\\\\.\\COM2" → "\\\\.\\COM8"
+
+
+================================================================================
+❌ ÉTAPE 3 : Installer com0com (15min) - À FAIRE
+================================================================================
+Objectif : Créer les ports série virtuels Windows
+
+Actions à effectuer :
+ [ ] Télécharger com0com depuis SourceForge
+ [ ] Installer en mode administrateur
+ [ ] Ouvrir "Setup Command Prompt"
+ [ ] Exécuter : install PortName=COM8 PortName=COM9
+ [ ] Vérifier : list
+
+Test de validation :
+ [ ] Créer script Python test_serial_echo.py
+ [ ] Écrire sur COM9, lire sur COM8
+ [ ] Vérifier que les données transitent
+
+
+================================================================================
+✅ ÉTAPE 4 : Adapter teensy_controller.cpp (1h) - TERMINÉ (variante)
+================================================================================
+Objectif : Émuler les 2 timers du vrai code dans la boucle Webots
+
+Actions réalisées :
+ ✅ Structure identique au vrai main.cpp du Teensy
+ ✅ Initialisation : wb_robot_init(), Serial, Com, holonomic_basis
+ ✅ Boucle principale avec wb_robot_step(time_step)
+ ✅ Appels : com->handle_callback(), handle(), execute_movement()
+ ⚠️  Variante : boucle unique au lieu de double timer 10ms/100ms
+
+Test de validation :
+ ✅ Compilation OK
+ ✅ Simulation tourne
+ ⚠️  Mouvement incorrect (problème cinématique/géométrie à régler)
+
+
+================================================================================
+✅ ÉTAPE 5 : Modifier le Makefile (10min) - TERMINÉ
+================================================================================
+Objectif : Configurer la compilation avec les bonnes sources
+
+Actions réalisées :
+ ✅ CXX_SOURCES : teensy_controller.cpp fake_stepper.cpp ArduinoFake.cpp
+ ✅ Sources projet ajoutées : com.cpp, crc.cpp, holonomic_basis.cpp, pid.cpp
+ ✅ Tous les includes configurés
+ ✅ -include "ArduinoFake.h" dans CFLAGS pour teensy_controller.o
+
+Test de validation :
+ ✅ make clean && make
+ ✅ Compilation complète sans erreur
+ ✅ Exécutable teensy_controller.exe généré
+
+
+================================================================================
+❓ ÉTAPE 6 : Nettoyer le monde Webots (30min) - STATUT INCONNU
+================================================================================
+Objectif : Garder un seul robot correctement configuré
+
+Actions à vérifier :
+ [ ] Ouvrir simulation/worlds/my_world.wbt
+ [ ] Vérifier qu'il n'y a qu'un seul robot
+ [ ] Vérifier que controller = "teensy_controller"
+ [ ] Vérifier maxVelocity des 3 moteurs
+ ✅ Noms confirmés : motor1, motor2, motor3 et encoder1, encoder2, encoder3
+
+Test de validation :
+ ✅ 1 robot visible dans Webots
+ ✅ Console affiche "✅ Moteur 'motor1' initialisé" x3
+ ✅ Aucune erreur "Device not found"
+
+
+================================================================================
+❌ ÉTAPE 7 : Script Python de test (30min) - PAS FAIT
+================================================================================
+Objectif : Créer un script pour contrôler le robot depuis Python
+
+Actions à effectuer :
+ [ ] Créer simulation/test_webots_simple.py
+ [ ] Importer loader et classes Com/Messages
+ [ ] Court-circuiter détection USB : com._device = serial.Serial('COM8', 115200)
+ [ ] Ajouter callback pour UPDATE_ROLLING_BASIS
+ [ ] Tests à implémenter :
+     - Reset odométrie (0, 0, 0)
+     - Avancer 200mm (200, 0, 0)
+     - Strafe 200mm (200, 200, 0)
+     - Rotation 90° (200, 200, 1.5708)
+
+Test de validation :
+ [ ] Terminal 1 : Lancer Webots
+ [ ] Terminal 2 : python simulation/test_webots_simple.py
+ [ ] Le robot doit bouger dans Webots
+
+
+================================================================================
+🔄 ÉTAPE 8 : Validation complète (1h) - EN COURS
+================================================================================
+Tests fonctionnels à effectuer :
+
+Test 1 : Translation X
+ [ ] Commande : (100, 0, 0)
+ [ ] Vérifier : Robot avance droit
+ [ ] Vérifier : Roue 3 (arrière) tourne le plus
+
+Test 2 : Translation Y
+ [ ] Commande : (0, 100, 0)
+ [ ] Vérifier : Robot glisse latéralement (strafe)
+ [ ] Vérifier : Roues avant tournent en sens opposé
+
+Test 3 : Rotation pure
+ [ ] Commande : (0, 0, 1.57)
+ [ ] Vérifier : Robot tourne sur place
+ [ ] Vérifier : Les 3 roues tournent dans le même sens
+
+Test 4 : Synchronisation
+ [ ] Commande : (300, 300, 0)
+ [ ] Vérifier : Les 3 moteurs s'arrêtent simultanément
+ [ ] Observer : Pas de roue qui arrive avant les autres
+
+Test 5 : PID
+ [ ] Commande : (500, 0, 0)
+ [ ] Vérifier : Pas d'oscillations
+ [ ] Vérifier : Converge en < 5s
+ [ ] Vérifier : Erreur finale < 10mm
+
+Checklist de validation finale :
+ ✅ Compilation sans erreur
+ ⚠️  Connexion série fonctionnelle (actuellement mode hors ligne)
+ [ ] Messages Python → Webots (le robot bouge)
+ [ ] Messages Webots → Python (positions affichées)
+ ⚠️  Cinématique correcte (actuellement incorrect - équations à ajuster)
+ [ ] Synchronisation des 3 moteurs OK
+ [ ] PID stable (pas d'oscillations infinies)
+ ✅ Code Teensy dans robot1/teensy_moteur/ INCHANGÉ
+
+
+================================================================================
+❌ ÉTAPE 9 : Documentation et tuning PID (optionnel) - PAS FAIT
+================================================================================
+Objectif : Préparer le passage au robot réel
+
+Actions à effectuer :
+ [ ] Créer simulation/README.md avec instructions d'installation
+ [ ] Documenter les différences simulation vs réel
+ [ ] Sauvegarder les gains PID simulation dans un fichier dédié
+ [ ] Préparer gains PID réel (diviser par 2 les valeurs simulation)
+ [ ] (Optionnel) Créer script de plot pour tracer courbes PID
+ [ ] Ajouter .gitignore pour exclure binaires et fichiers locaux
+
+Documentation minimale à créer :
+ [ ] Instructions installation (com0com, Webots)
+ [ ] Procédure de lancement
+ [ ] Troubleshooting des problèmes fréquents
+ [ ] Différences simulation/réel
+
+
+================================================================================
+📝 NOTES IMPORTANTES
+================================================================================
+
+Fichiers à NE PAS modifier (code robot réel) :
+ - robot1/teensy_moteur/**  (tout le dossier)
+ - common/usb_com/**  (sauf pour tests)
+
+Fichiers de simulation (modifiables) :
+ - simulation/controllers/teensy_controller/fake_stepper.cpp
+ - simulation/controllers/teensy_controller/Arduino.h
+ - simulation/controllers/teensy_controller/ArduinoFake.h
+ - simulation/controllers/teensy_controller/ArduinoFake.cpp
+ - simulation/controllers/teensy_controller/teensy_controller.cpp
+ - simulation/controllers/teensy_controller/Makefile
+ - simulation/worlds/my_world.wbt
+
+Problèmes connus :
+ - Mouvement incorrect : probablement angles roues ou ROBOT_RADIUS dans holonomic_basis
+ - COM2 à changer en COM8/COM9 pour com0com
+ - Timer double (10ms/100ms) non implémenté (boucle unique à la place)
+
+
+================================================================================
+🎯 PROCHAINES ACTIONS RECOMMANDÉES
+================================================================================
+
+Option A - Communication série (Étapes 3 + 7) :
+ 1. Installer com0com (COM8 ↔ COM9)
+ 2. Modifier ArduinoFake.h ligne 86 : COM2 → COM8
+ 3. Créer test_webots_simple.py
+ 4. Tester commandes Python → Webots
+
+Option B - Corriger cinématique (Étape 8) :
+ 1. Vérifier angles des roues dans holonomic_basis
+ 2. Ajuster ROBOT_RADIUS / WHEEL_DIAMETER dans config.h
+ 3. Vérifier conversion steps ↔ radians dans fake_stepper.cpp
+ 4. Tester mouvements basiques (avancer, strafe, rotation)
+
+
+================================================================================
+FIN TODO LIST
+================================================================================

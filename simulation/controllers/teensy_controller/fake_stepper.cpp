@@ -3,39 +3,59 @@
 #include <cstdio>
 
 // Calibration (A ajuster selon vos réglages Webots vs Réel)
-// Si 1 tour de roue (2*PI rad) = 200 steps * 16 microsteps
+// Si 1 tour de roue (2*PI rad) = 200 steps * 32 microsteps
 #define STEPS_PER_REV 200.0
-#define MICROSTEPS 16.0
+#define MICROSTEPS 32.0
 const double STEPS_TO_RAD = (2.0 * 3.14159) / (STEPS_PER_REV * MICROSTEPS);
 const double RAD_TO_STEPS = 1.0 / STEPS_TO_RAD;
 
 Stepper::Stepper(uint8_t step_pin, uint8_t dir_pin, bool inverted) {
-    char name[16];
-    // Astuce : Dans main.cpp vous faites define_wheel1(1, ...). 
-    // step_pin vaut donc 1, 2 ou 3. On map ça vers "motor1", "motor2"...
+    char name[32];
+    
+    // Chercher le moteur
     sprintf(name, "motor%d", step_pin);
     WbDeviceTag m = wb_robot_get_device(name);
     
+    // Chercher l'encodeur (essayer plusieurs noms)
+    char encoder_name[32] = "";
     sprintf(name, "encoder%d", step_pin);
     WbDeviceTag s = wb_robot_get_device(name);
+    if(s) {
+        sprintf(encoder_name, "encoder%d", step_pin);
+    }
+    if(!s) {
+        sprintf(name, "motor%d_sensor", step_pin);
+        s = wb_robot_get_device(name);
+        if(s) sprintf(encoder_name, "motor%d_sensor", step_pin);
+    }
+    if(!s) {
+        sprintf(name, "position_sensor%d", step_pin);
+        s = wb_robot_get_device(name);
+        if(s) sprintf(encoder_name, "position_sensor%d", step_pin);
+    }
     
-    // On stocke les IDs Webots (tags) dans les variables membres de la classe Stepper
-    // en les castant (c'est un hack courant pour les mocks)
-    this->m_step_pin = (uint8_t)m;   // Stocke le tag Moteur
-    this->m_dir_pin = (uint8_t)s;    // Stocke le tag Encodeur
+    // Messages d'erreur ou de succès
+    if(!m) {
+        printf("❌ ERREUR: Moteur 'motor%d' introuvable dans Webots !\n", step_pin);
+    } else if(!s) {
+        printf("⚠️  Moteur 'motor%d' trouvé mais encodeur manquant\n", step_pin);
+    } else {
+        printf("✅ Moteur 'motor%d' initialisé (encoder: %s)\n", step_pin, encoder_name);
+    }
+    
+    // Stockage des tags Webots
+    this->m_step_pin = (uint8_t)m;
+    this->m_dir_pin = (uint8_t)s;
     
     if(m) {
         wb_motor_set_position(m, INFINITY); // Mode vitesse
         wb_motor_set_velocity(m, 0);
-    } else {
-        printf("ERREUR: Moteur '%s' introuvable dans Webots !\n", name);
     }
 
     if(s) {
         wb_position_sensor_enable(s, 32); // Lecture toutes les 32ms
-    } else {
-        printf("ERREUR: Encodeur '%s' introuvable dans Webots !\n", name);
     }
+    
     m_position = 0;
 }
 

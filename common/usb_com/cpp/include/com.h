@@ -1,3 +1,6 @@
+#ifndef COM_H
+#define COM_H
+
 #include <Arduino.h>
 #include <messages.h>
 
@@ -108,3 +111,5 @@ class Com {
         new last_message();  ///< Pointer to the last sent message for
                              ///< retransmission
 };
+
+#endif // COM_H

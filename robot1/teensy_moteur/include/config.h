@@ -35,8 +35,8 @@
 #define MAX_ACCELERATION 200.0        // steps/second² - RÉDUIT POUR TEST
 
 // ========== ROBOT GEOMETRY ==========
-#define ROBOT_RADIUS 150.0  // mm - Distance du centre aux roues
-#define WHEEL_DIAMETER 59.0 // mm - Diameter of the wheels
+#define ROBOT_RADIUS 156.9  // mm - Distance du centre aux roues
+#define WHEEL_DIAMETER  60.0 // mm - Diameter of the wheels
 
 // ========== PID CONTROLLERS ==========
 // PID X (déplacement horizontal)
