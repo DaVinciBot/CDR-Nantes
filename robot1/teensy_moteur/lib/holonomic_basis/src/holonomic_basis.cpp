@@ -231,6 +231,7 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     // Wheel 3 (Back-Right)
     double w1 = vx_steps + omega_steps;
     
+    
     //Cinématique Inverser Vitesse Robot -> Vitesse Roues (formule corrigée)
     // Angles des roues en radians avec 30;90;150 degrés décalage
     //double alpha_A = -60.0 * M_PI / 180.0;  
