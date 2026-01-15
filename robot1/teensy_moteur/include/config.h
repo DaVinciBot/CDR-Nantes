@@ -31,8 +31,8 @@
 #define TOTAL_STEPS_PER_REV (STEPS_PER_REVOLUTION * MICROSTEPS)
 
 // Speed and acceleration limits
-#define MAX_SPEED 400.0               // steps/second - RÉDUIT POUR TEST
-#define MAX_ACCELERATION 200.0        // steps/second² - RÉDUIT POUR TEST
+#define MAX_SPEED 15000              // steps/second - RÉDUIT POUR TEST
+#define MAX_ACCELERATION 7500.0        // steps/second² - RÉDUIT POUR TEST
 
 // ========== ROBOT GEOMETRY ==========
 #define ROBOT_RADIUS 156.9  // mm - Distance du centre aux roues

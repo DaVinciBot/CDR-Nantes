@@ -62,7 +62,7 @@ positions = [
 
 for x, y, theta, desc in positions:
     send_position(x, y, theta, com, desc)
-    time.sleep(2)  # Attendre 2 secondes entre chaque commande
+    time.sleep(10)  # Attendre 10 secondes entre chaque commande
 
 logger.info("=" * 70)
 logger.info("✅ Test terminé ! Attente des derniers messages...")

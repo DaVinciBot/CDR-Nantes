@@ -5,6 +5,7 @@
 
 #include <Arduino.h>
 #include <holonomic_basis.h>
+#include <cstdio>
 
 // Fonction utilitaire pour normaliser l'angle entre -PI et PI
 double normalizeAngle(double theta) {
@@ -142,16 +143,62 @@ Point Holonomic_Basis::get_current_position() {
 
 // Calcul de la boucle d'asservissement (PID + Cinématique Inverse)
 void Holonomic_Basis::handle(Point target_position, Com* com) {
+    static bool first_call = true;
+    if (first_call) {
+        printf("🔍 PREMIÈRE ITÉRATION handle()\n");
+        printf("   Position actuelle: X=%.1f Y=%.1f θ=%.2f\n", X, Y, THETA);
+        printf("   Position cible   : X=%.1f Y=%.1f θ=%.2f\n", 
+               target_position.x, target_position.y, target_position.theta);
+        first_call = false;
+    }
     // 1. Calcul des erreurs dans le référentiel Monde
     double xerr = target_position.x - this->X;
     double yerr = target_position.y - this->Y;
     double theta_error = normalizeAngle(target_position.theta - this->THETA);
+
+     static uint32_t debug_err = 0;
+    if (++debug_err > 1000) {
+        printf("📐 Erreurs: ΔX=%.1f ΔY=%.1f Δθ=%.2f\n", xerr, yerr, theta_error);
+        debug_err = 0;
+    }
+    // 2. Calcul des vitesses cibles via PID (référentiel Monde)
+    double vx_world, vy_world, omega;
+    if (!use_pid_control) {
+        // Mode simple proportionnel sans PID
+    double gain_translation = 2.0; // Gain pour la translation (ajustable)
+    double gain_rotation = 1.0;    // Gain pour la rotation (ajustable)
+
+     vx_world = gain_translation * xerr;
+    vy_world = gain_translation * yerr;
+    omega = gain_rotation * theta_error;
+
+    double max_linear_speed = 100.0; // Limite la vitesse linéaire
+    double max_angular_speed = 1.0;   // Limite la vitesse angulaire
+
+
+    vx_world = constrain(vx_world, -max_linear_speed, max_linear_speed);
+    vy_world = constrain(vy_world, -max_linear_speed, max_linear_speed);
+    omega = constrain(omega, -max_angular_speed, max_angular_speed);
+    } else {
+        // Mode PID complet
+        vx_world = this->x_pid.compute(xerr);
+        vy_world = this->y_pid.compute(yerr);
+        omega = this->theta_pid.compute(theta_error);
+    }
+    static uint32_t debug_vel = 0;
+    if (++debug_vel > 1000) {
+        printf("🚀 Vitesses: vx=%.1f vy=%.1f ω=%.2f\n", vx_world, vy_world, omega);
+        debug_vel = 0;
+    }
+
+    double distance_error = sqrt(xerr*xerr + yerr*yerr);
+    double angle_error = fabs(theta_error);
     
-    // 2. Calcul des consignes de vitesse (PID output)
-    double vx_world = this->x_pid.compute(xerr);
-    double vy_world = this->y_pid.compute(yerr);
-    double omega = this->theta_pid.compute(theta_error);
-    
+    if (distance_error < 5.0 && angle_error < 0.05) {  // 5mm et 3°
+        vx_world = 0.0;
+        vy_world = 0.0;
+        omega = 0.0;
+    }
     // 3. Mise à jour du Dead Reckoning (Odométrie théorique)
     // On suppose que le robot va réaliser exactement la vitesse demandée
     // dt = 0.01s (correspond à la fréquence d'appel de handle, ex: 100Hz)
@@ -159,6 +206,7 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     this->X += vx_world * dt;
     this->Y += vy_world * dt;
     this->THETA = normalizeAngle(this->THETA + omega * dt);
+
 
     // 4. Changement de repère : Monde -> Robot
     double cos_theta = cosf(this->THETA);
@@ -177,12 +225,24 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     
     // Matrice de projection pour robot 3 roues (0°, 120°, 240°)
     // Wheel 1 (Front)
-    double w1 = 0.5 * vx_steps - (sqrt(3.0) / 2.0) * vy_steps - omega_steps;
+    //double w1 = 0.5 * vx_steps - (sqrt(3.0) / 2.0) * vy_steps - omega_steps;
     // Wheel 2 (Back-Left)
-    double w2 = 0.5 * vx_steps + (sqrt(3.0) / 2.0) * vy_steps - omega_steps;
+    //double w2 = 0.5 * vx_steps + (sqrt(3.0) / 2.0) * vy_steps - omega_steps;
     // Wheel 3 (Back-Right)
-    double w3 = -vx_steps - omega_steps;
+    //double w3 = -vx_steps - omega_steps;
     
+    //Cinématique Inverser Vitesse Robot -> Vitesse Roues (formule corrigée)
+    // Angles des roues en radians avec 30;90;150 degrés décalage
+    double alpha_A = -60.0 * M_PI / 180.0;  
+    double alpha_B = +60.0 * M_PI / 180.0;  
+    double alpha_C = 180.0 * M_PI / 180.0;  
+
+    double w1 = vx_steps * cos(alpha_A) + vy_steps * sin(alpha_A) + omega_steps;
+    double w2 = vx_steps * cos(alpha_B) + vy_steps * sin(alpha_B) + omega_steps;
+    double w3 = vx_steps * cos(alpha_C) + vy_steps * sin(alpha_C) + omega_steps;
+
+
+
     // Stockage des vitesses cibles (bornées par max_speed)
     last_wheel1_speed = constrain(w1, -max_speed, max_speed);
     last_wheel2_speed = constrain(w2, -max_speed, max_speed);
@@ -197,24 +257,36 @@ void Holonomic_Basis::run_motors() {
 
 // Convertit les vitesses calculées (PID) en commandes de pas pour le StepperGroup
 void Holonomic_Basis::execute_movement() {
+
+    if (wheel1) wheel1->setMaxSpeed(last_wheel1_speed);
+    if (wheel2) wheel2->setMaxSpeed(last_wheel2_speed);
+    if (wheel3) wheel3->setMaxSpeed(last_wheel3_speed);
+    
+    // DEBUG CRITIQUE : Voir ce qui est envoyé
+    static uint32_t debug_counter = 0;
+    if(++debug_counter > 1000) {  // Toutes les ~3 secondes
+        printf("🎮 Wheel speeds: W1=%.1f W2=%.1f W3=%.1f steps/s\n", 
+               last_wheel1_speed, last_wheel2_speed, last_wheel3_speed);
+        debug_counter = 0;
+    }
     // Période d'exécution (doit correspondre au Timer qui appelle cette fonction)
     // Ici on suppose 100Hz (10ms) comme le PID
-    float dt = 0.01f; 
+    //float dt = 0.01f; 
     
     // Calcul du nombre de pas à effectuer durant ce delta T
     // Vitesse (steps/s) * Temps (s) = Distance (steps)
-    int32_t steps1 = (int32_t)(last_wheel1_speed * dt);
-    int32_t steps2 = (int32_t)(last_wheel2_speed * dt);
-    int32_t steps3 = (int32_t)(last_wheel3_speed * dt);
+    //int32_t steps1 = (int32_t)(last_wheel1_speed * dt);
+    //int32_t steps2 = (int32_t)(last_wheel2_speed * dt);
+    //int32_t steps3 = (int32_t)(last_wheel3_speed * dt);
     
     // Envoi des cibles RELATIVES au groupe
     // "Avance de X pas par rapport à maintenant"
-    if (stepperGroup) {
-        stepperGroup->setTargetsRel(steps1, steps2, steps3);
+    //if (stepperGroup) {
+        //stepperGroup->setTargetsRel(steps1, steps2, steps3);
         
         // Lance le calcul de synchronisation
-        stepperGroup->startMove();
-    }
+       // stepperGroup->startMove();
+    //}
 }
 
 // === INTERFACE TIMERS (INTERRUPTIONS) ===

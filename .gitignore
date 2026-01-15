@@ -229,3 +229,5 @@ webots_path.mk
 
 /simulation/controllers/teensy_controller/.vs
 /simulation/controllers/teensy_controller/.vs
+
+.fake

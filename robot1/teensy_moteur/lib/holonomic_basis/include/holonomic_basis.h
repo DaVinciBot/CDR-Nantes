@@ -17,7 +17,7 @@ class Holonomic_Basis {
     PID x_pid;
     PID y_pid;
     PID theta_pid;
-
+    bool use_pid_control = false;
     // Robot geometry parameters
     inline double wheel_circumference() { return this->wheel_diameter * PI; };
 
