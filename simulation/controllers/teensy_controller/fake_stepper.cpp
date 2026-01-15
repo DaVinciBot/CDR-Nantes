@@ -74,8 +74,8 @@ void Stepper::setMaxSpeed(float speed_in_steps_per_sec) {
     if(m) wb_motor_set_velocity(m, rad_s);
 
     // DEBUG (à retirer après test)
-    printf("Motor%d: %.1f steps/s → %.3f rad/s\n", 
-           m_step_pin, speed_in_steps_per_sec, rad_s);
+    //printf("Motor%d: %.1f steps/s → %.3f rad/s\n", 
+           //m_step_pin, speed_in_steps_per_sec, rad_s);
 }
 
 int32_t Stepper::getPosition() const {

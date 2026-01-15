@@ -13,16 +13,16 @@ Com* com = nullptr;
 
 // --- MODIFICATION ICI : Cible définie à 100, 0, 0 pour le test ---
 // Au lieu de START_X, START_Y, START_THETA
-Point target_position(1000.0, 1000.0, 0.0);
+Point target_position(START_X,START_Y, START_THETA);
 
 
 // Callback simple pour recevoir la cible depuis Python
 void set_target_position(byte* msg, byte size) {
     msg_set_target_position* t = (msg_set_target_position*)msg;
-    target_position.x = 100.0f * t->target_position_x;  // Conversion m -> cm
+    target_position.x = 1.0f * t->target_position_x;  // Conversion m -> cm
     
     // --- CORRECTION ICI : On rétablit la commande Y et Theta ---
-    target_position.y = 100.0f * t->target_position_y;  // Conversion m -> cm (supposé identique à X)
+    target_position.y = 1.0f * t->target_position_y;  // Conversion m -> cm (supposé identique à X)
     target_position.theta = t->target_position_theta;   // On garde la valeur brute (ou conversion si nécessaire)
     
     printf("Webots: Nouvelle cible reçue -> X:%.2f Y:%.2f T:%.2f\n", target_position.x, target_position.y, target_position.theta);

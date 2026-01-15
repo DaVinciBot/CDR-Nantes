@@ -158,7 +158,7 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
 
      static uint32_t debug_err = 0;
     if (++debug_err > 1000) {
-        printf("📐 Erreurs: ΔX=%.1f ΔY=%.1f Δθ=%.2f\n", xerr, yerr, theta_error);
+        //printf("📐 Erreurs: ΔX=%.1f ΔY=%.1f Δθ=%.2f\n", xerr, yerr, theta_error);
         debug_err = 0;
     }
     // 2. Calcul des vitesses cibles via PID (référentiel Monde)
@@ -194,7 +194,7 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     double distance_error = sqrt(xerr*xerr + yerr*yerr);
     double angle_error = fabs(theta_error);
     
-    if (distance_error < 5.0 && angle_error < 0.05) {  // 5mm et 3°
+    if (distance_error < 0.01 && angle_error < 0.05) {  // 5mm et 3°
         vx_world = 0.0;
         vy_world = 0.0;
         omega = 0.0;
@@ -225,21 +225,21 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     
     // Matrice de projection pour robot 3 roues (0°, 120°, 240°)
     // Wheel 1 (Front)
-    //double w1 = 0.5 * vx_steps - (sqrt(3.0) / 2.0) * vy_steps - omega_steps;
+    double w3 = -0.5 * vx_steps - (sqrt(3.0) / 2.0) * vy_steps + omega_steps;
     // Wheel 2 (Back-Left)
-    //double w2 = 0.5 * vx_steps + (sqrt(3.0) / 2.0) * vy_steps - omega_steps;
+    double w2 = 0.5 * vx_steps + (sqrt(3.0) / 2.0) * vy_steps + omega_steps;
     // Wheel 3 (Back-Right)
-    //double w3 = -vx_steps - omega_steps;
+    double w1 = vx_steps + omega_steps;
     
     //Cinématique Inverser Vitesse Robot -> Vitesse Roues (formule corrigée)
     // Angles des roues en radians avec 30;90;150 degrés décalage
-    double alpha_A = -60.0 * M_PI / 180.0;  
-    double alpha_B = +60.0 * M_PI / 180.0;  
-    double alpha_C = 180.0 * M_PI / 180.0;  
+    //double alpha_A = -60.0 * M_PI / 180.0;  
+    //double alpha_B = +60.0 * M_PI / 180.0;  
+    //double alpha_C = 180.0 * M_PI / 180.0;  
 
-    double w1 = vx_steps * cos(alpha_A) + vy_steps * sin(alpha_A) + omega_steps;
-    double w2 = vx_steps * cos(alpha_B) + vy_steps * sin(alpha_B) + omega_steps;
-    double w3 = vx_steps * cos(alpha_C) + vy_steps * sin(alpha_C) + omega_steps;
+    //double w1 = vx_steps * cos(alpha_A) + vy_steps * sin(alpha_A) + omega_steps;
+    //double w2 = vx_steps * cos(alpha_B) + vy_steps * sin(alpha_B) + omega_steps;
+    //double w3 = vx_steps * cos(alpha_C) + vy_steps * sin(alpha_C) + omega_steps;
 
 
 

@@ -53,11 +53,11 @@ logger.info("=" * 70)
 
 # Test avec quelques points seulement
 positions = [
-    (0, 0, 0, "Origine"),
-    (100, 0, 0, "Avancer 100mm"),
-    (100, 100, 0, "Diagonale"),
-    (0, 100, 0, "Gauche"),
-    (0, 0, 0, "Retour origine"),
+    #(0, 0, 0, "Origine"),
+    (200,0, 0, "Avancer 200mm"),
+    #(100, 100, 0, "Diagonale"),
+    #(0, 100, 0, "Gauche"),
+    #(0, 0, 0, "Retour origine"),
 ]
 
 for x, y, theta, desc in positions:
