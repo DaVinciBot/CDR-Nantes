@@ -8,16 +8,18 @@ La détection se fait automatiquement selon le contexte d'exécution.
 
 import os
 import sys
+import json
 from pathlib import Path
 
 
 def is_simulation() -> bool:
     """Détecte si on est en mode simulation ou sur le robot réel.
     
-    Critères de détection :
+    Critères de détection (par ordre de priorité) :
     1. Variable d'environnement ROBOT_MODE=simulation
     2. Fichier .simulation_mode présent
-    3. Exécution depuis le dossier simulation/
+    3. Lecture de config.json (port=COM1 → simulation)
+    4. Exécution depuis le dossier simulation/
     
     Returns:
         bool: True si en simulation, False si sur hardware réel
@@ -34,7 +36,22 @@ def is_simulation() -> bool:
     if (current_dir / '.simulation_mode').exists():
         return True
     
-    # 3. Détection par chemin (si on est dans simulation/)
+    # 3. Lecture de config.json (nouveau critère)
+    config_file = Path(__file__).parent / 'config.json'
+    if config_file.exists():
+        try:
+            with open(config_file, 'r') as f:
+                config = json.load(f)
+            # Si port=COM1 → simulation
+            if config.get('serial_config', {}).get('port') == 'COM1':
+                return True
+            # Si serial_number présent → hardware
+            if config.get('serial_config', {}).get('serial_number') is not None:
+                return False
+        except:
+            pass
+    
+    # 4. Détection par chemin (si on est dans simulation/)
     if 'simulation' in str(current_dir).lower():
         return True
     
@@ -122,6 +139,36 @@ def create_com(logger=None):
             enable_crc=config['enable_crc'],
             enable_dummy=config['enable_dummy']
         )
+
+
+def init_robot(logger=None):
+    """Initialise le robot avec détection automatique du mode.
+    
+    Simplifie l'initialisation en une seule ligne dans vos programmes.
+    
+    Args:
+        logger: Logger optionnel
+        
+    Returns:
+        tuple: (com, mode_string) où mode_string est "SIMULATION" ou "HARDWARE"
+        
+    Example:
+        from robot_context import init_robot
+        com, mode = init_robot(logger)
+        logger.info(f"Mode: {mode}")
+    """
+    mode_str = "SIMULATION" if is_simulation() else "HARDWARE"
+    if logger:
+        logger.info(f"🤖 Mode détecté : {mode_str}")
+        logger.info("=" * 70)
+    
+    com = create_com(logger=logger)
+    
+    if logger:
+        logger.info("✅ Connexion établie!")
+        logger.info("=" * 70)
+    
+    return com, mode_str
 
 
 if __name__ == '__main__':

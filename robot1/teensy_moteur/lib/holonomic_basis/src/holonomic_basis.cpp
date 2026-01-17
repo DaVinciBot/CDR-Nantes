@@ -199,9 +199,14 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
         vy_world = 0.0;
         omega = 0.0;
     }
-    // 3. Mise à jour du Dead Reckoning (Odométrie théorique)
-    // On suppose que le robot va réaliser exactement la vitesse demandée
-    // dt = 0.01s (correspond à la fréquence d'appel de handle, ex: 100Hz)
+    // 3. Mise à jour de l'odométrie
+    // Pour le robot réel : utiliser les encodeurs des moteurs
+    // Pour Webots : les encodeurs sont lus dans getPosition() via fake_stepper
+    // On calcule le déplacement depuis la dernière itération
+    
+    // TODO ROBOT RÉEL: Implémenter odométrie 3 roues
+    // Pour l'instant, on utilise le dead reckoning simplifié
+    // qui sera remplacé par la vraie odométrie sur le robot physique
     float dt = 0.01f; 
     this->X += vx_world * dt;
     this->Y += vy_world * dt;
@@ -223,26 +228,42 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     double vy_steps = vy_robot * speed_factor;
     double omega_steps = omega * robot_radius * speed_factor;
     
-    // Matrice de projection pour robot 3 roues (0°, 120°, 240°)
-    // Wheel 1 (Front)
-    double w3 = -0.5 * vx_steps - (sqrt(3.0) / 2.0) * vy_steps + omega_steps;
-    // Wheel 2 (Back-Left)
-    double w2 = 0.5 * vx_steps + (sqrt(3.0) / 2.0) * vy_steps + omega_steps;
-    // Wheel 3 (Back-Right)
-    double w1 = vx_steps + omega_steps;
+    // Matrice de projection pour robot 3 roues tangentielles
+    // Axes tangentiels : 120°, 240°, 0° (angles de position + 90°)
+    // Pour un axe de rotation à angle β :
+    // w = cos(β)·vx + sin(β)·vy + R·ω
     
+    // Roue 1 avec axe à 120° : cos(120°) = -0.5, sin(120°) = +0.866
+    double w1 = -(0.5 * vx_steps - 0.866025 * vy_steps + omega_steps);
     
-    //Cinématique Inverser Vitesse Robot -> Vitesse Roues (formule corrigée)
-    // Angles des roues en radians avec 30;90;150 degrés décalage
-    //double alpha_A = -60.0 * M_PI / 180.0;  
-    //double alpha_B = +60.0 * M_PI / 180.0;  
-    //double alpha_C = 180.0 * M_PI / 180.0;  
+    // Roue 2 avec axe à 240° : cos(240°) = -0.5, sin(240°) = -0.866
+    double w2 = -(0.5 * vx_steps +0.866025 * vy_steps + omega_steps);
+    
+    // Roue 3 avec axe à 0° : cos(0°) = +1.0, sin(0°) = 0
+    double w3 = -(-1.0*vx_steps +omega_steps);
+    
 
-    //double w1 = vx_steps * cos(alpha_A) + vy_steps * sin(alpha_A) + omega_steps;
-    //double w2 = vx_steps * cos(alpha_B) + vy_steps * sin(alpha_B) + omega_steps;
-    //double w3 = vx_steps * cos(alpha_C) + vy_steps * sin(alpha_C) + omega_steps;
+    
+    // Correction Géométrique (Angles -60, 60, 180)
+    // Roue 1 (-60°): sin(-60)=-0.866, cos(-60)=0.5 -> +0.866 Vx + 0.5 Vy
+    //double w1 = 0.866 * vx_steps + 0.5 * vy_steps - omega_steps;
 
+    // Roue 2 (60°): sin(60)=0.866, cos(60)=0.5 -> -0.866 Vx + 0.5 Vy
+    //double w2 = -0.866 * vx_steps + 0.5 * vy_steps - omega_steps;
 
+    // Roue 3 (180°): sin(180)=0, cos(180)=-1 -> -Vy
+    // ATTENTION : Ta roue arrière est perpendiculaire à l'avant, elle ne sert QU'AU strafe (Y) et rotation
+    //double w3 = -1.0 * vy_steps - omega_steps;
+
+    // DEBUG: Affichage des vitesses calculées
+    static uint32_t debug_wheels = 0;   
+    if (++debug_wheels > 100) {  // Tous les ~1s
+        printf("⚙️  Vitesses roues: w1=%.1f w2=%.1f w3=%.1f steps/s\n", w1, w2, w3);
+        printf("   Référentiel robot: vx=%.1f vy=%.1f ω=%.2f\n", vx_robot, vy_robot, omega);
+        printf("   Référentiel monde: vx=%.1f vy=%.1f ω=%.2f\n", vx_world, vy_world, omega);
+        printf("   Composantes: vx_steps=%.1f vy_steps=%.1f omega_steps=%.1f\n", vx_steps, vy_steps, omega_steps);
+        debug_wheels = 0;
+    }
 
     // Stockage des vitesses cibles (bornées par max_speed)
     last_wheel1_speed = constrain(w1, -max_speed, max_speed);

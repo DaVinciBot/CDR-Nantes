@@ -13,16 +13,13 @@ logger = logging.getLogger(__name__)
 
 Messages = loader.load_class('usb_com', 'Messages')
 
-
-# ============================================================
-# DÉTECTION AUTOMATIQUE SIMULATION/HARDWARE - DÉBUT
-# ============================================================
-# Pour forcer le mode : $env:ROBOT_MODE="simulation" ou "hardware"
-# En simulation : lancer depuis simulation/ ou définir ROBOT_MODE
-# En hardware : lancer depuis robot1/rasp/ (détection automatique)
-
+#A mettre partout dans les codes python
+# Initialisation automatique (simulation ou hardware)
 sys.path.insert(0, str(Path(__file__).parent))
-from robot_context import is_simulation, create_com
+from robot_context import init_robot
+
+com, mode = init_robot(logger)
+
 
 def handle_position(data: bytes) -> None:
     """Callback pour recevoir la position du robot."""
@@ -30,7 +27,7 @@ def handle_position(data: bytes) -> None:
         x, y, theta = struct.unpack('<ddd', data[:24])
         logger.info(f"📍 Position robot: X={x:.2f}mm, Y={y:.2f}mm, θ={theta:.4f}rad")
     else:
-        logger.warning(f"⚠️  Message trop court: {len(data)} bytes")
+        logger.warning(f" Message trop court: {len(data)} bytes")
 
 def send_position(x, y, theta, com, description=""):
     """Envoie une position cible au robot."""
@@ -39,22 +36,7 @@ def send_position(x, y, theta, com, description=""):
     com.send_bytes(msg)
     logger.info(f"📤 {description}: X={x}mm, Y={y}mm, θ={theta}rad")
 
-# Détection et affichage du mode
-mode = "SIMULATION" if is_simulation() else "HARDWARE"
-logger.info(f"🤖 Mode détecté : {mode}")
-logger.info("=" * 70)
-
-# Création automatique de Com selon le contexte
-com = create_com(logger=logger)
-
 com.add_callback(handle_position, Messages.UPDATE_ROLLING_BASIS.value)
-
-logger.info("✅ Connexion établie!")
-logger.info("=" * 70)
-
-# ============================================================
-# DÉTECTION AUTOMATIQUE SIMULATION/HARDWARE - FIN
-# ============================================================
 
 
 def main():

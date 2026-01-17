@@ -19,13 +19,13 @@ Point target_position(START_X,START_Y, START_THETA);
 // Callback simple pour recevoir la cible depuis Python
 void set_target_position(byte* msg, byte size) {
     msg_set_target_position* t = (msg_set_target_position*)msg;
-    target_position.x = 1.0f * t->target_position_x;  // Conversion m -> cm
+    // Python envoie déjà en mm, pas besoin de conversion
+    target_position.x = t->target_position_x;
+    target_position.y = t->target_position_y;
+    target_position.theta = t->target_position_theta;
     
-    // --- CORRECTION ICI : On rétablit la commande Y et Theta ---
-    target_position.y = 1.0f * t->target_position_y;  // Conversion m -> cm (supposé identique à X)
-    target_position.theta = t->target_position_theta;   // On garde la valeur brute (ou conversion si nécessaire)
-    
-    printf("Webots: Nouvelle cible reçue -> X:%.2f Y:%.2f T:%.2f\n", target_position.x, target_position.y, target_position.theta);
+    printf("Webots: Nouvelle cible reçue -> X:%.2fmm Y:%.2fmm θ:%.2frad\n", 
+           target_position.x, target_position.y, target_position.theta);
 }
 
 void (*callback_functions[256])(byte* msg, byte size);

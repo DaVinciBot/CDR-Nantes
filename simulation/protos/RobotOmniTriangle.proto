@@ -2,18 +2,18 @@
 # license: Apache License 2.0
 # license url: http://www.apache.org/licenses/LICENSE-2.0
 # This is a proto file for Webots for the RobotOmniTriangle
-# Extracted from: C:\robot_cdr\robot.urdf
+# Configuration: ROUES TANGENTIELLES - Adaptée à la configuration réelle du world
 
 PROTO RobotOmniTriangle [
   field  SFVec3f     translation     0 0 0
   field  SFRotation  rotation        0 0 1 0
-  field  SFString    name            "RobotOmniTriangle"  # Is `Robot.name`.
-  field  SFString    controller      "void"               # Is `Robot.controller`.
-  field  MFString    controllerArgs  []                   # Is `Robot.controllerArgs`.
-  field  SFString    customData      ""                   # Is `Robot.customData`.
-  field  SFBool      supervisor      FALSE                # Is `Robot.supervisor`.
-  field  SFBool      synchronization TRUE                 # Is `Robot.synchronization`.
-  field  SFBool      selfCollision   FALSE                # Is `Robot.selfCollision`.
+  field  SFString    name            "RobotOmniTriangle"
+  field  SFString    controller      "void"
+  field  MFString    controllerArgs  []
+  field  SFString    customData      ""
+  field  SFBool      supervisor      FALSE
+  field  SFBool      synchronization TRUE
+  field  SFBool      selfCollision   FALSE
 ]
 {
   Robot {
@@ -41,22 +41,29 @@ PROTO RobotOmniTriangle [
           }
         ]
       }
+      
+      # ============================================
+      # ROUE 1 - Position angulaire: 300° (-60°)
+      # ============================================
+      # Position: x = L·cos(300°) = 0.07845, y = L·sin(300°) = -0.1359
+      # AXE RADIAL : cos(300°) = 0.5, sin(300°) = -0.866
       HingeJoint {
         jointParameters HingeJointParameters {
-          axis 0.000000 1.000000 0.000000
-          anchor 0.125000 0.000000 0.035000
+          axis 0.500000 -0.866025 0.000000  # Axe radial à 300°
+          anchor 0.078450 -0.135877 0.035000
         }
         device [
           RotationalMotor {
-            name "joint_roue_1"
+            name "motor1"
             maxTorque 10000
           }
           PositionSensor {
-            name "joint_roue_1_sensor"
+            name "motor1_sensor"
           }
         ]
         endPoint Solid {
-          translation 0.125000 0.000000 0.035000
+          translation 0.135877 0.078450 0.035000
+          rotation 0.000000 0.000000 1.000000 2.617994  # 150° pour alignement visuel
           children [
             Shape {
               appearance DEF black PBRAppearance {
@@ -90,23 +97,29 @@ PROTO RobotOmniTriangle [
           }
         }
       }
+      
+      # ============================================
+      # ROUE 2 - Position angulaire: 60°
+      # ============================================
+      # Position: x = L·cos(60°) = 0.07845, y = L·sin(60°) = 0.1359
+      # AXE RADIAL : cos(60°) = 0.5, sin(60°) = 0.866
       HingeJoint {
         jointParameters HingeJointParameters {
-          axis -0.866023 -0.500004 0.000000
-          anchor -0.062500 0.108000 0.035000
+          axis 0.500000 0.866025 0.000000  # Axe radial à 60°
+          anchor 0.078450 0.135877 0.035000
         }
         device [
           RotationalMotor {
-            name "joint_roue_2"
+            name "motor2"
             maxTorque 10000
           }
           PositionSensor {
-            name "joint_roue_2_sensor"
+            name "motor2_sensor"
           }
         ]
         endPoint Solid {
-          translation -0.062500 0.108000 0.035000
-          rotation 0.000000 0.000000 1.000000 2.094400
+          translation -0.135877 0.078450 0.035000
+          rotation 0.000000 0.000000 1.000000 4.188790  # 240° pour alignement visuel
           children [
             Shape {
               appearance USE black
@@ -134,23 +147,29 @@ PROTO RobotOmniTriangle [
           }
         }
       }
+      
+      # ============================================
+      # ROUE 3 - Position angulaire: 180°
+      # ============================================
+      # Position: x = L·cos(180°) = -0.1569, y = L·sin(180°) = 0
+      # AXE RADIAL : cos(180°) = -1, sin(180°) = 0
       HingeJoint {
         jointParameters HingeJointParameters {
-          axis 0.866023 -0.500004 0.000000
-          anchor -0.062500 -0.108000 0.035000
+          axis -1.000000 0.000000 0.000000  # Axe radial à 180°
+          anchor -0.156900 0.000000 0.035000
         }
         device [
           RotationalMotor {
-            name "joint_roue_3"
+            name "motor3"
             maxTorque 10000
           }
           PositionSensor {
-            name "joint_roue_3_sensor"
+            name "motor3_sensor"
           }
         ]
         endPoint Solid {
-          translation -0.062500 -0.108000 0.035000
-          rotation 0.000000 0.000000 -1.000000 2.094400
+          translation 0.000000 -0.156900 0.035000
+          rotation 0.000000 0.000000 1.000000 4.712389  # 270° pour alignement visuel
           children [
             Shape {
               appearance USE black

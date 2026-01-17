@@ -1,0 +1,381 @@
+#VRML_SIM R2023b utf8
+# PROTO Robot Holonome 3 Roues - Configuration réelle Webots
+# Roue 1: 210° (bas gauche) | Roue 2: 330° (bas droite) | Roue 3: 90° (haut)
+# Rayon Robot = 156.9mm | Rayon Roue = 30mm
+
+PROTO three_omniwheel [
+  field SFVec3f    translation  0 0 0.03
+  field SFRotation rotation     0 0 1 0
+  field SFBool     supervisor   FALSE
+  field SFString   controller   "omni_robot_test"
+  field SFString   motor1       "motor1"
+  field SFString   motor2       "motor2"
+  field SFString   motor3       "motor3"
+  field SFString   encoder1     "encoder1"
+  field SFString   encoder2     "encoder2"
+  field SFString   encoder3     "encoder3"
+  field SFString   imu          "IMU"
+  field MFString   meshPath     ["meshes/base_link.stl"]  # Chemin vers le mesh
+]
+{
+  DEF OMNI_WHEELS Robot {
+    translation IS translation
+    rotation IS rotation
+    controller IS controller
+    supervisor IS supervisor
+    recognitionColors [ 0 0 0 ]
+    children [
+      GPS { }
+      InertialUnit { name IS imu }
+
+      # ==========================================
+      # ROUE 1 (210° = -150°) - EN BAS À GAUCHE
+      # ==========================================
+      DEF SOLID1 Solid {
+        rotation 0 0 1 3.6652
+        children [
+          DEF WHEEL1 HingeJoint {
+            jointParameters HingeJointParameters { position 0 anchor -0.1569 0 0 }
+            device [
+              RotationalMotor { name IS motor1 maxVelocity 40 }
+              PositionSensor { name IS encoder1 }
+            ]
+            endPoint Solid {
+              translation -0.1569 0 0
+              rotation 1 0 0 0
+              children [
+                DEF sr1 HingeJoint {
+                  jointParameters HingeJointParameters { position 57.8 axis 0 1 0 anchor -0.02 0 0.03 }
+                  endPoint Solid {
+                    translation -0.02 0 0.03 rotation 0 -1 0 5.01
+                    children [ DEF r1 Pose { rotation -1 0 0 1.5708 children [ DEF SMALL_WHEEL_SHAPE Shape { appearance PBRAppearance { baseColor 1 0.75 0.8 roughness 1 metalness 0 } geometry Cylinder { height 0.02 radius 0.006 } } ] } ]
+                    boundingObject USE r1 physics Physics { density -1 mass 0.02 }
+                  }
+                }
+                DEF sr2 HingeJoint {
+                  jointParameters HingeJointParameters { position -72.8 axis 0 -0.707 0.707 anchor -0.02 0.0212 0.0212 }
+                  endPoint Solid {
+                    translation -0.02 0.0212 0.0212 rotation 0 -0.707 0.707 2.51
+                    children [ DEF r2 Pose { rotation -1 0 0 2.27 children [ USE SMALL_WHEEL_SHAPE ] } ]
+                    boundingObject USE r2 physics Physics { density -1 mass 0.02 }
+                  }
+                }
+                DEF sr3 HingeJoint {
+                  jointParameters HingeJointParameters { position 254 axis 0 1 0 anchor -0.02 0 -0.03 }
+                  endPoint Solid {
+                    translation -0.02 0 -0.03 rotation 0 1 0 2.75
+                    children [ DEF r3 Pose { rotation -1 0 0 1.5708 children [ USE SMALL_WHEEL_SHAPE ] } ]
+                    boundingObject USE r3 physics Physics { density -1 mass 0.02 }
+                  }
+                }
+                DEF sr4 HingeJoint {
+                  jointParameters HingeJointParameters { position -91.5 axis 0 -0.707 0.707 anchor -0.02 -0.0212 -0.0212 }
+                  endPoint Solid {
+                    translation -0.02 -0.0212 -0.0212 rotation 0 0.707 -0.707 3.55
+                    children [ DEF r4 Pose { rotation -1 0 0 2.27 children [ USE SMALL_WHEEL_SHAPE ] } ]
+                    boundingObject USE r4 physics Physics { density -1 mass 0.02 }
+                  }
+                }
+                DEF sr5 HingeJoint {
+                  jointParameters HingeJointParameters { position -57.7 axis 0 0 1 anchor -0.02 0.03 0 }
+                  endPoint Solid {
+                    translation -0.02 0.03 0 rotation 0 0 1 5.05
+                    children [ DEF r5 Pose { children [ USE SMALL_WHEEL_SHAPE ] } ]
+                    boundingObject USE r5 physics Physics { density -1 mass 0.02 }
+                  }
+                }
+                DEF sr6 HingeJoint {
+                  jointParameters HingeJointParameters { position 29.3 axis 0 0 1 anchor -0.02 -0.03 0 }
+                  endPoint Solid {
+                    translation -0.02 -0.03 0 rotation 0 0 1 4.18
+                    children [ DEF r6 Pose { children [ USE SMALL_WHEEL_SHAPE ] } ]
+                    boundingObject USE r6 physics Physics { density -1 mass 0.02 }
+                  }
+                }
+                DEF sr7 HingeJoint {
+                  jointParameters HingeJointParameters { position -30.2 axis 0 0.707 0.707 anchor -0.02 0.0212 -0.0212 }
+                  endPoint Solid {
+                    translation -0.02 0.0212 -0.0212 rotation 0 -0.707 -0.707 5.13
+                    children [ DEF r7 Pose { rotation -1 0 0 0.76 children [ USE SMALL_WHEEL_SHAPE ] } ]
+                    boundingObject USE r7 physics Physics { density -1 mass 0.02 }
+                  }
+                }
+                DEF sr8 HingeJoint {
+                  jointParameters HingeJointParameters { position 43.7 axis 0 0.707 0.707 anchor -0.02 -0.0212 0.0212 }
+                  endPoint Solid {
+                    translation -0.02 -0.0212 0.0212 rotation 0 0.707 0.707 6.06
+                    children [ DEF r8 Pose { rotation -1 0 0 0.76 children [ USE SMALL_WHEEL_SHAPE ] } ]
+                    boundingObject USE r8 physics Physics { density -1 mass 0.02 }
+                  }
+                }
+                DEF WHEEL_TRANS Pose {
+                  translation -0.02 0 0 rotation 0 -1 0 1.5708
+                  children [
+                    DEF WHEEL_SHAPE Shape {
+                      appearance PBRAppearance { baseColor 1 0 0 roughness 1 metalness 0 }
+                      geometry Cylinder { height 0.02 radius 0.03 subdivision 24 }
+                    }
+                  ]
+                }
+              ]
+              name "wheel_1"
+              boundingObject Pose {
+                translation -0.02 0 0 rotation 0 -1 0 1.5708
+                children [
+                  DEF wheel_collider Shape {
+                    appearance PBRAppearance { baseColor 0.8 0.8 0.8 transparency 0.8 }
+                    geometry Cylinder { height 0.02 radius 0.03 }
+                  }
+                ]
+              }
+              physics Physics { density -1 mass 0.2 }
+            }
+          }
+        ]
+        name "wheel 1 container"
+        boundingObject DEF DUMMY Sphere { radius 0.01 }
+        physics Physics { density -1 mass 0.1 }
+      }
+
+      # ==========================================
+      # ROUE 2 (330° = -30°) - EN BAS À DROITE
+      # ==========================================
+      DEF SOLID2 Solid {
+        rotation 0 0 1 5.7596
+        children [
+          DEF WHEEL2 HingeJoint {
+            jointParameters HingeJointParameters { position 0 anchor -0.1569 0 0 }
+            device [
+              RotationalMotor { name IS motor2 maxVelocity 40 }
+              PositionSensor { name IS encoder2 }
+            ]
+            endPoint Solid {
+              translation -0.1569 0 0
+              rotation -1 0 0 0
+              children [
+                HingeJoint {
+                  jointParameters HingeJointParameters { position 57.8 axis 0 1 0 anchor -0.02 0 0.03 }
+                  endPoint Solid {
+                    translation -0.02 0 0.03 rotation 0 -1 0 5.01
+                    children [ DEF r1_w2 Pose { rotation -1 0 0 1.5708 children [ USE SMALL_WHEEL_SHAPE ] } ]
+                    boundingObject USE r1_w2 physics Physics { density -1 mass 0.02 }
+                  }
+                }
+                HingeJoint {
+                  jointParameters HingeJointParameters { position -72.8 axis 0 -0.707 0.707 anchor -0.02 0.0212 0.0212 }
+                  endPoint Solid {
+                    translation -0.02 0.0212 0.0212 rotation 0 -0.707 0.707 2.51
+                    children [ DEF r2_w2 Pose { rotation -1 0 0 2.27 children [ USE SMALL_WHEEL_SHAPE ] } ]
+                    boundingObject USE r2_w2 physics Physics { density -1 mass 0.02 }
+                  }
+                }
+                HingeJoint {
+                  jointParameters HingeJointParameters { position 254 axis 0 1 0 anchor -0.02 0 -0.03 }
+                  endPoint Solid {
+                    translation -0.02 0 -0.03 rotation 0 1 0 2.75
+                    children [ DEF r3_w2 Pose { rotation -1 0 0 1.5708 children [ USE SMALL_WHEEL_SHAPE ] } ]
+                    boundingObject USE r3_w2 physics Physics { density -1 mass 0.02 }
+                  }
+                }
+                HingeJoint {
+                  jointParameters HingeJointParameters { position -91.5 axis 0 -0.707 0.707 anchor -0.02 -0.0212 -0.0212 }
+                  endPoint Solid {
+                    translation -0.02 -0.0212 -0.0212 rotation 0 0.707 -0.707 3.55
+                    children [ DEF r4_w2 Pose { rotation -1 0 0 2.27 children [ USE SMALL_WHEEL_SHAPE ] } ]
+                    boundingObject USE r4_w2 physics Physics { density -1 mass 0.02 }
+                  }
+                }
+                HingeJoint {
+                  jointParameters HingeJointParameters { position -57.7 axis 0 0 1 anchor -0.02 0.03 0 }
+                  endPoint Solid {
+                    translation -0.02 0.03 0 rotation 0 0 1 5.05
+                    children [ DEF r5_w2 Pose { children [ USE SMALL_WHEEL_SHAPE ] } ]
+                    boundingObject USE r5_w2 physics Physics { density -1 mass 0.02 }
+                  }
+                }
+                HingeJoint {
+                  jointParameters HingeJointParameters { position 29.3 axis 0 0 1 anchor -0.02 -0.03 0 }
+                  endPoint Solid {
+                    translation -0.02 -0.03 0 rotation 0 0 1 4.18
+                    children [ DEF r6_w2 Pose { children [ USE SMALL_WHEEL_SHAPE ] } ]
+                    boundingObject USE r6_w2 physics Physics { density -1 mass 0.02 }
+                  }
+                }
+                HingeJoint {
+                  jointParameters HingeJointParameters { position -30.2 axis 0 0.707 0.707 anchor -0.02 0.0212 -0.0212 }
+                  endPoint Solid {
+                    translation -0.02 0.0212 -0.0212 rotation 0 -0.707 -0.707 5.13
+                    children [ DEF r7_w2 Pose { rotation -1 0 0 0.76 children [ USE SMALL_WHEEL_SHAPE ] } ]
+                    boundingObject USE r7_w2 physics Physics { density -1 mass 0.02 }
+                  }
+                }
+                HingeJoint {
+                  jointParameters HingeJointParameters { position 43.7 axis 0 0.707 0.707 anchor -0.02 -0.0212 0.0212 }
+                  endPoint Solid {
+                    translation -0.02 -0.0212 0.0212 rotation 0 0.707 0.707 6.06
+                    children [ DEF r8_w2 Pose { rotation -1 0 0 0.76 children [ USE SMALL_WHEEL_SHAPE ] } ]
+                    boundingObject USE r8_w2 physics Physics { density -1 mass 0.02 }
+                  }
+                }
+                Pose {
+                  translation -0.02 0 0 rotation 0 -1 0 1.5708
+                  children [
+                    Shape {
+                      appearance PBRAppearance { baseColor 0 1 0 roughness 1 metalness 0 }
+                      geometry Cylinder { height 0.02 radius 0.03 subdivision 24 }
+                    }
+                  ]
+                }
+              ]
+              name "wheel_2"
+              boundingObject Pose { translation -0.02 0 0 rotation 0 -1 0 1.5708 children [ USE wheel_collider ] }
+              physics Physics { density -1 mass 0.2 }
+            }
+          }
+        ]
+        name "wheel 2 container"
+        boundingObject USE DUMMY
+        physics Physics { density -1 mass 0.1 }
+      }
+
+      # ==========================================
+      # ROUE 3 (90°) - EN HAUT, alignée avec Y+
+      # ==========================================
+      DEF SOLID3 Solid {
+        rotation 0 0 1 1.5708
+        children [
+          DEF WHEEL3 HingeJoint {
+            jointParameters HingeJointParameters { position 0 anchor -0.1569 0 0 }
+            device [
+              RotationalMotor { name IS motor3 maxVelocity 40 }
+              PositionSensor { name IS encoder3 }
+            ]
+            endPoint Solid {
+              translation -0.1569 0 0
+              rotation -1 0 0 0
+              children [
+                HingeJoint {
+                  jointParameters HingeJointParameters { position 57.8 axis 0 1 0 anchor -0.02 0 0.03 }
+                  endPoint Solid {
+                    translation -0.02 0 0.03 rotation 0 -1 0 5.01
+                    children [ DEF r1_w3 Pose { rotation -1 0 0 1.5708 children [ USE SMALL_WHEEL_SHAPE ] } ]
+                    boundingObject USE r1_w3 physics Physics { density -1 mass 0.02 }
+                  }
+                }
+                HingeJoint {
+                  jointParameters HingeJointParameters { position -72.8 axis 0 -0.707 0.707 anchor -0.02 0.0212 0.0212 }
+                  endPoint Solid {
+                    translation -0.02 0.0212 0.0212 rotation 0 -0.707 0.707 2.51
+                    children [ DEF r2_w3 Pose { rotation -1 0 0 2.27 children [ USE SMALL_WHEEL_SHAPE ] } ]
+                    boundingObject USE r2_w3 physics Physics { density -1 mass 0.02 }
+                  }
+                }
+                HingeJoint {
+                  jointParameters HingeJointParameters { position 254 axis 0 1 0 anchor -0.02 0 -0.03 }
+                  endPoint Solid {
+                    translation -0.02 0 -0.03 rotation 0 1 0 2.75
+                    children [ DEF r3_w3 Pose { rotation -1 0 0 1.5708 children [ USE SMALL_WHEEL_SHAPE ] } ]
+                    boundingObject USE r3_w3 physics Physics { density -1 mass 0.02 }
+                  }
+                }
+                HingeJoint {
+                  jointParameters HingeJointParameters { position -91.5 axis 0 -0.707 0.707 anchor -0.02 -0.0212 -0.0212 }
+                  endPoint Solid {
+                    translation -0.02 -0.0212 -0.0212 rotation 0 0.707 -0.707 3.55
+                    children [ DEF r4_w3 Pose { rotation -1 0 0 2.27 children [ USE SMALL_WHEEL_SHAPE ] } ]
+                    boundingObject USE r4_w3 physics Physics { density -1 mass 0.02 }
+                  }
+                }
+                HingeJoint {
+                  jointParameters HingeJointParameters { position -57.7 axis 0 0 1 anchor -0.02 0.03 0 }
+                  endPoint Solid {
+                    translation -0.02 0.03 0 rotation 0 0 1 5.05
+                    children [ DEF r5_w3 Pose { children [ USE SMALL_WHEEL_SHAPE ] } ]
+                    boundingObject USE r5_w3 physics Physics { density -1 mass 0.02 }
+                  }
+                }
+                HingeJoint {
+                  jointParameters HingeJointParameters { position 29.3 axis 0 0 1 anchor -0.02 -0.03 0 }
+                  endPoint Solid {
+                    translation -0.02 -0.03 0 rotation 0 0 1 4.18
+                    children [ DEF r6_w3 Pose { children [ USE SMALL_WHEEL_SHAPE ] } ]
+                    boundingObject USE r6_w3 physics Physics { density -1 mass 0.02 }
+                  }
+                }
+                HingeJoint {
+                  jointParameters HingeJointParameters { position -30.2 axis 0 0.707 0.707 anchor -0.02 0.0212 -0.0212 }
+                  endPoint Solid {
+                    translation -0.02 0.0212 -0.0212 rotation 0 -0.707 -0.707 5.13
+                    children [ DEF r7_w3 Pose { rotation -1 0 0 0.76 children [ USE SMALL_WHEEL_SHAPE ] } ]
+                    boundingObject USE r7_w3 physics Physics { density -1 mass 0.02 }
+                  }
+                }
+                HingeJoint {
+                  jointParameters HingeJointParameters { position 43.7 axis 0 0.707 0.707 anchor -0.02 -0.0212 0.0212 }
+                  endPoint Solid {
+                    translation -0.02 -0.0212 0.0212 rotation 0 0.707 0.707 6.06
+                    children [ DEF r8_w3 Pose { rotation -1 0 0 0.76 children [ USE SMALL_WHEEL_SHAPE ] } ]
+                    boundingObject USE r8_w3 physics Physics { density -1 mass 0.02 }
+                  }
+                }
+                Pose {
+                  translation -0.02 0 0 rotation 0 -1 0 1.5708
+                  children [
+                    Shape {
+                      appearance PBRAppearance { baseColor 0 0 1 roughness 1 metalness 0 }
+                      geometry Cylinder { height 0.02 radius 0.03 subdivision 24 }
+                    }
+                  ]
+                }
+              ]
+              name "wheel_3"
+              boundingObject Pose { translation -0.02 0 0 rotation 0 -1 0 1.5708 children [ USE wheel_collider ] }
+              physics Physics { density -1 mass 0.2 }
+            }
+          }
+        ]
+        name "wheel 3 container"
+        boundingObject USE DUMMY
+        physics Physics { density -1 mass 0.1 }
+      }
+
+      # --- CORPS (Body) avec Mesh ---
+      Camera {
+        translation 0 0 0.4
+        rotation 0 1 0 1.5708
+        fieldOfView 3.14
+        width 640
+        height 640
+        projection "spherical"
+      }
+      DEF BODY_TRANS Pose {
+        translation 0 0 0
+        children [
+          Transform {
+            scale 0.001 0.001 0.001
+            rotation 0 0 1 -1.023595307179586
+            children [
+              Transform {
+                rotation 1 0 0 1.5708
+                children [
+                  Shape {
+                    appearance PBRAppearance { 
+                      baseColor 0 0 1
+                      roughness 1 
+                      metalness 0 
+                    }
+                    geometry Mesh {
+                      url IS meshPath
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+    boundingObject USE BODY_TRANS
+    physics Physics { density -1 mass 5 }
+  }
+}

@@ -132,6 +132,7 @@ com.send_bytes(message)
 ### Simulation
 1. **Webots** installé (C:/App/Webots)
 2. **Virtual Serial Port Tools** ou **com0com** (COM1 ↔ COM2)
+3. Définir le chemin d'origine de webots dans webots_path.mk
 3. **Python 3.x** avec `pyserial`, `crc8`
 
 ### Hardware

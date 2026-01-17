@@ -4,12 +4,24 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/appearances/protos/Asphalt.proto"
+EXTERNPROTO "../protos/three_omniwheel.proto"
 
 WorldInfo {
+  contactProperties [
+    ContactProperties {
+      material1 "OmniWheelMat"
+      material2 "floor"
+      coulombFriction [
+        0.8
+      ]
+      bounce 0.1
+      softCFM 0.0001
+    }
+  ]
 }
 Viewpoint {
-  orientation 0.205559746041147 -0.536303183819216 -0.8186110711643664 4.232696760784144
-  position 1.7974101415246528 -3.3389282895227446 3.997792018689156
+  orientation 0.6078279447337926 -0.5987779883815101 -0.5215458850671586 4.090810401444593
+  position 0.14329568269294057 0.551151857367078 5.2133605747824845
 }
 TexturedBackground {
 }
@@ -20,8 +32,8 @@ RectangleArena {
   wallHeight 0.07
 }
 Robot {
-  translation 1.504827804011817 -2.1842641642561493 0.02665624298523911
-  rotation 0.000984265904691172 -0.001356658926545459 0.9999985953476064 -2.6751207027004154
+  translation -3.70379e-05 -1.33991 0.0268368
+  rotation -0.9232252780865396 -0.38425911574345983 0.00013367904026573212 0.00326142
   children [
     DEF CORPS_DEPLACE Pose {
       translation 0 0 0.22
@@ -29,6 +41,7 @@ Robot {
         DEF CORPS_SHAPE Shape {
           appearance PBRAppearance {
             baseColor 0 0 0
+            transparency 0.8
             roughness 0.5
             metalness 0
           }
@@ -46,7 +59,7 @@ Robot {
           children [
             HingeJoint {
               jointParameters HingeJointParameters {
-                position -53.01471861490622
+                position -53.01471931566815
                 axis 0 1 0
               }
               device [
@@ -59,8 +72,8 @@ Robot {
                 }
               ]
               endPoint Solid {
-                translation 0.0034990133754366857 0.0013527191834031929 0.0005367668511421417
-                rotation -0.007181787203856427 -0.9999681543127564 0.003480271957479086 1.1831162532181438
+                translation 0.0034990129992900545 0.0013527191834031933 0.0005367693031173768
+                rotation -0.007181784677779329 -0.9999681543459736 0.0034802676260623127 1.183116953957758
                 children [
                   DEF VISUAL_WHEEL_1 Transform {
                     rotation 0 0 1 -1.57
@@ -69,7 +82,6 @@ Robot {
                       Shape {
                         appearance PBRAppearance {
                           baseColor 0.1 0.1 0.1
-                          transparency 1
                           roughness 0.8
                         }
                         geometry Mesh {
@@ -99,6 +111,7 @@ Robot {
                   }
                 ]
                 name "wheel_solid_1"
+                contactMaterial "OmniWheelMat"
                 boundingObject USE ROUE_COLLISION
                 physics Physics {
                   mass 0.2
@@ -117,8 +130,8 @@ Robot {
           children [
             HingeJoint {
               jointParameters HingeJointParameters {
-                position 521.768946487222
-                axis 0 1 0
+                position 521.7689470464898
+                axis 0.5 0.866025 0
               }
               device [
                 RotationalMotor {
@@ -130,8 +143,8 @@ Robot {
                 }
               ]
               endPoint Solid {
-                translation -0.0032326973839032565 -0.00016166613624468427 0.001010869697016972
-                rotation -0.00797769658393428 -0.9999600369135958 0.004034963813328383 5.485185799536974
+                translation -0.0032326968942982576 -0.00016166641891839765 0.0010108712175341474
+                rotation -0.007978022626059017 -0.9999600348781187 0.004034823605760167 5.4851853129854415
                 children [
                   DEF VISUAL_WHEEL_2 Transform {
                     rotation 0 0 1 -1.57
@@ -140,7 +153,6 @@ Robot {
                       Shape {
                         appearance PBRAppearance {
                           baseColor 0.1 0.1 0.1
-                          transparency 1
                           roughness 0.8
                         }
                         geometry Mesh {
@@ -154,6 +166,7 @@ Robot {
                   USE ROUE_COLLISION
                 ]
                 name "wheel_solid_2"
+                contactMaterial "OmniWheelMat"
                 boundingObject USE ROUE_COLLISION
                 physics Physics {
                   mass 0.2
@@ -172,7 +185,7 @@ Robot {
           children [
             HingeJoint {
               jointParameters HingeJointParameters {
-                position 701.5947793304973
+                position 701.5947784210991
                 axis 0 1 0
               }
               device [
@@ -185,8 +198,8 @@ Robot {
                 }
               ]
               endPoint Solid {
-                translation 0.004764112233164459 0.0008889910574271258 -8.178330990138254e-06
-                rotation 0.004404345662720454 0.99998635008515 -0.002810939818435384 4.2905533636487405
+                translation 0.004764112240599853 0.0008889910574271273 -8.173998515130596e-06
+                rotation 0.004404345644537393 0.9999863500931852 -0.002810936988450674 4.2905524542629685
                 children [
                   DEF VISUAL_WHEEL_3 Transform {
                     rotation 0 0 1 -1.57
@@ -195,7 +208,6 @@ Robot {
                       Shape {
                         appearance PBRAppearance {
                           baseColor 0.1 0.1 0.1
-                          transparency 1
                           roughness 0.8
                         }
                         geometry Mesh {
@@ -209,6 +221,7 @@ Robot {
                   USE ROUE_COLLISION
                 ]
                 name "wheel_solid_3"
+                contactMaterial "OmniWheelMat"
                 boundingObject USE ROUE_COLLISION
                 physics Physics {
                   mass 0.2
@@ -228,159 +241,63 @@ Robot {
   }
   controller "<none>"
 }
-DEF ROBOT_2 Robot {
-  translation 0 0 0.0286215
-  rotation 0 0 -0.9999999999999963 0
-  children [
-    DEF CORPS_PRINCIPAL Pose {
-      translation 6.60597e-08 3.10842e-07 -0.01
-      rotation -0.7745972141184518 0.44721212362085194 0.44721412362140484 -1.823475307179586
-      children [
-        Transform {
-          scale 0.001 0.001 0.001
-          children [
-            Shape {
-              appearance PBRAppearance {
-                baseColor 0 0.2 0.8
-                roughness 0.5
-                metalness 0
-              }
-              geometry Mesh {
-                url [
-                  "../protos/meshes/base_link.stl"
-                ]
-              }
-              castShadows FALSE
-            }
-          ]
-        }
-      ]
-    }
-    DEF WHEEL_A_WRAPPER Pose {
-      rotation 0 0 1 -1.0472
-      children [
-        DEF WHEEL_A_RADIUS Pose {
-          translation 0 0.1569 0
-          children [
-            HingeJoint {
-              jointParameters HingeJointParameters {
-                position 17.0142601498946
-                axis 0 1 0
-              }
-              device [
-                RotationalMotor {
-                  name "motor1"
-                  maxVelocity 20
-                }
-                PositionSensor {
-                  name "encoder1"
-                }
-              ]
-              endPoint Solid {
-                rotation -0.09200061438082241 -0.7041066129638633 0.704109199296606 3.325076696996528
-                children [
-                  DEF ROUE_VISUEL Shape {
-                    appearance Asphalt {
-                    }
-                    geometry Cylinder {
-                      height 0.02
-                      radius 0.03
-                    }
-                  }
-                ]
-                name "wheel_solid_1"
-                boundingObject USE ROUE_VISUEL
-                physics Physics {
-                }
-              }
-            }
-          ]
-        }
-      ]
-    }
-    DEF WHEEL_B_WRAPPER Pose {
-      rotation 0 0 1 1.0472
-      children [
-        DEF WHEEL_B_RADIUS Pose {
-          translation 0 0.1569 0
-          children [
-            HingeJoint {
-              jointParameters HingeJointParameters {
-                position 590.3261425828271
-                axis 0 1 0
-              }
-              device [
-                RotationalMotor {
-                  name "motor2"
-                  maxVelocity 20
-                }
-                PositionSensor {
-                  name "encoder2"
-                }
-              ]
-              endPoint Solid {
-                rotation 0.978874113061116 -0.14457751764857238 0.1445780487120701 1.592150608861664
-                children [
-                  USE ROUE_VISUEL
-                ]
-                name "wheel_solid_2"
-                boundingObject USE ROUE_VISUEL
-                physics Physics {
-                }
-              }
-            }
-          ]
-        }
-      ]
-    }
-    DEF WHEEL_C_WRAPPER Pose {
-      rotation 0 0 1 3.14159
-      children [
-        DEF WHEEL_C_RADIUS Pose {
-          translation 0 0.1569 0
-          children [
-            HingeJoint {
-              jointParameters HingeJointParameters {
-                position 766.9604121483075
-                axis 0 1 0
-              }
-              device [
-                RotationalMotor {
-                  name "motor3"
-                  maxVelocity 20
-                }
-                PositionSensor {
-                  name "encoder3"
-                }
-              ]
-              endPoint Solid {
-                rotation 0.9590383284181149 0.2003062528565468 -0.200306988623855 1.6126120463229765
-                children [
-                  USE ROUE_VISUEL
-                ]
-                name "wheel_solid_3"
-                boundingObject USE ROUE_VISUEL
-                physics Physics {
-                }
-              }
-            }
-          ]
-        }
-      ]
-    }
-  ]
-  name "RobotOmniTriangle"
-  boundingObject Pose {
-    translation 0 0 0.05
-    children [
-      Box {
-        size 0.3 0.3 0.1
-      }
-    ]
-  }
-  physics Physics {
-    density -1
-    mass 5
-  }
+DEF OMNI_WHEELS three_omniwheel {
+  hidden position_3_0 19.197691257486095
+  hidden rotation_4 -1 0 0 5.93504997123225
+  hidden position_4_0 57.78906104706003
+  hidden position_4_1 -66.93592360773468
+  hidden position_4_2 253.9890580706512
+  hidden position_4_3 -95.46049422205769
+  hidden position_4_4 -57.7153460562341
+  hidden position_4_5 23.36738732197973
+  hidden position_4_6 -30.527029083230595
+  hidden position_4_7 43.15907693125158
+  hidden rotation_5 0 -1 0 5.020938952939986
+  hidden rotation_6 0 0.7071067811865476 -0.7071067811865476 4.192294222093856
+  hidden rotation_7 0 1 0 2.7390580706512018
+  hidden rotation_8 0 -0.7071067811865476 0.7071067811865476 5.0558763923015295
+  hidden rotation_9 0 0 1 5.034653943765916
+  hidden rotation_10 0 0 -1 1.7526126780202982
+  hidden rotation_11 0 -0.7071067811865476 -0.7071067811865476 5.457029083230582
+  hidden rotation_12 0 0.7071067811865475 0.7071067811865475 5.519076931251566
+  hidden position_13_0 -16.72006859167446
+  hidden rotation_14 -1 0 0 4.153697977315286
+  hidden position_14_0 57.7892390238507
+  hidden position_14_1 -69.22099179126027
+  hidden position_14_2 253.98913858728866
+  hidden position_14_3 -76.41489950804024
+  hidden position_14_4 -57.7153430104152
+  hidden position_14_5 23.382300321445296
+  hidden position_14_6 -28.989089036487
+  hidden position_14_7 42.67948016460317
+  hidden rotation_15 0 -1 0 5.020760976149298
+  hidden rotation_16 0 -0.7071067811865475 0.7071067811865475 6.08900820873972
+  hidden rotation_17 0 1 0 2.7391385872886693
+  hidden rotation_18 0 0.7071067811865475 -0.7071067811865475 1.0312701223993925
+  hidden rotation_19 0 0 1 5.034656989584805
+  hidden rotation_20 0 0 -1 1.7376996785546979
+  hidden rotation_21 0 -0.7071067811865476 -0.7071067811865476 3.9190890364869957
+  hidden rotation_22 0 0.7071067811865476 0.7071067811865476 5.039480164603145
+  hidden position_23_0 1.238811338328159
+  hidden rotation_24 1 0 0 1.238811338328159
+  hidden position_24_0 57.78915500936841
+  hidden position_24_1 -67.51432045124486
+  hidden position_24_2 253.9891032430157
+  hidden position_24_3 -108.07032718813815
+  hidden position_24_4 -57.715349828648776
+  hidden position_24_5 23.43253847419057
+  hidden position_24_6 -29.81078350149896
+  hidden position_24_7 42.87345323529061
+  hidden rotation_25 0 -1 0 5.020844990631609
+  hidden rotation_26 0 0.7071067811865476 -0.7071067811865476 4.770691065604033
+  hidden rotation_27 0 1 0 2.7391032430157103
+  hidden rotation_28 0 -0.7071067811865476 0.7071067811865476 5.012414040580303
+  hidden rotation_29 0 0 1 5.034650171351231
+  hidden rotation_30 0 0 -1 1.6874615258094254
+  hidden rotation_31 0 -0.7071067811865476 -0.7071067811865476 4.740783501498955
+  hidden rotation_32 0 0.7071067811865475 0.7071067811865475 5.233453235290602
+  translation -5.047667991267978e-06 6.206506822578378e-06 0.04249648801334982
+  rotation 8.511793983087641e-06 -5.836595768179381e-06 0.9999999999467419 0.01886036694882089
   controller "teensy_controller"
 }
+

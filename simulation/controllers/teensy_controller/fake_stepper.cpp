@@ -13,6 +13,9 @@ const double RAD_TO_STEPS = TOTAL_STEPS / (2.0 * M_PI);
 Stepper::Stepper(uint8_t step_pin, uint8_t dir_pin, bool inverted) {
     char name[32];
     
+    // Sauvegarder l'ID du moteur (1, 2, ou 3)
+    uint8_t motor_id = step_pin;
+    
     // Chercher le moteur
     sprintf(name, "motor%d", step_pin);
     WbDeviceTag m = wb_robot_get_device(name);
@@ -44,8 +47,9 @@ Stepper::Stepper(uint8_t step_pin, uint8_t dir_pin, bool inverted) {
         printf("✅ Moteur 'motor%d' initialisé (encoder: %s)\n", step_pin, encoder_name);
     }
     
-    // Stockage des tags Webots
-    this->m_step_pin = (uint8_t)m;
+    // Stockage: on met l'ID dans le byte haut et le WbDeviceTag dans le byte bas
+    // m_step_pin stocke: (motor_id << 16) | m
+    this->m_step_pin = (motor_id << 16) | (uint8_t)m;
     this->m_dir_pin = (uint8_t)s;
     
     if(m) {
@@ -63,19 +67,19 @@ Stepper::Stepper(uint8_t step_pin, uint8_t dir_pin, bool inverted) {
 
 // Commande de vitesse (Webots gère la physique, on lui donne juste la consigne)
 void Stepper::setMaxSpeed(float speed_in_steps_per_sec) { 
-    WbDeviceTag m = (WbDeviceTag)this->m_step_pin;
+    WbDeviceTag m = (WbDeviceTag)(this->m_step_pin & 0xFFFF);
     if (!m) return;
+    
+    // Pas d'inversion - vitesse directe
+    float adapted_speed = speed_in_steps_per_sec;
+    
     // On convertit steps/s en rad/s
-    double rad_s = speed_in_steps_per_sec * STEPS_TO_RAD;
+    double rad_s = adapted_speed * STEPS_TO_RAD;
     // Limitation hard (20 rad/s max dans Webots)
     if(rad_s > 20.0) rad_s = 20.0; 
     if(rad_s < -20.0) rad_s = -20.0;
     
-    if(m) wb_motor_set_velocity(m, rad_s);
-
-    // DEBUG (à retirer après test)
-    //printf("Motor%d: %.1f steps/s → %.3f rad/s\n", 
-           //m_step_pin, speed_in_steps_per_sec, rad_s);
+    wb_motor_set_velocity(m, rad_s);
 }
 
 int32_t Stepper::getPosition() const {
