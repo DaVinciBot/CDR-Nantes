@@ -1,18 +1,32 @@
 #pragma once
-
 #include <Arduino.h>
-
-// IMPORTANT : On inclut notre librairie "Maison" au lieu de TeensyStep4
-// Le chemin relatif dépend de l'arborescence, ici on remonte vers KaribouMotion
-#include "../../KaribouMotion/stepper.h"
+#include "../../KaribouMotion/stepper.h" //Librairie Maison KaribouMotion
 
 #include <pid.h>
 #include "structures.h"
 #include <com.h>
 
+#ifdef WEBOTS_SIMULATION
+    // Mode simulation : Mocks
+    #include "Mock_PAA5100.h"
+    #include "Mock_BNO085.h"
+    // Les encodeurs MKS sont gérés par fake_stepper.cpp
+#else
+    // Mode robot réel : Vraies librairies
+    #include <PAA5100.h>              // Capteur optique
+    #include <Adafruit_BNO085.h>      // IMU
+    #include <Adafruit_Sensor.h>
+    #include <sh2.h>
+    #include <sh2_SensorValue.h>
+#endif
 
 class Holonomic_Basis {
    public:
+   //Odométrie 
+   double X = 0.0;
+    double Y = 0.0;
+    double THETA = 0.0;
+
     // PID controllers (3 for X, Y, THETA)
     PID x_pid;
     PID y_pid;
@@ -29,11 +43,9 @@ class Holonomic_Basis {
     
     // Le groupe de synchronisation KaribouMotion
     StepperGroup* stepperGroup;
-
-    // Odometrie - Position du robot
-    double X = 0.0;
-    double Y = 0.0;
-    double THETA = 0.0;
+    // Capteurs
+    PAA5100* paa5100 = nullptr; //capteur Optique
+    Adafruit_BNO085* bno085 = nullptr; //IMU
 
     // Robot parameters
     double robot_radius;      // Distance from center to wheels (mm)
@@ -72,7 +84,12 @@ class Holonomic_Basis {
     void enable_motors();
     void disable_motors();
 
-    // Control
+    // Control PID
+    //Capteur
+    void init_sensors();
+    //Odométrie
+    void update_odometry();
+    //Boucle principale
     void handle(Point target_position, Com* com);
 
     // Mouvement
@@ -89,4 +106,19 @@ class Holonomic_Basis {
     byte wheel1_enable_pin;
     byte wheel2_enable_pin;
     byte wheel3_enable_pin;
+
+    struct OdometryData {
+        // Dernières positions des encodeurs
+        int32_t last_pos1 = 0;
+        int32_t last_pos2 = 0;
+        int32_t last_pos3 = 0;
+        
+        // Calibration IMU
+        double imu_yaw_offset = 0.0;
+        bool imu_calibrated = false;
+        
+        // Compteurs debug
+        uint32_t fusion_counter = 0;
+        uint32_t debug_counter = 0;
+    } odo_data;
 };

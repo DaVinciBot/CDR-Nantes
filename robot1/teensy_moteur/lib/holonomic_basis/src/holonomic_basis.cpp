@@ -43,6 +43,8 @@ Holonomic_Basis::Holonomic_Basis(double robot_radius,
     wheel2 = nullptr;
     wheel3 = nullptr;
     stepperGroup = nullptr;
+    paa5100 = nullptr;
+    bno085 = nullptr;  
 }
 
 // Destructor
@@ -52,6 +54,8 @@ Holonomic_Basis::~Holonomic_Basis() {
     delete wheel2;
     delete wheel3;
     delete stepperGroup;
+    delete paa5100;
+    delete bno085;
 }
 
 // === DÉFINITION DES MOTEURS ===
@@ -130,6 +134,67 @@ void Holonomic_Basis::disable_motors() {
 }
 
 // === ODOMÉTRIE & PID ===
+void Holonomic_Basis::init_sensors() {
+    printf("🔧 Initialisation des capteurs d'odométrie...\n");
+    
+    // === CAPTEUR OPTIQUE PAA5100JE ===
+    #ifdef WEBOTS_SIMULATION
+        paa5100 = new PAA5100();
+    #else
+        paa5100 = new PAA5100(PAA5100_CS_PIN);
+    
+        // Initialisation SPI
+        pinMode(PAA5100_CS_PIN, OUTPUT);
+        digitalWrite(PAA5100_CS_PIN, HIGH);
+        SPI.begin();
+        SPI.setClockDivider(SPI_CLOCK_DIV16);  // 1MHz
+    #endif
+    
+        if (paa5100 && paa5100->begin()) {
+            printf("✅ PAA5100 : Capteur optique initialisé\n");
+        } else {
+            printf("❌ PAA5100 : Échec initialisation\n");
+        }
+    
+    
+    // === IMU BNO085 ===
+    #ifdef WEBOTS_SIMULATION
+        bno085 = new Adafruit_BNO085();
+    #else
+        bno085 = new Adafruit_BNO085(BNO085_RESET_PIN);
+    
+        // Initialisation I2C
+        Wire.begin();
+        Wire.setClock(400000);  // 400kHz Fast I2C
+    #endif
+    
+        if (bno085 && bno085->begin_I2C()) {
+            printf("✅ BNO085 : IMU initialisée\n");
+        
+    #ifndef WEBOTS_SIMULATION
+        // Activer rapports quaternions (100Hz)
+        bno085->enableReport(SH2_ARVR_STABILIZED_RV, 10000);
+    #endif
+        
+        // Calibration initiale
+        delay(500);
+        
+        sh2_Quaternion_t quat;
+        if (bno085->getQuat(quat)) {
+            odo_data.imu_yaw_offset = atan2(
+                2.0 * (quat.real * quat.k + quat.i * quat.j),
+                1.0 - 2.0 * (quat.j * quat.j + quat.k * quat.k)
+            );
+            odo_data.imu_calibrated = true;
+            printf("✅ IMU calibrée : offset = %.3f rad\n", odo_data.imu_yaw_offset);
+        }
+    } else {
+        printf("❌ BNO085 : Échec initialisation\n");
+    }
+    
+    printf("✅ Capteurs initialisés\n\n");
+}
+//Encore besoin ?
 
 Point Holonomic_Basis::get_current_position() {
     Point position;
@@ -140,23 +205,137 @@ Point Holonomic_Basis::get_current_position() {
     interrupts();
     return position;
 }
+void Holonomic_Basis::update_odometry() {
+    // =========================================
+    // MÉTHODE 1 : ODOMÉTRIE ENCODEURS (Roues)
+    // =========================================
+    
+    // Récupérer positions actuelles
+    int32_t pos1 = wheel1 ? wheel1->getPosition() : 0;
+    int32_t pos2 = wheel2 ? wheel2->getPosition() : 0;
+    int32_t pos3 = wheel3 ? wheel3->getPosition() : 0;
+    
+    // Calculer deltas
+    int32_t delta_steps1 = pos1 - odo_data.last_pos1;
+    int32_t delta_steps2 = pos2 - odo_data.last_pos2;
+    int32_t delta_steps3 = pos3 - odo_data.last_pos3;
+    
+    // Conversion steps -> mm
+    const double STEPS_TO_MM = (wheel_diameter * M_PI) / 
+                               (steps_per_revolution * microsteps);
+    
+    double w1_mm = delta_steps1 * STEPS_TO_MM;
+    double w2_mm = delta_steps2 * STEPS_TO_MM;
+    double w3_mm = delta_steps3 * STEPS_TO_MM;
+    
+    // Cinématique Directe : Vitesses Roues -> Vitesse Robot
+    // Configuration : Roue1 à 210° (-150°), Roue2 à 330° (-30°), Roue3 à 90°
+    double vx_robot = (-0.333 * w1_mm - 0.333 * w2_mm + 0.667 * w3_mm);
+    double vy_robot = (0.577 * w1_mm - 0.577 * w2_mm);
+    double omega_enc = -(w1_mm + w2_mm + w3_mm) / (3.0 * robot_radius);
+    
+    // =========================================
+    // MÉTHODE 2 : ODOMÉTRIE OPTIQUE (PAA5100)
+    // =========================================
+    
+    int16_t delta_x_paa = 0, delta_y_paa = 0;
+    double dx_world_paa = 0.0, dy_world_paa = 0.0;
+    
+    if (paa5100) {
+        paa5100->readMotion(delta_x_paa, delta_y_paa);
+        
+        // Rotation référentiel capteur -> robot -> monde
+        double cos_theta = cos(this->THETA);
+        double sin_theta = sin(this->THETA);
+        
+        double dx_robot_paa = delta_x_paa;  // Supposé aligné avec X robot
+        double dy_robot_paa = delta_y_paa;
+        
+        dx_world_paa = dx_robot_paa * cos_theta - dy_robot_paa * sin_theta;
+        dy_world_paa = dx_robot_paa * sin_theta + dy_robot_paa * cos_theta;
+    }
+    
+    // =========================================
+    // FUSION : PAA5100 prioritaire si mouvement
+    // =========================================
+    
+    double dx_world, dy_world;
+    
+    // Critère : mouvement détecté par PAA5100 (seuil 1mm)
+    bool paa_reliable = (abs(delta_x_paa) > 1 || abs(delta_y_paa) > 1);
+    
+    if (paa_reliable && paa5100) {
+        // PAA5100 prioritaire (pas de glissement)
+        dx_world = dx_world_paa;
+        dy_world = dy_world_paa;
+    } else {
+        // Encodeurs en fallback
+        double cos_theta = cos(this->THETA);
+        double sin_theta = sin(this->THETA);
+        
+        dx_world = vx_robot * cos_theta - vy_robot * sin_theta;
+        dy_world = vx_robot * sin_theta + vy_robot * cos_theta;
+    }
+    
+    // Mise à jour X, Y
+    this->X += dx_world;
+    this->Y += dy_world;
+    
+    // =========================================
+    // CORRECTION THETA PAR IMU (Source fiable)
+    // =========================================
+    
+    if (bno085 && odo_data.imu_calibrated) {
+        sh2_Quaternion_t quat;
+        if (bno085->getQuat(quat)) {
+            // Conversion quaternion -> yaw
+            double yaw = atan2(
+                2.0 * (quat.real * quat.k + quat.i * quat.j),
+                1.0 - 2.0 * (quat.j * quat.j + quat.k * quat.k)
+            );
+            
+            // Appliquer offset calibration
+            this->THETA = yaw - odo_data.imu_yaw_offset;
+            
+            // Normalisation
+            while (this->THETA > M_PI) this->THETA -= 2.0 * M_PI;
+            while (this->THETA < -M_PI) this->THETA += 2.0 * M_PI;
+        }
+    } else {
+        // Fallback : intégration omega encodeurs
+        this->THETA += omega_enc;
+        
+        while (this->THETA > M_PI) this->THETA -= 2.0 * M_PI;
+        while (this->THETA < -M_PI) this->THETA += 2.0 * M_PI;
+    }
+    
+    // Sauvegarder pour prochaine itération
+    odo_data.last_pos1 = pos1;
+    odo_data.last_pos2 = pos2;
+    odo_data.last_pos3 = pos3;
+    
+    // =========================================
+    // DEBUG PÉRIODIQUE
+    // =========================================
+    
+    if (++odo_data.debug_counter >= 200) {  // 200 * 10ms = 2s
+        odo_data.debug_counter = 0;
+        
+        printf("📊 Odo: X=%.1f Y=%.1f θ=%.3f | ENC:[%.1f,%.1f,%.1f] PAA:[%d,%d]\n",
+               this->X, this->Y, this->THETA,
+               w1_mm, w2_mm, w3_mm,
+               delta_x_paa, delta_y_paa);
+    }
+}
 
 // Calcul de la boucle d'asservissement (PID + Cinématique Inverse)
 void Holonomic_Basis::handle(Point target_position, Com* com) {
-    static bool first_call = true;
-    if (first_call) {
-        printf("🔍 PREMIÈRE ITÉRATION handle()\n");
-        printf("   Position actuelle: X=%.1f Y=%.1f θ=%.2f\n", X, Y, THETA);
-        printf("   Position cible   : X=%.1f Y=%.1f θ=%.2f\n", 
-               target_position.x, target_position.y, target_position.theta);
-        first_call = false;
-    }
     // 1. Calcul des erreurs dans le référentiel Monde
     double xerr = target_position.x - this->X;
     double yerr = target_position.y - this->Y;
     double theta_error = normalizeAngle(target_position.theta - this->THETA);
 
-     static uint32_t debug_err = 0;
+    static uint32_t debug_err = 0;
     if (++debug_err > 1000) {
         //printf("📐 Erreurs: ΔX=%.1f ΔY=%.1f Δθ=%.2f\n", xerr, yerr, theta_error);
         debug_err = 0;
@@ -185,32 +364,16 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
         vy_world = this->y_pid.compute(yerr);
         omega = this->theta_pid.compute(theta_error);
     }
-    static uint32_t debug_vel = 0;
-    if (++debug_vel > 1000) {
-        printf("🚀 Vitesses: vx=%.1f vy=%.1f ω=%.2f\n", vx_world, vy_world, omega);
-        debug_vel = 0;
-    }
-
+    
     double distance_error = sqrt(xerr*xerr + yerr*yerr);
     double angle_error = fabs(theta_error);
     
-    if (distance_error < 0.01 && angle_error < 0.05) {  // 5mm et 3°
+    if (distance_error < 1 && angle_error < 0.05) {  // 5mm et 3°
         vx_world = 0.0;
         vy_world = 0.0;
         omega = 0.0;
     }
-    // 3. Mise à jour de l'odométrie
-    // Pour le robot réel : utiliser les encodeurs des moteurs
-    // Pour Webots : les encodeurs sont lus dans getPosition() via fake_stepper
-    // On calcule le déplacement depuis la dernière itération
     
-    // TODO ROBOT RÉEL: Implémenter odométrie 3 roues
-    // Pour l'instant, on utilise le dead reckoning simplifié
-    // qui sera remplacé par la vraie odométrie sur le robot physique
-    float dt = 0.01f; 
-    this->X += vx_world * dt;
-    this->Y += vy_world * dt;
-    this->THETA = normalizeAngle(this->THETA + omega * dt);
 
 
     // 4. Changement de repère : Monde -> Robot
@@ -221,50 +384,23 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     double vy_robot = -sin_theta * vx_world + cos_theta * vy_world;
     
     // 5. Cinématique Inverse : Vitesse Robot -> Vitesse Roues (steps/s)
-    // steps_per_m = (steps_per_rev * microsteps) / (diameter * PI)
+    // steps_per_m = (steps_per_rev * microsteps) / (iameter * PI)d
     double speed_factor = (steps_per_revolution * microsteps) / wheel_circumference();
     
     double vx_steps = vx_robot * speed_factor;
     double vy_steps = vy_robot * speed_factor;
     double omega_steps = omega * robot_radius * speed_factor;
     
-    // Matrice de projection pour robot 3 roues tangentielles
-    // Axes tangentiels : 120°, 240°, 0° (angles de position + 90°)
-    // Pour un axe de rotation à angle β :
-    // w = cos(β)·vx + sin(β)·vy + R·ω
-    
+    //Equation de mouvements
     // Roue 1 avec axe à 120° : cos(120°) = -0.5, sin(120°) = +0.866
     double w1 = -(0.5 * vx_steps - 0.866025 * vy_steps + omega_steps);
-    
     // Roue 2 avec axe à 240° : cos(240°) = -0.5, sin(240°) = -0.866
     double w2 = -(0.5 * vx_steps +0.866025 * vy_steps + omega_steps);
-    
     // Roue 3 avec axe à 0° : cos(0°) = +1.0, sin(0°) = 0
     double w3 = -(-1.0*vx_steps +omega_steps);
-    
-
-    
-    // Correction Géométrique (Angles -60, 60, 180)
-    // Roue 1 (-60°): sin(-60)=-0.866, cos(-60)=0.5 -> +0.866 Vx + 0.5 Vy
-    //double w1 = 0.866 * vx_steps + 0.5 * vy_steps - omega_steps;
-
-    // Roue 2 (60°): sin(60)=0.866, cos(60)=0.5 -> -0.866 Vx + 0.5 Vy
-    //double w2 = -0.866 * vx_steps + 0.5 * vy_steps - omega_steps;
-
-    // Roue 3 (180°): sin(180)=0, cos(180)=-1 -> -Vy
-    // ATTENTION : Ta roue arrière est perpendiculaire à l'avant, elle ne sert QU'AU strafe (Y) et rotation
-    //double w3 = -1.0 * vy_steps - omega_steps;
 
     // DEBUG: Affichage des vitesses calculées
-    static uint32_t debug_wheels = 0;   
-    if (++debug_wheels > 100) {  // Tous les ~1s
-        printf("⚙️  Vitesses roues: w1=%.1f w2=%.1f w3=%.1f steps/s\n", w1, w2, w3);
-        printf("   Référentiel robot: vx=%.1f vy=%.1f ω=%.2f\n", vx_robot, vy_robot, omega);
-        printf("   Référentiel monde: vx=%.1f vy=%.1f ω=%.2f\n", vx_world, vy_world, omega);
-        printf("   Composantes: vx_steps=%.1f vy_steps=%.1f omega_steps=%.1f\n", vx_steps, vy_steps, omega_steps);
-        debug_wheels = 0;
-    }
-
+    
     // Stockage des vitesses cibles (bornées par max_speed)
     last_wheel1_speed = constrain(w1, -max_speed, max_speed);
     last_wheel2_speed = constrain(w2, -max_speed, max_speed);

@@ -14,6 +14,7 @@ PROTO three_omniwheel [
   field SFString   encoder1     "encoder1"
   field SFString   encoder2     "encoder2"
   field SFString   encoder3     "encoder3"
+  field SFString   gps          "GPS"        # Capteur optique PAA5100
   field SFString   imu          "IMU"
   field MFString   meshPath     ["meshes/base_link.stl"]  # Chemin vers le mesh
 ]
@@ -25,7 +26,10 @@ PROTO three_omniwheel [
     supervisor IS supervisor
     recognitionColors [ 0 0 0 ]
     children [
-      GPS { }
+      GPS { 
+        name IS gps
+        accuracy 0.001
+      }
       InertialUnit { name IS imu }
 
       # ==========================================

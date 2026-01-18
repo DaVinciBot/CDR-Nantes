@@ -3,6 +3,10 @@
 #include <config.h> 
 // Com est déjà inclus via holonomic_basis.h
 
+// Sensors mockés pour l'odométrie
+#include "Mock_PAA5100.h"  // GPS
+#include "Mock_BNO085.h"   // IMU
+
 // PID et Base (Mêmes valeurs que votre vrai robot ou ajustées pour la simu)
 PID x_pid(KP_X, KI_X, KD_X, -MAX_SPEED, MAX_SPEED, 10.0);
 PID y_pid(KP_Y, KI_Y, KD_Y, -MAX_SPEED, MAX_SPEED, 10.0);
@@ -10,6 +14,10 @@ PID theta_pid(KP_THETA, KI_THETA, KD_THETA, -MAX_SPEED, MAX_SPEED, 5.0);
 
 Holonomic_Basis* holonomic_basis_ptr = nullptr;
 Com* com = nullptr;
+
+// Sensors pour odométrie (noms compatibles avec les vraies librairies)
+PAA5100* paa5100 = nullptr;           // Capteur optique
+Adafruit_BNO085* bno085 = nullptr;    // IMU
 
 // --- MODIFICATION ICI : Cible définie à 100, 0, 0 pour le test ---
 // Au lieu de START_X, START_Y, START_THETA
@@ -52,6 +60,11 @@ int main(int argc, char **argv) {
     holonomic_basis_ptr->init_motors();
     // Le robot pense toujours qu'il est à START_X (ex: 0), mais la target est à 100
     holonomic_basis_ptr->init_holonomic_basis(START_X, START_Y, START_THETA);
+    
+    // Initialisation des sensors pour odométrie
+    paa5100 = new PAA5100();
+    bno085 = new Adafruit_BNO085();
+    printf("✅ Sensors d'odométrie initialisés (GPS + IMU)\n");
 
     // 6. Enregistrement des callbacks
     for (int i = 0; i < 256; i++) callback_functions[i] = nullptr;
@@ -73,7 +86,10 @@ int main(int argc, char **argv) {
         // A. Communication (Réception des ordres Python)
         com->handle_callback(callback_functions);
         
-        // B. Calcul Asservissement
+        // B. Mise à jour odométrie avec fusion sensors (encodeurs + GPS + IMU)
+        holonomic_basis_ptr->update_odometry();
+        
+        // C. Calcul Asservissement
         // (Note: handle() appelle getPosition() qui lit les encodeurs Webots)
         holonomic_basis_ptr->handle(target_position, com);
         

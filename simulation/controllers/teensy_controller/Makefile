@@ -37,19 +37,21 @@ CXX_SOURCES += $(ROOT_DIR)/common/usb_com/cpp/src/com.cpp \
 
 # 4. Dossiers d'Includes (.h)
 INCLUDE = -I"." \
+          -I"./sensors" \
           -I"$(WEBOTS_HOME)/include/controller/c" \
           -I"$(WEBOTS_HOME)/include/controller/cpp" \
           -I"$(ROOT_DIR)/common/usb_com/cpp/include" \
           -I"$(ROOT_DIR)/robot1/teensy_moteur/include" \
           -I"$(ROOT_DIR)/robot1/teensy_moteur/lib/holonomic_basis/include" \
           -I"$(ROOT_DIR)/robot1/teensy_moteur/lib/KaribouMotion" \
-          -I"$(ROOT_DIR)/robot1/teensy_moteur/lib/pid/include"
+          -I"$(ROOT_DIR)/robot1/teensy_moteur/lib/pid/include" \
+          -I"$(ROOT_DIR)/simulation/controllers/teensy_controller/sensors"
 # -------------------------------------------------------------
 # FLAGS DE COMPILATION (Nettoyage des conflits)
 # -------------------------------------------------------------
 
 # On retire les définitions Windows qui gênent (KP_X, KP_Y)
-CFLAGS += -UKP_X -UKP_Y
+CFLAGS += -UKP_X -UKP_Y -DWEBOTS_SIMULATION
 
 # IMPORTANT : Force l'inclusion de ArduinoFake.h pour les fichiers spécifiques
 build/release/teensy_controller.o: CFLAGS += -include "ArduinoFake.h"

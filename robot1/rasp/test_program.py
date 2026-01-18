@@ -4,6 +4,7 @@ import struct
 import math
 import logging
 import sys
+import time
 from pathlib import Path
 from loader import loader
 
@@ -44,33 +45,34 @@ def main():
     
     # Ligne droite horizontale
     send_position(200, 0, 0, com, "Ligne droite horizontale") 
-
+    time.sleep(5)  # Attendre 5 secondes
     # Ligne droite verticale 
     send_position(0, 200, 0, com, "Ligne droite verticale")
-
+    time.sleep(5)  # Attendre 5 secondes
     # Carré
     send_position(200, 0, 0, com, "Carré - Coin 1")
     send_position(200, -200, 0, com, "Carré - Coin 2")
     send_position(0, -200, 0, com, "Carré - Coin 3")
     send_position(0, 0, 0, com, "Carré - Retour origine")
-
+    time.sleep(5)  # Attendre 5 secondes
     # Triangle rectangle
     send_position(200, 0, 0, com, "Triangle - Côté 1")
     send_position(200, 200, 0, com, "Triangle - Côté 2")
     send_position(0, 0, 0, com, "Triangle - Retour origine")
-
+    time.sleep(5)  # Attendre 5 secondes
     # Cercle
     logger.info("Démarrage du cercle...")
     nb_pas = 1000
     rayon = 100
 
-    for i in range(nb_pas + 1):
+    """for i in range(nb_pas + 1):
         angle = i * 2 * math.pi / nb_pas
         x = rayon * math.cos(angle)
         y = rayon * math.sin(angle)
         theta = angle + math.pi / 2
         send_position(x, y, theta, com, f"Cercle - Point {i}/{nb_pas}")
-
+        time.sleep(0.9)  # Petit délai pour ne pas saturer la communication"""
+    send_position(0,0,90,com,"Orientation 90 degrés")
     logger.info("✅ Programme terminé !")
 
 if __name__ == "__main__":

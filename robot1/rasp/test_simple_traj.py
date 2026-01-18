@@ -43,7 +43,7 @@ positions = [
     #(0, 0, 0, "Origine"),
     #(100,0,0, "Avancer 200mm"),
     (200,0,0, "Diagonale"),
-    (200, 100, 0, "Gauche"),
+    (0, 0, 0, "Gauche"),
     #(0, 0, 0, "Retour origine"),
 ]
 
