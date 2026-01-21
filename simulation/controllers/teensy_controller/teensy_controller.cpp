@@ -49,8 +49,6 @@ int main(int argc, char **argv) {
         ROBOT_RADIUS, WHEEL_DIAMETER, MAX_SPEED, MAX_ACCELERATION,
         STEPS_PER_REVOLUTION, MICROSTEPS, x_pid, y_pid, theta_pid
     );
-    holonomic_basis_ptr->use_pid_control = false; // Mettre à 'true' si vous voulez tester le PID complet
-
     // 5. Définition des roues (IMPORTANT)
     // On passe 1, 2, 3 car fake_stepper.cpp va chercher "motor1", "motor2", "motor3"
     holonomic_basis_ptr->define_wheel1(1, 0, 0); 
@@ -62,8 +60,9 @@ int main(int argc, char **argv) {
     holonomic_basis_ptr->init_holonomic_basis(START_X, START_Y, START_THETA);
     
     // Initialisation des sensors pour odométrie
-    paa5100 = new PAA5100();
-    bno085 = new Adafruit_BNO085();
+    //paa5100 = new PAA5100();
+    //bno085 = new Adafruit_BNO085();
+    holonomic_basis_ptr->init_sensors();
     printf("✅ Sensors d'odométrie initialisés (GPS + IMU)\n");
 
     // 6. Enregistrement des callbacks

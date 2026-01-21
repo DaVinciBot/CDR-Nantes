@@ -13,11 +13,8 @@
     // Les encodeurs MKS sont gérés par fake_stepper.cpp
 #else
     // Mode robot réel : Vraies librairies
-    #include <PAA5100.h>              // Capteur optique
-    #include <Adafruit_BNO085.h>      // IMU
-    #include <Adafruit_Sensor.h>
-    #include <sh2.h>
-    #include <sh2_SensorValue.h>
+    #include <Bitcraze_PMW3901.h>      // Capteur optique
+    #include <Adafruit_BNO085x.h>      // IMU
 #endif
 
 class Holonomic_Basis {
@@ -27,11 +24,21 @@ class Holonomic_Basis {
     double Y = 0.0;
     double THETA = 0.0;
 
+    bool use_encoders = true;       // ÉTAPE 1
+    bool use_optical_flow = true;  // ÉTAPE 2
+    bool use_imu = true;           // ÉTAPE 3
+
+    const double OPTICAL_SCALE = 1.0; // 1.0 Pour webots sinon 0.0423 pour réel
+    const double OPTICAL_OFFSET_X = 0.0; // mm
+    const double OPTICAL_OFFSET_Y = 0.0; // mm
+
+    const double OPTICAL_MOUNT_ANGLE = 0.0; // rad
+
     // PID controllers (3 for X, Y, THETA)
     PID x_pid;
     PID y_pid;
     PID theta_pid;
-    bool use_pid_control = false;
+    bool use_pid_control = true;
     // Robot geometry parameters
     inline double wheel_circumference() { return this->wheel_diameter * PI; };
 
@@ -44,8 +51,14 @@ class Holonomic_Basis {
     // Le groupe de synchronisation KaribouMotion
     StepperGroup* stepperGroup;
     // Capteurs
-    PAA5100* paa5100 = nullptr; //capteur Optique
-    Adafruit_BNO085* bno085 = nullptr; //IMU
+    #ifdef WEBOTS_SIMULATION
+        PAA5100* pmw3901 = nullptr; // On garde le Mock en simu
+        Adafruit_BNO085* bno085 = nullptr;
+    #else
+        // Objet réel Bitcraze
+        Bitcraze_PMW3901* pmw3901 = nullptr; 
+        Adafruit_BNO08x* bno085 = nullptr;
+    #endif
 
     // Robot parameters
     double robot_radius;      // Distance from center to wheels (mm)
@@ -70,7 +83,6 @@ class Holonomic_Basis {
                     const PID& x_pid,
                     const PID& y_pid,
                     const PID& theta_pid);
-
     ~Holonomic_Basis();
 
     // Initialization functions
@@ -80,7 +92,6 @@ class Holonomic_Basis {
 
     void init_motors();
     void init_holonomic_basis(double x, double y, double theta);
-
     void enable_motors();
     void disable_motors();
 
@@ -95,10 +106,8 @@ class Holonomic_Basis {
     // Mouvement
     void run_motors();        // Obsolète (gardé pour compatibilité)
     void execute_movement();  // Convertit vitesse -> pas relatifs
-    
     void compute_steppers();  // Calcul des profils (Timer Lent)
     void step_steppers();     // Génération des pas (Timer Rapide)
-
     Point get_current_position();
     void emergency_stop();
 
@@ -116,9 +125,13 @@ class Holonomic_Basis {
         // Calibration IMU
         double imu_yaw_offset = 0.0;
         bool imu_calibrated = false;
+
+        //Capteur optique PAA5100
+        double optical_x_acc = 0.0;
+        double optical_y_acc = 0.0;
         
-        // Compteurs debug
-        uint32_t fusion_counter = 0;
         uint32_t debug_counter = 0;
     } odo_data;
+
+    void update_optical_odometry(double dtheta_robot);
 };

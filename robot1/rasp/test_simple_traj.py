@@ -41,9 +41,9 @@ com.add_callback(handle_position, Messages.UPDATE_ROLLING_BASIS.value)
 # Test avec quelques points seulement
 positions = [
     #(0, 0, 0, "Origine"),
-    #(100,0,0, "Avancer 200mm"),
-    (200,0,0, "Diagonale"),
-    (0, 0, 0, "Gauche"),
+    (0,0,90, "Avancer 200mm"),
+    (200,0,0, "Droite 200mm"),
+    (200, 200, 0, "Gauche"),
     #(0, 0, 0, "Retour origine"),
 ]
 

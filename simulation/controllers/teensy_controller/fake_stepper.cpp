@@ -40,11 +40,8 @@ Stepper::Stepper(uint8_t step_pin, uint8_t dir_pin, bool inverted) {
     
     // Messages d'erreur ou de succès
     if(!m) {
-        printf("❌ ERREUR: Moteur 'motor%d' introuvable dans Webots !\n", step_pin);
     } else if(!s) {
-        printf("⚠️  Moteur 'motor%d' trouvé mais encodeur manquant\n", step_pin);
     } else {
-        printf("✅ Moteur 'motor%d' initialisé (encoder: %s)\n", step_pin, encoder_name);
     }
     
     // Stockage: on met l'ID dans le byte haut et le WbDeviceTag dans le byte bas

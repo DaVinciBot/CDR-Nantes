@@ -64,4 +64,12 @@ public:
         out_x = delta_x_internal;
         out_y = delta_y_internal;
     }
+
+    void reset() {
+        first_read = true;
+        delta_x_internal = 0;
+        delta_y_internal = 0;
+        last_x = 0.0;
+        last_y = 0.0;
+    }
 };

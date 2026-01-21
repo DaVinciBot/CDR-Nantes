@@ -9,17 +9,17 @@
 #define START_Y 0.0
 #define START_THETA 0.0
 
-// ========== STEPPER MOTOR 1 (Front - 0°) ==========
+// ========== STEPPER MOTOR 1 (Front Right - 120°) ==========
 #define W1_STEP_PIN 2
 #define W1_DIR_PIN 3
 #define W1_ENABLE_PIN 4
 
-// ========== STEPPER MOTOR 2 (Back-Left - 120°) ==========
+// ========== STEPPER MOTOR 2 (Front Left - 240°) ==========
 #define W2_STEP_PIN 5
 #define W2_DIR_PIN 6
 #define W2_ENABLE_PIN 7
 
-// ========== STEPPER MOTOR 3 (Back-Right - 240°) ==========
+// ========== STEPPER MOTOR 3 (Back - 0°) ==========
 #define W3_STEP_PIN 8
 #define W3_DIR_PIN 9
 #define W3_ENABLE_PIN 10
@@ -40,19 +40,19 @@
 
 // ========== PID CONTROLLERS ==========
 // PID X (déplacement horizontal)
-#define KP_X 1.2
-#define KI_X 0.02
-#define KD_X 0.10
+#define KP_X 2
+#define KI_X 0.0
+#define KD_X 0.0
 
 // PID Y (déplacement vertical)
-#define KP_Y 1.2
-#define KI_Y 0.02
-#define KD_Y 0.10
+#define KP_Y 2
+#define KI_Y 0.0
+#define KD_Y 0.0
 
 // PID THETA (rotation)
-#define KP_THETA 4.0
-#define KI_THETA 0.1
-#define KD_THETA 0.20
+#define KP_THETA 1
+#define KI_THETA 0.0
+#define KD_THETA 0.0
 
 // PID IDs pour la communication
 #define X_PID_ID 0
