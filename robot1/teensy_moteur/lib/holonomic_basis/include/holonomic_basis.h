@@ -28,7 +28,7 @@ class Holonomic_Basis {
     bool use_encoders = true;       // ÉTAPE 1
     bool use_optical_flow = true;  // ÉTAPE 2
     bool use_imu = true;           // ÉTAPE 3
-    bool use_pid_control = false;
+    bool use_pid_control = true;
 
 
     const double OPTICAL_SCALE = 1.0; // 1.0 Pour webots sinon 0.0423 pour réel

@@ -50,8 +50,8 @@
 #define KD_Y 0.0
 
 // PID THETA (rotation)
-#define KP_THETA 1
-#define KI_THETA 0.0
+#define KP_THETA -2.5
+#define KI_THETA -0.1
 #define KD_THETA 0.0
 
 // PID IDs pour la communication

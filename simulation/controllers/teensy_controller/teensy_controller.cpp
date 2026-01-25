@@ -8,9 +8,9 @@
 #include "Mock_BNO085.h"   // IMU
 
 // PID et Base (Mêmes valeurs que votre vrai robot ou ajustées pour la simu)
-PID x_pid(KP_X, KI_X, KD_X, -MAX_SPEED, MAX_SPEED, 10.0);
-PID y_pid(KP_Y, KI_Y, KD_Y, -MAX_SPEED, MAX_SPEED, 10.0);
-PID theta_pid(KP_THETA, KI_THETA, KD_THETA, -MAX_SPEED, MAX_SPEED, 5.0);
+PID x_pid(KP_X, KI_X, KD_X, -MAX_SPEED, MAX_SPEED, 5.0);
+PID y_pid(KP_Y, KI_Y, KD_Y, -MAX_SPEED, MAX_SPEED, 5.0);
+PID theta_pid(KP_THETA, KI_THETA, KD_THETA, -MAX_SPEED, MAX_SPEED, 0.05);
 
 Holonomic_Basis* holonomic_basis_ptr = nullptr;
 Com* com = nullptr;
@@ -40,7 +40,6 @@ void (*callback_functions[256])(byte* msg, byte size);
 
 int main(int argc, char **argv) {
     wb_robot_init(); // 1. Initialisation Webots obligatoire
-    
     // Serial.begin() sera appelé par le constructeur Com
     com = new Com(&Serial, 115200);  // 2. Création de Com (ouvre COM2 automatiquement)
 

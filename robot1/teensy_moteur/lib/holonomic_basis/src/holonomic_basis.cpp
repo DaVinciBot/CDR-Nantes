@@ -401,8 +401,17 @@ void Holonomic_Basis::update_odometry() {
                 // Conversion quaternion -> yaw
                 double yaw = atan2(2.0f * (r * k + i * j), 1.0f - 2.0f * (j * j + k * k));
                 
-                // Game RV : yaw est déjà relatif, offset déjà appliqué par le Mock
-                this->THETA = yaw;
+                static bool is_imu_first_run = true;      // Marqueur pour la 1ère fois
+                static double loop_yaw_offset = 0.0;      // Pour mémoriser l'angle "tordu" de départ
+
+                if (is_imu_first_run) {
+                    loop_yaw_offset = yaw; // On capture l'angle actuel (ex: -1.26 rad) comme référence
+                    is_imu_first_run = false;
+                    printf("🧭 IMU: Re-Tare au début de boucle (Offset dynamique = %.3f rad)\n", loop_yaw_offset);
+                }
+                
+                this->THETA = normalizeAngle(yaw - loop_yaw_offset);
+
                 
                 static uint32_t imu_debug = 0;
                 if (++imu_debug >= 50) {
@@ -495,7 +504,7 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     }
     // 2. Calcul des vitesses cibles via PID (référentiel Monde)
     double vx_world, vy_world, omega;
-    if (!use_pid_control) {
+    if (!this->use_pid_control) {
         // Mode simple proportionnel sans PID
     double gain_translation = 2.0; // Gain pour la translation (ajustable)
     double gain_rotation = 1.0;    // Gain pour la rotation (ajustable)
@@ -521,7 +530,7 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     double distance_error = sqrt(xerr*xerr + yerr*yerr);
     double angle_error = fabs(theta_error);
     
-    if (distance_error < 1 && angle_error < 0.05) {  // 5mm et 3°
+    if (distance_error < 1 && angle_error < 0.02) {  // 5mm et 3°
         vx_world = 0.0;
         vy_world = 0.0;
         omega = 0.0;
@@ -558,6 +567,13 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     last_wheel1_speed = constrain(w1, -max_speed, max_speed);
     last_wheel2_speed = constrain(w2, -max_speed, max_speed);
     last_wheel3_speed = constrain(w3, -max_speed, max_speed);
+
+    static int i = 0;
+    if (i++ > 50) {
+        printf("DEBUG PID: Cible=%.2f Actuel=%.2f Erreur=%.2f --> Commande Omega=%.2f\n", 
+               target_position.theta, this->THETA, theta_error, omega);
+        i = 0;
+    }
 }
 
 // === EXÉCUTION DU MOUVEMENT (KARIBOU MOTION) ===
@@ -569,35 +585,23 @@ void Holonomic_Basis::run_motors() {
 // Convertit les vitesses calculées (PID) en commandes de pas pour le StepperGroup
 void Holonomic_Basis::execute_movement() {
 
-    if (wheel1) wheel1->setMaxSpeed(last_wheel1_speed);
-    if (wheel2) wheel2->setMaxSpeed(last_wheel2_speed);
-    if (wheel3) wheel3->setMaxSpeed(last_wheel3_speed);
-    
-    // DEBUG CRITIQUE : Voir ce qui est envoyé
-    static uint32_t debug_counter = 0;
-    if(++debug_counter > 50) {  // Toutes les ~3 secondes
-        printf("🎮 Wheel speeds: W1=%.1f W2=%.1f W3=%.1f steps/s\n", 
-               last_wheel1_speed, last_wheel2_speed, last_wheel3_speed);
-        debug_counter = 0;
-    }
-    // Période d'exécution (doit correspondre au Timer qui appelle cette fonction)
-    // Ici on suppose 100Hz (10ms) comme le PID
-    //float dt = 0.01f; 
-    
-    // Calcul du nombre de pas à effectuer durant ce delta T
-    // Vitesse (steps/s) * Temps (s) = Distance (steps)
-    //int32_t steps1 = (int32_t)(last_wheel1_speed * dt);
-    //int32_t steps2 = (int32_t)(last_wheel2_speed * dt);
-    //int32_t steps3 = (int32_t)(last_wheel3_speed * dt);
-    
-    // Envoi des cibles RELATIVES au groupe
-    // "Avance de X pas par rapport à maintenant"
-    //if (stepperGroup) {
-        //stepperGroup->setTargetsRel(steps1, steps2, steps3);
+    #ifdef WEBOTS_SIMULATION
+        if (wheel1) wheel1->setMaxSpeed(last_wheel1_speed);
+        if (wheel2) wheel2->setMaxSpeed(last_wheel2_speed);
+        if (wheel3) wheel3->setMaxSpeed(last_wheel3_speed);
+    #else
+        // ✅ HARDWARE : Mouvement relatif par delta T
+        float dt = 0.01f; // 100Hz = 10ms
         
-        // Lance le calcul de synchronisation
-       // stepperGroup->startMove();
-    //}
+        int32_t steps1 = (int32_t)(last_wheel1_speed * dt);
+        int32_t steps2 = (int32_t)(last_wheel2_speed * dt);
+        int32_t steps3 = (int32_t)(last_wheel3_speed * dt);
+        
+        if (stepperGroup) {
+            stepperGroup->setTargetsRel(steps1, steps2, steps3);
+            stepperGroup->startMove();
+        }
+    #endif
 }
 
 // === INTERFACE TIMERS (INTERRUPTIONS) ===
