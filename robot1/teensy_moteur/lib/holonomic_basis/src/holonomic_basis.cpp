@@ -112,7 +112,6 @@ void Holonomic_Basis::init_holonomic_basis(double x, double y, double theta) {
 
     if (pmw3901) {
         #ifdef WEBOTS_SIMULATION
-            // On cast pour accéder à la méthode reset() du Mock
             ((PAA5100*)pmw3901)->reset(); 
         #endif
         // (Sur le vrai robot Bitcraze, il n'y a pas de reset soft nécessaire, 
@@ -149,17 +148,14 @@ void Holonomic_Basis::disable_motors() {
 // === ODOMÉTRIE & PID ===
 void Holonomic_Basis::init_sensors() {
     printf("🔧 Initialisation des capteurs d'odométrie...\n"); //Si ca marche a supprimer
-    bool pmw_initialized = false;
     // === CAPTEUR OPTIQUE PAA5100JE ===
     #ifdef WEBOTS_SIMULATION
         pmw3901 = new PAA5100();
-        pmw_initialized = true; // On garde le Mock en simu
     #else
         pmw3901 = new Bitcraze_PMW3901(PAA5100_CS_PIN);
 
         if (pmw3901->begin()){
             printf("✅ PMW3901 : Capteur optique initialisé\n");
-             pmw_initialized = true; //Si ca marche a supprimer
         } else {
             printf("❌ PMW3901 : Échec initialisation\n"); //Si ca marche a supprimer
         }
@@ -167,55 +163,62 @@ void Holonomic_Basis::init_sensors() {
     
         if (pmw3901 && pmw3901->begin()) {
             printf("✅ PAA5100 : Capteur optique initialisé\n"); //Si ca marche a supprimer
-            pmw_initialized = true; //Si ca marche a supprimer
         } else {
             printf("❌ PAA5100 : Échec initialisation\n"); //Si ca marche a supprimer
         }
-    
-    
-    // === IMU BNO085 ===
+
+      // === IMU BNO085 ===
     #ifdef WEBOTS_SIMULATION
-        bno085 = new Adafruit_BNO085();
-        printf("BNO085 : IMU initialisée (Mock Webots)\n"); //Si ca marche a supprimer
-    #else
-        bno085 = new Adafruit_BNO085x(BNO085_RESET_PIN);
-        
-        if(bno085->begin_I2C()){
-            Wire.setClock(400000); // Mettre I2C à 400kHz
-            bno085->enableReport(SH2_ARVR_STABILIZED_RV, 10000); 
-            printf("✅ BNO085 : IMU initialisée\n"); //Si ca marche a supprimer
-        } else {
-            printf("❌ BNO085 : Échec initialisation\n"); //Si ca marche a supprimer
-        }
-        
-    #endif
-    
+        bno085 = new Adafruit_BNO08x();
         if (bno085 && bno085->begin_I2C()) {
-            printf("✅ BNO085 : IMU initialisée\n"); //Si ca marche a supprimer
+            printf("✅ BNO08x : IMU Mock initialisée\n");
+            
+            // ✅ ACTIVATION GAME ROTATION VECTOR (simulation)
+            bno085->enableReport(SH2_GAME_ROTATION_VECTOR, 10000); // 100Hz
+            
+            odo_data.imu_calibrated = true;
+            odo_data.imu_yaw_offset = 0.0; // Géré par le Mock
         } else {
-            printf("❌ BNO085 : Échec initialisation\n"); //Si ca marche a supprimer
+            printf("❌ BNO08x Mock : Échec\n");
         }
-    
-    delay(100);
-    if (bno085){
-        #ifdef WEBOTS_SIMULATION
-            odo_data.imu_yaw_offset = 0.0; odo_data.imu_calibrated = true;
-            printf("BNO085 : IMU initialisée (Mock Webots)\n"); //Si ca marche a supprimer
-        #else
+    #else
+        // ROBOT RÉEL
+        bno085 = new Adafruit_BNO08x(BNO085_RESET_PIN);
+        
+        if (bno085 && bno085->begin_I2C()) {
+            Wire.setClock(400000); // I2C Fast Mode
+            
+            // ✅ ACTIVATION GAME ROTATION VECTOR (matériel réel)
+            bno085->enableReport(SH2_GAME_ROTATION_VECTOR, 10000); // 100Hz
+            
+            printf("✅ BNO08x : IMU réelle initialisée\n");
+            
+            delay(100); // Attendre stabilisation
+            
+            // ✅ Calibration initiale (optionnelle car Game RV démarre à 0)
             sh2_SensorValue_t sv;
-            if(bno085->getSensorEvent(&sv) && sv.sensorId == SH2_ARVR_STABILIZED_RV) {
-                float r = sv.un.arvrStabilizedRV.real;
-                float i = sv.un.arvrStabilizedRV.i;
-                float j = sv.un.arvrStabilizedRV.j;
-                float k = sv.un.arvrStabilizedRV.k;
+            if (bno085->getSensorEvent(&sv) && sv.sensorId == SH2_GAME_ROTATION_VECTOR) {
+                float r = sv.un.gameRotationVector.real;
+                float i = sv.un.gameRotationVector.i;
+                float j = sv.un.gameRotationVector.j;
+                float k = sv.un.gameRotationVector.k;
+                
+                // Calculer yaw initial (normalement proche de 0 avec Game RV)
                 odo_data.imu_yaw_offset = atan2(2.0f*(r*k + i*j), 1.0f-2.0f*(j*j + k*k));
                 odo_data.imu_calibrated = true;
+                
+                printf("🧭 IMU calibrée : yaw_offset = %.3f rad\n", odo_data.imu_yaw_offset);
+            } else {
+                printf("⚠️  IMU : Calibration impossible, utilisation directe\n");
+                odo_data.imu_yaw_offset = 0.0;
+                odo_data.imu_calibrated = true;
             }
-        #endif
-    }
+        } else {
+            printf("❌ BNO08x : Échec initialisation I2C\n");
+        }
+    #endif
+}     
 
-    
-}
 
 Point Holonomic_Basis::get_current_position() {
     Point position;
@@ -246,7 +249,6 @@ void Holonomic_Basis::update_optical_odometry(double dtheta_robot) {
         double dy_mm = deltaY * OPTICAL_SCALE;
     #endif
     
-    // 2. [NOUVEAU] Flag de démarrage (Anti-Saut)
     // Ignore la toute première lecture qui est souvent aberrante (ex: 84km)
     static bool is_first_run_opt = true;
     if (is_first_run_opt) {
@@ -279,18 +281,13 @@ void Holonomic_Basis::update_optical_odometry(double dtheta_robot) {
     if (++debug_cnt >= 20) {
         debug_cnt = 0;
         #ifdef WEBOTS_SIMULATION
-        printf("📷 GPS: raw=[%4d,%4d]mm | robot=[%6.2f,%6.2f]mm | world=[%6.2f,%6.2f]mm | pos=[%7.1f,%7.1f]mm\n",
-               raw_x, raw_y,
-               dx_robot, dy_robot,
-               dx_world, dy_world,
-               odo_data.optical_x_acc, odo_data.optical_y_acc);
+        //printf("📷 GPS: raw=[%4d,%4d]mm | robot=[%6.2f,%6.2f]mm | world=[%6.2f,%6.2f]mm | pos=[%7.1f,%7.1f]mm\n",
+        //     raw_x, raw_y,dx_robot, dy_robot,dx_world, dy_world,odo_data.optical_x_acc, odo_data.optical_y_acc);
         #else
-        // Pour le réel, on ajoute la qualité de surface (Squal)
+        // Pour le réel, on ajoute la qualité de surface (Squal) A Calibrer 
         // (Assurez-vous que votre librairie Bitcraze supporte readMotionCount avec Squal, sinon simplifiez)
-        printf("📷 PAA: raw=[%d,%d] | world=[%.2f,%.2f] | pos=[%.1f,%.1f]\n",
-               deltaX, deltaY,
-               dx_world, dy_world,
-               odo_data.optical_x_acc, odo_data.optical_y_acc);
+        //printf("📷 PAA: raw=[%d,%d] | world=[%.2f,%.2f] | pos=[%.1f,%.1f]\n",
+        //       deltaX, deltaY, dx_world, dy_world,odo_data.optical_x_acc, odo_data.optical_y_acc);
         #endif
     }
 
@@ -304,11 +301,6 @@ void Holonomic_Basis::update_optical_odometry(double dtheta_robot) {
     odo_data.optical_x_acc += dx_world;
     odo_data.optical_y_acc += dy_world;
 }
-
-/**
- * CORRECTION update_odometry() - Debug conditionnel
- * À remplacer dans holonomic_basis.cpp
- */
 
 void Holonomic_Basis::update_odometry() {
     // Récupérer positions actuelles
@@ -327,6 +319,7 @@ void Holonomic_Basis::update_odometry() {
         is_first_run = false;
         return; // On sort ! Pas de calcul de mouvement au démarrage.
     }
+
     // Calculer deltas
     double d1 = double(pos1 - odo_data.last_pos1);
     double d2 = double(pos2 - odo_data.last_pos2);
@@ -340,7 +333,7 @@ void Holonomic_Basis::update_odometry() {
     double w2_mm = d2 * STEPS_TO_MM;
     double w3_mm = d3 * STEPS_TO_MM;
     
-    // Cinématique Directe : Vitesses Roues -> Vitesse Robot
+    // Cinématique Directe : Vitesses Roues -> Vitesse Robot  Matrice Inverse des équations mouvement
     // Configuration : Roue1 à 210° (-150°), Roue2 à 330° (-30°), Roue3 à 90°
     // Vitesse X = (2*W3 - W1 - W2) / 3
     double dx_enc = (2.0 * w3_mm - w1_mm - w2_mm) / 3.0;
@@ -355,20 +348,18 @@ void Holonomic_Basis::update_odometry() {
     static uint32_t enc_debug_counter = 0;
         if (++enc_debug_counter >= 20) {
             enc_debug_counter = 0;
-            printf("📏 ENC: d[%+4.0f,%+4.0f,%+4.0f] v[%+5.1f,%+5.1f] dθ=%+.3f\n", 
-                   (double)d1, (double)d2, (double)d3, 
-                   dx_enc, dy_enc, omega_enc);
+            //printf("📏 ENC: d[%+4.0f,%+4.0f,%+4.0f] v[%+5.1f,%+5.1f] dθ=%+.3f\n", 
+            //     (double)d1, (double)d2, (double)d3, dx_enc, dy_enc, omega_enc);
         }
 
     if (++odo_data.debug_counter >= 20) { 
         odo_data.debug_counter = 0;
-        
-        // On affiche :
+        //Debug complet :
         // 1. Les variations encodeurs brutes (d1, d2, d3)
         // 2. Le déplacement calculé en Y (dy_enc)
         // 3. La position Y globale
-        printf("DEBUG: d1=%.1f d2=%.1f d3=%.1f  ->  dx_enc=%.4f dy_enc=%.4f omega_enc=%.4f ->  X_Global=%.2f Y_Global=%.2f\n Theta_Global=%.3f\n", 
-               d1, d2, d3, dx_enc, dy_enc, omega_enc, this->X, this->Y, this->THETA);
+        //printf("DEBUG: d1=%.1f d2=%.1f d3=%.1f  ->  dx_enc=%.4f dy_enc=%.4f omega_enc=%.4f ->  X_Global=%.2f Y_Global=%.2f\n Theta_Global=%.3f\n", 
+          //     d1, d2, d3, dx_enc, dy_enc, omega_enc, this->X, this->Y, this->THETA);
     }
     
     // MÉTHODE 2 : ODOMÉTRIE OPTIQUE (PAA5100)
@@ -394,31 +385,61 @@ void Holonomic_Basis::update_odometry() {
         }
     }
     // Méthode 3 : IMU BNO085
-    bool imu_used = false;
+      
+    bool theta_updated = false;
     if (use_imu && bno085 && odo_data.imu_calibrated) {
         #ifdef WEBOTS_SIMULATION
-            sh2_Quaternion_t quat;
-            if (bno085->getQuat(quat)) {
-                // Conversion quaternion -> yaw (unused)
-                imu_used = true;
+            // ✅ SIMULATION : Utiliser getSensorEvent
+            sh2_SensorValue_t sv;
+            if (bno085->getSensorEvent(&sv) && sv.sensorId == SH2_GAME_ROTATION_VECTOR) {
+                theta_updated = true;
+                float r = sv.un.gameRotationVector.real;
+                float i = sv.un.gameRotationVector.i;
+                float j = sv.un.gameRotationVector.j;
+                float k = sv.un.gameRotationVector.k;
+                
+                // Conversion quaternion -> yaw
+                double yaw = atan2(2.0f * (r * k + i * j), 1.0f - 2.0f * (j * j + k * k));
+                
+                // Game RV : yaw est déjà relatif, offset déjà appliqué par le Mock
+                this->THETA = yaw;
+                
+                static uint32_t imu_debug = 0;
+                if (++imu_debug >= 50) {
+                    imu_debug = 0;
+                    printf("🧭 IMU: quat[%.3f,%.3f,%.3f,%.3f] → yaw=%.3frad (%.1f°)\n",
+                           r, i, j, k, yaw, yaw * 180.0 / M_PI);
+                }
             }
         #else
+            // ✅ ROBOT RÉEL : Utiliser getSensorEvent avec GAME_ROTATION_VECTOR
             sh2_SensorValue_t sv;
-            if (bno085->getSensorEvent(&sv) && sv.sensorId == SH2_ARVR_STABILIZED_RV) {
-                float r = sv.un.arvrStabilizedRV.real;
-                float i = sv.un.arvrStabilizedRV.i;
-                float j = sv.un.arvrStabilizedRV.j;
-                float k = sv.un.arvrStabilizedRV.k;
+            if (bno085->getSensorEvent(&sv) && sv.sensorId == SH2_GAME_ROTATION_VECTOR) {
+                theta_updated = true;
+                float r = sv.un.gameRotationVector.real;
+                float i = sv.un.gameRotationVector.i;
+                float j = sv.un.gameRotationVector.j;
+                float k = sv.un.gameRotationVector.k;
+                
+                // Conversion quaternion -> yaw
                 double yaw = atan2(2.0f * (r * k + i * j), 1.0f - 2.0f * (j * j + k * k));
-                imu_used = true;
+                
+                // Appliquer offset si défini
+                this->THETA = yaw - odo_data.imu_yaw_offset;
+
             }
         #endif
-        }
-    if (imu_used) {
-        this->THETA = normalizeAngle(this->THETA +omega_enc);
-        // Fallback : intégration omega encodeurs
-        
     }
+    
+    // Fallback encodeurs si IMU non disponible
+    if (!theta_updated) {
+        this->THETA = normalizeAngle(this->THETA + omega_enc);
+    }
+    
+    // Normalisation θ ∈ [-π, +π]
+    while (this->THETA >  M_PI) this->THETA -= 2.0 * M_PI;
+    while (this->THETA < -M_PI) this->THETA += 2.0 * M_PI;
+    
     //Intégration position X,Y
     if (optical_active) {
         // PAA5100 prioritaire (pas de glissement)
@@ -554,7 +575,7 @@ void Holonomic_Basis::execute_movement() {
     
     // DEBUG CRITIQUE : Voir ce qui est envoyé
     static uint32_t debug_counter = 0;
-    if(++debug_counter > 1000) {  // Toutes les ~3 secondes
+    if(++debug_counter > 50) {  // Toutes les ~3 secondes
         printf("🎮 Wheel speeds: W1=%.1f W2=%.1f W3=%.1f steps/s\n", 
                last_wheel1_speed, last_wheel2_speed, last_wheel3_speed);
         debug_counter = 0;

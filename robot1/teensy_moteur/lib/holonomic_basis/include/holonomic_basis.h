@@ -14,7 +14,8 @@
 #else
     // Mode robot réel : Vraies librairies
     #include <Bitcraze_PMW3901.h>      // Capteur optique
-    #include <Adafruit_BNO085x.h>      // IMU
+    #include <Adafruit_BNO08x.h>      // IMU
+    #include <Adafruit_Sensor.h> 
 #endif
 
 class Holonomic_Basis {
@@ -27,18 +28,19 @@ class Holonomic_Basis {
     bool use_encoders = true;       // ÉTAPE 1
     bool use_optical_flow = true;  // ÉTAPE 2
     bool use_imu = true;           // ÉTAPE 3
+    bool use_pid_control = false;
+
 
     const double OPTICAL_SCALE = 1.0; // 1.0 Pour webots sinon 0.0423 pour réel
     const double OPTICAL_OFFSET_X = 0.0; // mm
     const double OPTICAL_OFFSET_Y = 0.0; // mm
-
     const double OPTICAL_MOUNT_ANGLE = 0.0; // rad
 
     // PID controllers (3 for X, Y, THETA)
     PID x_pid;
     PID y_pid;
     PID theta_pid;
-    bool use_pid_control = true;
+
     // Robot geometry parameters
     inline double wheel_circumference() { return this->wheel_diameter * PI; };
 
@@ -53,7 +55,7 @@ class Holonomic_Basis {
     // Capteurs
     #ifdef WEBOTS_SIMULATION
         PAA5100* pmw3901 = nullptr; // On garde le Mock en simu
-        Adafruit_BNO085* bno085 = nullptr;
+        Adafruit_BNO08x* bno085 = nullptr;
     #else
         // Objet réel Bitcraze
         Bitcraze_PMW3901* pmw3901 = nullptr; 
