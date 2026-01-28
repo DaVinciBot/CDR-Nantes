@@ -42,8 +42,8 @@ com.add_callback(handle_position, Messages.UPDATE_ROLLING_BASIS.value)
 positions = [
     #(200, 0, 0, "Origine"),
     (0, 0, 1.57, "Avancer 200mm"),
-    #(0,0,90, "Droite 200mm"),
-    #(200, 200, 0, "Gauche"),
+    (0,200,0, "Droite 200mm"),
+    (200, 200, 0, "Gauche"),
     #(0, 0, 0, "Retour origine"),
 ]
 

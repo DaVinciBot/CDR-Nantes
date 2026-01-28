@@ -4,7 +4,7 @@
  */
 #include <Arduino.h>
 #include <pid.h>
-
+#include <cstdio>
 PID::PID(double kp,
          double ki,
          double kd,
@@ -60,6 +60,7 @@ void PID::reset() {
 }
 
 double PID::compute(double error) {
+    
     unsigned long now = micros();
     double dt = (now - _lastTime) * 1e-6;  // convert µs to s
     _lastTime = now;

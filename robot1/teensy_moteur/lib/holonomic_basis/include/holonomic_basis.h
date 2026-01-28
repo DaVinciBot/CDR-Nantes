@@ -26,7 +26,7 @@ class Holonomic_Basis {
     double THETA = 0.0;
 
     bool use_encoders = true;       // ÉTAPE 1
-    bool use_optical_flow = true;  // ÉTAPE 2
+    bool use_optical_flow =true ;  //ÉTAPE 2
     bool use_imu = true;           // ÉTAPE 3
     bool use_pid_control = true;
 

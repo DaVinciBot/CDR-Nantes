@@ -3,7 +3,6 @@
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
-EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/appearances/protos/Asphalt.proto"
 EXTERNPROTO "../protos/three_omniwheel.proto"
 
 WorldInfo {
@@ -20,8 +19,8 @@ WorldInfo {
   ]
 }
 Viewpoint {
-  orientation 0.6078279447337926 -0.5987779883815101 -0.5215458850671586 4.090810401444593
-  position 0.14329568269294057 0.551151857367078 5.2133605747824845
+  orientation 0.6092670231823454 -0.5766460122325403 -0.5443097197725137 4.09300231454293
+  position 0.10883622328032327 0.3107032738846197 5.233876739695657
 }
 TexturedBackground {
 }
@@ -72,8 +71,8 @@ Robot {
                 }
               ]
               endPoint Solid {
-                translation 0.0034990129992900545 0.0013527191834031933 0.0005367693031173768
-                rotation -0.007181784677779329 -0.9999681543459736 0.0034802676260623127 1.183116953957758
+                translation 0.0034990129992900545 0.0013527191834032102 0.0005367693031173768
+                rotation -0.007181784677779341 -0.9999681543459736 0.003480267626062316 1.183116953957758
                 children [
                   DEF VISUAL_WHEEL_1 Transform {
                     rotation 0 0 1 -1.57
@@ -143,8 +142,8 @@ Robot {
                 }
               ]
               endPoint Solid {
-                translation -0.0032326968942982576 -0.00016166641891839765 0.0010108712175341474
-                rotation -0.007978022626059017 -0.9999600348781187 0.004034823605760167 5.4851853129854415
+                translation -0.003232696894298255 -0.00016166641891839794 0.0010108712175341474
+                rotation -0.007978022626059282 -0.9999600348781187 0.004034823605760079 5.4851853129854415
                 children [
                   DEF VISUAL_WHEEL_2 Transform {
                     rotation 0 0 1 -1.57
@@ -198,8 +197,8 @@ Robot {
                 }
               ]
               endPoint Solid {
-                translation 0.004764112240599853 0.0008889910574271273 -8.173998515130596e-06
-                rotation 0.004404345644537393 0.9999863500931852 -0.002810936988450674 4.2905524542629685
+                translation 0.004764112240599857 0.0008889910574271273 -8.173998515129729e-06
+                rotation 0.004404345644537164 0.9999863500931852 -0.002810936988450528 4.2905524542629685
                 children [
                   DEF VISUAL_WHEEL_3 Transform {
                     rotation 0 0 1 -1.57
@@ -291,13 +290,11 @@ DEF OMNI_WHEELS three_omniwheel {
   hidden rotation_25 0 -1 0 5.020844990631609
   hidden rotation_26 0 0.7071067811865476 -0.7071067811865476 4.770691065604033
   hidden rotation_27 0 1 0 2.7391032430157103
-  hidden rotation_28 0 -0.7071067811865476 0.7071067811865476 5.012414040580303
+  hidden rotation_28 0 -0.7071067811865475 0.7071067811865475 5.0124140405803335
   hidden rotation_29 0 0 1 5.034650171351231
   hidden rotation_30 0 0 -1 1.6874615258094254
   hidden rotation_31 0 -0.7071067811865476 -0.7071067811865476 4.740783501498955
   hidden rotation_32 0 0.7071067811865475 0.7071067811865475 5.233453235290602
   translation -5.047667991267978e-06 6.206506822578378e-06 0.04249648801334982
-  rotation 8.511793983087641e-06 -5.836595768179381e-06 0.9999999999467419 0.01886036694882089
   controller "teensy_controller"
 }
-

@@ -278,11 +278,11 @@ void Holonomic_Basis::update_optical_odometry(double dtheta_robot) {
     // 4. [CORRECTIF] Debug Périodique (Placé AVANT le filtre de bruit)
     // Cela garantit que le printf tourne même si le robot est à l'arrêt
     static uint32_t debug_cnt = 0;
-    if (++debug_cnt >= 20) {
+    if (++debug_cnt >= 200) {
         debug_cnt = 0;
         #ifdef WEBOTS_SIMULATION
-        //printf("📷 GPS: raw=[%4d,%4d]mm | robot=[%6.2f,%6.2f]mm | world=[%6.2f,%6.2f]mm | pos=[%7.1f,%7.1f]mm\n",
-        //     raw_x, raw_y,dx_robot, dy_robot,dx_world, dy_world,odo_data.optical_x_acc, odo_data.optical_y_acc);
+        printf("📷 GPS: raw=[%4d,%4d]mm | robot=[%6.2f,%6.2f]mm | world=[%6.2f,%6.2f]mm | pos=[%7.1f,%7.1f]mm\n",
+               raw_x, raw_y,dx_robot, dy_robot,dx_world, dy_world,odo_data.optical_x_acc, odo_data.optical_y_acc);
         #else
         // Pour le réel, on ajoute la qualité de surface (Squal) A Calibrer 
         // (Assurez-vous que votre librairie Bitcraze supporte readMotionCount avec Squal, sinon simplifiez)
@@ -342,14 +342,14 @@ void Holonomic_Basis::update_odometry() {
     double dy_enc = (w1_mm - w2_mm) / 1.73205;
 
     // Rotation = -(W1 + W2 + W3) / (3 * Rayon)
-    double omega_enc = -(w1_mm + w2_mm + w3_mm) / (3.0 * robot_radius);
+    double omega_enc = (w1_mm + w2_mm + w3_mm) / (3.0 * robot_radius);
     
     
     static uint32_t enc_debug_counter = 0;
-        if (++enc_debug_counter >= 20) {
+        if (++enc_debug_counter >= 200) {
             enc_debug_counter = 0;
-            //printf("📏 ENC: d[%+4.0f,%+4.0f,%+4.0f] v[%+5.1f,%+5.1f] dθ=%+.3f\n", 
-            //     (double)d1, (double)d2, (double)d3, dx_enc, dy_enc, omega_enc);
+            printf("📏 ENC: d[%+4.0f,%+4.0f,%+4.0f] v[%+5.1f,%+5.1f] dθ=%+.3f\n", 
+                (double)d1, (double)d2, (double)d3, dx_enc, dy_enc, omega_enc);
         }
 
     if (++odo_data.debug_counter >= 20) { 
@@ -359,7 +359,7 @@ void Holonomic_Basis::update_odometry() {
         // 2. Le déplacement calculé en Y (dy_enc)
         // 3. La position Y globale
         //printf("DEBUG: d1=%.1f d2=%.1f d3=%.1f  ->  dx_enc=%.4f dy_enc=%.4f omega_enc=%.4f ->  X_Global=%.2f Y_Global=%.2f\n Theta_Global=%.3f\n", 
-          //     d1, d2, d3, dx_enc, dy_enc, omega_enc, this->X, this->Y, this->THETA);
+        //     d1, d2, d3, dx_enc, dy_enc, omega_enc, this->X, this->Y, this->THETA);
     }
     
     // MÉTHODE 2 : ODOMÉTRIE OPTIQUE (PAA5100)
@@ -477,15 +477,11 @@ void Holonomic_Basis::update_odometry() {
         odo_data.debug_counter = 0;
         
         #ifdef WEBOTS_SIMULATION
-        printf("🎮 [WEBOTS] Odo: X=%.1f Y=%.1f θ=%.3f | ENC:[%.1f,%.1f,%.1f] GPS:[%.2f,%.2f]\n",
-               this->X, this->Y, this->THETA,
-               w1_mm, w2_mm, w3_mm,
-               dx_optical, dy_optical);
+        //printf("🎮 [WEBOTS] Odo: X=%.1f Y=%.1f θ=%.3f | ENC:[%.1f,%.1f,%.1f] GPS:[%.2f,%.2f]\n",
+        //       this->X, this->Y, this->THETA,w1_mm, w2_mm, w3_mm,dx_optical, dy_optical);
         #else
-        printf("📊 Odo: X=%.1f Y=%.1f θ=%.3f | ENC:[%.1f,%.1f,%.1f] PAA:[%.2f,%.2f]\n",
-               this->X, this->Y, this->THETA,
-               w1_mm, w2_mm, w3_mm,
-               dx_optical, dy_optical);
+        //printf("📊 Odo: X=%.1f Y=%.1f θ=%.3f | ENC:[%.1f,%.1f,%.1f] PAA:[%.2f,%.2f]\n",
+        //       this->X, this->Y, this->THETA,w1_mm, w2_mm, w3_mm,dx_optical, dy_optical);
         #endif
     }
 }
@@ -498,8 +494,8 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     double theta_error = normalizeAngle(target_position.theta - this->THETA);
 
     static uint32_t debug_err = 0;
-    if (++debug_err > 1000) {
-        printf("📐 Erreurs: ΔX=%.1f ΔY=%.1f Δθ=%.2f\n", xerr, yerr, theta_error);
+    if (++debug_err > 4000) {
+        //printf("📐 Erreurs: ΔX=%.1f ΔY=%.1f Δθ=%.2f\n", xerr, yerr, theta_error);
         debug_err = 0;
     }
     // 2. Calcul des vitesses cibles via PID (référentiel Monde)
@@ -530,7 +526,7 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     double distance_error = sqrt(xerr*xerr + yerr*yerr);
     double angle_error = fabs(theta_error);
     
-    if (distance_error < 1 && angle_error < 0.02) {  // 5mm et 3°
+    if (distance_error < 1 && angle_error < 0.005) {  // 5mm et 3°
         vx_world = 0.0;
         vy_world = 0.0;
         omega = 0.0;
@@ -555,11 +551,11 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     
     //Equation de mouvements
     // Roue 1 avec axe à 120° : cos(120°) = -0.5, sin(120°) = +0.866
-    double w1 = -(0.5 * vx_steps - 0.866025 * vy_steps + omega_steps);
+    double w1 = -(0.5 * vx_steps - 0.866025 * vy_steps - omega_steps);
     // Roue 2 avec axe à 240° : cos(240°) = -0.5, sin(240°) = -0.866
-    double w2 = -(0.5 * vx_steps +0.866025 * vy_steps + omega_steps);
+    double w2 = -(0.5 * vx_steps +0.866025 * vy_steps -omega_steps);
     // Roue 3 avec axe à 0° : cos(0°) = +1.0, sin(0°) = 0
-    double w3 = 1.0*vx_steps - omega_steps;
+    double w3 = 1.0*vx_steps + omega_steps;
 
     // DEBUG: Affichage des vitesses calculées
     
@@ -570,10 +566,11 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
 
     static int i = 0;
     if (i++ > 50) {
-        printf("DEBUG PID: Cible=%.2f Actuel=%.2f Erreur=%.2f --> Commande Omega=%.2f\n", 
-               target_position.theta, this->THETA, theta_error, omega);
+        //printf("DEBUG PID: Cible=%.2f Actuel=%.2f Erreur=%.2f --> Commande Omega=%.2f\n", 
+        //       target_position.theta, this->THETA, theta_error, omega);
         i = 0;
     }
+
 }
 
 // === EXÉCUTION DU MOUVEMENT (KARIBOU MOTION) ===
