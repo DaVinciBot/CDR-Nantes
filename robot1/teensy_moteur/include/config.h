@@ -40,12 +40,12 @@
 
 // ========== PID CONTROLLERS ==========
 // PID X (déplacement horizontal)
-#define KP_X 1.0
+#define KP_X 0.1
 #define KI_X 0.0
 #define KD_X 0.0
 
 // PID Y (déplacement vertical)
-#define KP_Y 1.0
+#define KP_Y 0.5
 #define KI_Y 0.0
 #define KD_Y 0.0
 

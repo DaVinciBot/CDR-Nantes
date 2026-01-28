@@ -477,8 +477,8 @@ void Holonomic_Basis::update_odometry() {
         odo_data.debug_counter = 0;
         
         #ifdef WEBOTS_SIMULATION
-        //printf("🎮 [WEBOTS] Odo: X=%.1f Y=%.1f θ=%.3f | ENC:[%.1f,%.1f,%.1f] GPS:[%.2f,%.2f]\n",
-        //       this->X, this->Y, this->THETA,w1_mm, w2_mm, w3_mm,dx_optical, dy_optical);
+        printf("🎮 [WEBOTS] Odo: X=%.1f Y=%.1f θ=%.3f | ENC:[%.1f,%.1f,%.1f] GPS:[%.2f,%.2f]\n",
+               this->X, this->Y, this->THETA,w1_mm, w2_mm, w3_mm,dx_optical, dy_optical);
         #else
         //printf("📊 Odo: X=%.1f Y=%.1f θ=%.3f | ENC:[%.1f,%.1f,%.1f] PAA:[%.2f,%.2f]\n",
         //       this->X, this->Y, this->THETA,w1_mm, w2_mm, w3_mm,dx_optical, dy_optical);
@@ -526,7 +526,7 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     double distance_error = sqrt(xerr*xerr + yerr*yerr);
     double angle_error = fabs(theta_error);
     
-    if (distance_error < 1 && angle_error < 0.005) {  // 5mm et 3°
+    if (distance_error < 5 && angle_error < 0.005) {  // 5mm et 3°
         vx_world = 0.0;
         vy_world = 0.0;
         omega = 0.0;

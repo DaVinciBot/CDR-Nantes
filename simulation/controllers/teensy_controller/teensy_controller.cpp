@@ -94,7 +94,7 @@ int main(int argc, char **argv) {
         // D. Action (Envoi des vitesses aux moteurs Webots)
         holonomic_basis_ptr->execute_movement();
 
-        if (loop_counter % (10000 / time_step) == 0) { // Log périodique
+        if (loop_counter % (1000 / time_step) == 0) { // Log périodique
             Point current_pos = holonomic_basis_ptr->get_current_position();
             printf("📊 [%d] Pos: X=%.1f Y=%.1f θ=%.2f | Target: X=%.1f Y=%.1f θ=%.2f\n",
                    loop_counter, 
