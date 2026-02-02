@@ -55,7 +55,7 @@ Stepper::Stepper(uint8_t step_pin, uint8_t dir_pin, bool inverted) {
     }
 
     if(s) {
-        wb_position_sensor_enable(s, 32); // Lecture toutes les 32ms
+        wb_position_sensor_enable(s, 1); // Lecture toutes les 1ms au lieu de 32ms
     }
     
     m_position = 0;

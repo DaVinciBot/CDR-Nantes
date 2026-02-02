@@ -293,7 +293,8 @@ void Holonomic_Basis::update_optical_odometry(double dtheta_robot) {
 
     // 5. Filtre de bruit (Seuil d'activation)
     // Si le mouvement est insignifiant, on quitte ICI (on n'intègre pas)
-    if(abs(dx_mm) < 0.01 && abs(dy_mm) < 0.01) {
+    // Seuil augmenté à 1mm pour filtrer vibrations Webots
+    if(abs(dx_mm) < 1.0 && abs(dy_mm) < 1.0) {
         return; 
     }
 
@@ -346,10 +347,11 @@ void Holonomic_Basis::update_odometry() {
     
     
     static uint32_t enc_debug_counter = 0;
-        if (++enc_debug_counter >= 200) {
+        if (++enc_debug_counter >= 20) {  // Affichage toutes les 0.2s au lieu de 2s
             enc_debug_counter = 0;
-            printf("📏 ENC: d[%+4.0f,%+4.0f,%+4.0f] v[%+5.1f,%+5.1f] dθ=%+.3f\n", 
-                (double)d1, (double)d2, (double)d3, dx_enc, dy_enc, omega_enc);
+            printf("📏 ENC: d[%+4.0f,%+4.0f,%+4.0f] v[%+5.1f,%+5.1f] dθ=%+.3f | pos[%+6ld,%+6ld,%+6ld]\n", 
+                (double)d1, (double)d2, (double)d3, dx_enc, dy_enc, omega_enc,
+                (long)pos1, (long)pos2, (long)pos3);
         }
 
     if (++odo_data.debug_counter >= 20) { 
@@ -494,8 +496,8 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     double theta_error = normalizeAngle(target_position.theta - this->THETA);
 
     static uint32_t debug_err = 0;
-    if (++debug_err > 4000) {
-        //printf("📐 Erreurs: ΔX=%.1f ΔY=%.1f Δθ=%.2f\n", xerr, yerr, theta_error);
+    if (++debug_err > 100) {  // ~1 seconde à 100Hz
+        printf("📐 Erreurs: ΔX=%.1f ΔY=%.1f Δθ=%.2f\n", xerr, yerr, theta_error);
         debug_err = 0;
     }
     // 2. Calcul des vitesses cibles via PID (référentiel Monde)
@@ -526,7 +528,8 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     double distance_error = sqrt(xerr*xerr + yerr*yerr);
     double angle_error = fabs(theta_error);
     
-    if (distance_error < 5 && angle_error < 0.005) {  // 5mm et 3°
+    // Zone morte élargie pour Webots (compense l'inertie de simulation)
+    if (distance_error < 5.0 && angle_error < 0.01) {  // 5mm et 0.5°
         vx_world = 0.0;
         vy_world = 0.0;
         omega = 0.0;
@@ -565,9 +568,13 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     last_wheel3_speed = constrain(w3, -max_speed, max_speed);
 
     static int i = 0;
-    if (i++ > 50) {
-        //printf("DEBUG PID: Cible=%.2f Actuel=%.2f Erreur=%.2f --> Commande Omega=%.2f\n", 
-        //       target_position.theta, this->THETA, theta_error, omega);
+    if (i++ > 100) {  // ~1 seconde
+        printf("🎯 PID: Target[%.1f,%.1f,%.2f] Actual[%.1f,%.1f,%.2f] Err[%.1f,%.1f,%.2f]\n",
+               target_position.x, target_position.y, target_position.theta,
+               this->X, this->Y, this->THETA,
+               xerr, yerr, theta_error);
+        printf("⚡ Cmds: Vx=%.1f Vy=%.1f ω=%.2f -> W1=%.0f W2=%.0f W3=%.0f steps/s\n",
+               vx_world, vy_world, omega, last_wheel1_speed, last_wheel2_speed, last_wheel3_speed);
         i = 0;
     }
 

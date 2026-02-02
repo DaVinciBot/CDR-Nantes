@@ -297,4 +297,5 @@ DEF OMNI_WHEELS three_omniwheel {
   hidden rotation_32 0 0.7071067811865475 0.7071067811865475 5.233453235290602
   translation -5.047667991267978e-06 6.206506822578378e-06 0.04249648801334982
   controller "teensy_controller"
+  supervisor TRUE
 }

@@ -7,6 +7,9 @@
 #include "Mock_PAA5100.h"  // GPS
 #include "Mock_BNO085.h"   // IMU
 
+// Supervisor pour lire la vraie position du robot
+#include <webots/supervisor.h>
+
 // PID et Base (Mêmes valeurs que votre vrai robot ou ajustées pour la simu)
 PID x_pid(KP_X, KI_X, KD_X, -MAX_SPEED, MAX_SPEED, 5.0);
 PID y_pid(KP_Y, KI_Y, KD_Y, -MAX_SPEED, MAX_SPEED, 5.0);
@@ -40,6 +43,12 @@ void (*callback_functions[256])(byte* msg, byte size);
 
 int main(int argc, char **argv) {
     wb_robot_init(); // 1. Initialisation Webots obligatoire
+    
+    // Récupération du nœud robot pour lire sa vraie position (Ground Truth)
+    WbNodeRef robot_node = wb_supervisor_node_get_self();
+    WbFieldRef translation_field = wb_supervisor_node_get_field(robot_node, "translation");
+    WbFieldRef rotation_field = wb_supervisor_node_get_field(robot_node, "rotation");
+    
     // Serial.begin() sera appelé par le constructeur Com
     com = new Com(&Serial, 115200);  // 2. Création de Com (ouvre COM2 automatiquement)
 
@@ -94,12 +103,38 @@ int main(int argc, char **argv) {
         // D. Action (Envoi des vitesses aux moteurs Webots)
         holonomic_basis_ptr->execute_movement();
 
-        if (loop_counter % (1000 / time_step) == 0) { // Log périodique
+        if (loop_counter % (1000 / time_step) == 0) { // Log périodique toutes les 1 sec
             Point current_pos = holonomic_basis_ptr->get_current_position();
-            printf("📊 [%d] Pos: X=%.1f Y=%.1f θ=%.2f | Target: X=%.1f Y=%.1f θ=%.2f\n",
-                   loop_counter, 
-                   current_pos.x, current_pos.y, current_pos.theta,
-                   target_position.x, target_position.y, target_position.theta);
+            
+            // Lecture position RÉELLE du robot (Ground Truth)
+            const double* real_pos = wb_supervisor_field_get_sf_vec3f(translation_field);
+            const double* real_rot = wb_supervisor_field_get_sf_rotation(rotation_field);
+            
+            // Conversion en mm et angle
+            double real_x_mm = real_pos[0] * 1000.0;
+            double real_y_mm = real_pos[1] * 1000.0;
+            double real_theta = real_rot[3];  // Angle de rotation autour de l'axe Z
+            
+            // Calcul des erreurs d'odométrie
+            double error_x = current_pos.x - real_x_mm;
+            double error_y = current_pos.y - real_y_mm;
+            double error_theta = current_pos.theta - real_theta;
+            double error_distance = sqrt(error_x*error_x + error_y*error_y);
+            
+            // Calcul distance à la cible
+            double dist_to_target = sqrt(pow(target_position.x - real_x_mm, 2) + 
+                                        pow(target_position.y - real_y_mm, 2));
+            
+            printf("\n═══════════════════════════════════════════════════════════════\n");
+            printf("🎯 TARGET     : X=%6.1f Y=%6.1f θ=%+6.3f (dist=%.1fmm)\n",
+                   target_position.x, target_position.y, target_position.theta, dist_to_target);
+            printf("✅ RÉEL       : X=%6.1f Y=%6.1f θ=%+6.3f\n",
+                   real_x_mm, real_y_mm, real_theta);
+            printf("📊 CALCULÉ    : X=%6.1f Y=%6.1f θ=%+6.3f\n",
+                   current_pos.x, current_pos.y, current_pos.theta);
+            printf("❌ ERREUR ODO : ΔX=%+5.1f ΔY=%+5.1f Δθ=%+.3f (%.1fmm)\n",
+                   error_x, error_y, error_theta, error_distance);
+            printf("═══════════════════════════════════════════════════════════════\n");
         }
          if (loop_counter % 10 == 0) {  // Envoi télémétrie toutes les ~X ms
             Point current_pos = holonomic_basis_ptr->get_current_position();
