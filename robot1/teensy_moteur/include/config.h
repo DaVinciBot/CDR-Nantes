@@ -31,23 +31,23 @@
 #define TOTAL_STEPS_PER_REV (STEPS_PER_REVOLUTION * MICROSTEPS)
 
 // Speed and acceleration limits
-#define MAX_SPEED 10000              // steps/second - RÉDUIT POUR TEST
-#define MAX_ACCELERATION 5000.0        // steps/second² - RÉDUIT POUR TEST
+#define MAX_SPEED 20000              // steps/second - RÉDUIT POUR TEST
+#define MAX_ACCELERATION 10000.0        // steps/second² - RÉDUIT POUR TEST
 
 // ========== ROBOT GEOMETRY ==========
 #define ROBOT_RADIUS 156.9  // mm - Distance du centre aux roues
-#define WHEEL_DIAMETER  60.0 // mm - Diameter of the wheels
+#define WHEEL_DIAMETER  60.0 // mm - Diameter effectif (28mm main + 2mm rouleaux)
 
 // ========== PID CONTROLLERS ==========
 // PID X (déplacement horizontal)
-#define KP_X 0.5        // TEST: mouvements très doux contre inertie
-#define KI_X 0.02       // TEST: intégration faible
-#define KD_X 0.0        // Laissé à 0 car oscille si > 0.03
+#define KP_X 1.0        
+#define KI_X 0.08       
+#define KD_X 0.0        
 
 // PID Y (déplacement vertical)
-#define KP_Y 0.5        // TEST: mouvements très doux contre inertie
-#define KI_Y 0.02       // TEST: intégration faible
-#define KD_Y 0.0        // Laissé à 0 car oscille si > 0.03
+#define KP_Y 1.0        
+#define KI_Y 0.08       
+#define KD_Y 0.0      
 
 // PID THETA (rotation)
 #define KP_THETA 4.5

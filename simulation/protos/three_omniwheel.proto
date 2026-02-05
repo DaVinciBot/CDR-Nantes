@@ -4,7 +4,7 @@
 # Rayon Robot = 156.9mm | Rayon Roue = 30mm
 
 PROTO three_omniwheel [
-  field SFVec3f    translation  0 0 0.03
+  field SFVec3f    translation  0 0 0.030
   field SFRotation rotation     0 0 1 0
   field SFBool     supervisor   FALSE
   field SFString   controller   "omni_robot_test"
@@ -52,7 +52,7 @@ PROTO three_omniwheel [
                   jointParameters HingeJointParameters { position 57.8 axis 0 1 0 anchor -0.02 0 0.03 }
                   endPoint Solid {
                     translation -0.02 0 0.03 rotation 0 -1 0 5.01
-                    children [ DEF r1 Pose { rotation -1 0 0 1.5708 children [ DEF SMALL_WHEEL_SHAPE Shape { appearance PBRAppearance { baseColor 1 0.75 0.8 roughness 1 metalness 0 } geometry Cylinder { height 0.02 radius 0.006 } } ] } ]
+                    children [ DEF r1 Pose { rotation -1 0 0 1.5708 children [ DEF SMALL_WHEEL_SHAPE Shape { appearance PBRAppearance { baseColor 1 0.75 0.8 roughness 1 metalness 0 } geometry Cylinder { height 0.02 radius 0.002 } } ] } ]
                     boundingObject USE r1 physics Physics { density -1 mass 0.02 }
                   }
                 }
@@ -117,7 +117,7 @@ PROTO three_omniwheel [
                   children [
                     DEF WHEEL_SHAPE Shape {
                       appearance PBRAppearance { baseColor 1 0 0 roughness 1 metalness 0 }
-                      geometry Cylinder { height 0.02 radius 0.03 subdivision 24 }
+                      geometry Cylinder { height 0.02 radius 0.028 subdivision 24 }
                     }
                   ]
                 }
@@ -128,7 +128,7 @@ PROTO three_omniwheel [
                 children [
                   DEF wheel_collider Shape {
                     appearance PBRAppearance { baseColor 0.8 0.8 0.8 transparency 0.8 }
-                    geometry Cylinder { height 0.02 radius 0.03 }
+                    geometry Cylinder { height 0.02 radius 0.030 }
                   }
                 ]
               }
@@ -226,7 +226,7 @@ PROTO three_omniwheel [
                   children [
                     Shape {
                       appearance PBRAppearance { baseColor 0 1 0 roughness 1 metalness 0 }
-                      geometry Cylinder { height 0.02 radius 0.03 subdivision 24 }
+                      geometry Cylinder { height 0.02 radius 0.028 subdivision 24 }
                     }
                   ]
                 }
@@ -327,7 +327,7 @@ PROTO three_omniwheel [
                   children [
                     Shape {
                       appearance PBRAppearance { baseColor 0 0 1 roughness 1 metalness 0 }
-                      geometry Cylinder { height 0.02 radius 0.03 subdivision 24 }
+                      geometry Cylinder { height 0.02 radius 0.028 subdivision 24 }
                     }
                   ]
                 }
