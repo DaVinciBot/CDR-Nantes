@@ -234,3 +234,4 @@ webots_path.mk
 simulation/worlds/.my_world.jpg
 simulation/worlds/.my_world.jpg
 simulation/worlds/.my_world.wbproj
+/simulation/controllers/teensy_controller/.vs
