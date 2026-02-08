@@ -40,19 +40,19 @@
 
 // ========== PID CONTROLLERS ==========
 // PID X (déplacement horizontal)
-#define KP_X 1.0        
-#define KI_X 0.08       
+#define KP_X 0.0        
+#define KI_X 0.0       
 #define KD_X 0.0        
 
 // PID Y (déplacement vertical)
-#define KP_Y 1.0        
-#define KI_Y 0.08       
+#define KP_Y 0.0        
+#define KI_Y 0.00    
 #define KD_Y 0.0      
 
 // PID THETA (rotation)
-#define KP_THETA 4.5
-#define KI_THETA 0.4
-#define KD_THETA 0.0
+#define KP_THETA 125
+#define KI_THETA 3.0
+#define KD_THETA 0.5
 
 // PID IDs pour la communication
 #define X_PID_ID 0

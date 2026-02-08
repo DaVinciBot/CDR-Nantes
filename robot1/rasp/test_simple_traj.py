@@ -41,10 +41,13 @@ com.add_callback(handle_position, Messages.UPDATE_ROLLING_BASIS.value)
 # Test avec quelques points seulement
 positions = [
     #(200, 0, 0, "Origine"),
-    #(0, 0, 1.57, "Avancer 200mm"),
-    (200,0, 0, "Gauche"),
-    (0,0,0, "Droite 200mm"),
-    (0, 200, 0, "Retour origine"),
+    (0, 0, 1.57, "Tourner 90°"),
+    (0,0,3.14, "Tourner 180°"),
+    (0,0,3*3.14/2, "Tourner 270°"),
+    (0, 0, 0, "Retour origine"),
+    #(200,0, 0, "Gauche"),
+    #(0,0,0, "Droite 200mm"),
+    #(0, 200, 0, "Retour origine"),
 ]
 
 for x, y, theta, desc in positions:

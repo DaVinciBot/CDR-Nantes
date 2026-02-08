@@ -6,21 +6,24 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 EXTERNPROTO "../protos/three_omniwheel.proto"
 
 WorldInfo {
+  basicTimeStep 8
   contactProperties [
     ContactProperties {
       material1 "OmniWheelMat"
-      material2 "floor"
+      material2 "default"
       coulombFriction [
-        0.8
+        0, 0.7, 1
       ]
-      bounce 0.1
-      softCFM 0.0001
+      bounce 0
+      forceDependentSlip [
+        10, 0
+      ]
     }
   ]
 }
 Viewpoint {
-  orientation -0.03831664554156323 0.03662725426154595 -0.9985941512545036 4.6659808926616035
-  position 0.015947952845872273 -0.28184895378715946 0.01916202672881549
+  orientation -0.41843937552213195 0.41739567751816264 0.806653170452954 1.7864703694947681
+  position 0.009313491904414403 -0.4744894037678536 0.9584517840800456
 }
 TexturedBackground {
 }
@@ -71,7 +74,7 @@ Robot {
                 }
               ]
               endPoint Solid {
-                translation 0.0034990129992900545 0.0013527191834032128 0.0005367693031173768
+                translation 0.0034990129992900545 0.0013527191834032198 0.0005367693031173768
                 rotation -0.007181784677779341 -0.9999681543459736 0.003480267626062316 1.183116953957758
                 children [
                   DEF VISUAL_WHEEL_1 Transform {
@@ -198,7 +201,7 @@ Robot {
               ]
               endPoint Solid {
                 translation 0.004764112240599857 0.0008889910574271273 -8.173998515129729e-06
-                rotation 0.0044043456445371325 0.9999863500931852 -0.0028109369884505063 4.2905524542629685
+                rotation 0.004404345644537049 0.9999863500931852 -0.0028109369884504586 4.2905524542629685
                 children [
                   DEF VISUAL_WHEEL_3 Transform {
                     rotation 0 0 1 -1.57

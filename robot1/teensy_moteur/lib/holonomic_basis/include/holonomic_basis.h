@@ -26,7 +26,7 @@ class Holonomic_Basis {
     double THETA = 0.0;
 
     bool use_encoders = true;       // ÉTAPE 1 - Encodeurs moteurs (parfaits en Webots)
-    bool use_optical_flow = false;  // DÉSACTIVÉ temporairement - génère faux mouvements au repos
+    bool use_optical_flow = true;  // DÉSACTIVÉ temporairement - génère faux mouvements au repos
     bool use_imu = true;            // ÉTAPE 3 - IMU pour angle (très précis)
     bool use_pid_control = true;    // PID activé
 

@@ -529,7 +529,7 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     double angle_error = fabs(theta_error);
     
     // Zone morte réduite pour améliorer la précision
-    if (distance_error < 0.5 && angle_error < 0.01) {  // 0.5mm et 0.5°
+    if (distance_error < 0.5 && angle_error < 0.0001) {  // 0.5mm et 0.5°
         vx_world = 0.0;
         vy_world = 0.0;
         omega = 0.0;
