@@ -45,9 +45,12 @@ positions = [
     #(0,0,3.14, "Tourner 180°"),
     #(0,0,3*3.14/2, "Tourner 270°"),
     #(0, 0, 0, "Retour origine"),
-    (200,0, 0, "Gauche"),
-    (0,0,0, "Droite 200mm"),
-    (0, 200, 0, "Retour origine"),
+    (0,350,0, "Avancer 250mm"),
+    (0,850,0, "Avancer 750mm"),
+    (850, 850, 0, "Avancer en diagonale 750mm"),
+    (850, 350, 0, "Reculer en diagonale 750mm"),
+    (0, 350, 0, "Reculer 750mm"),
+    
 ]
 
 for x, y, theta, desc in positions:

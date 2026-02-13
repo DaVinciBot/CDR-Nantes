@@ -4,13 +4,13 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
 EXTERNPROTO "../protos/three_omniwheel.proto"
+EXTERNPROTO "../protos/table/Eurobot2026.proto"
 
 WorldInfo {
   basicTimeStep 8
   contactProperties [
     ContactProperties {
       material1 "OmniWheelMat"
-      material2 "default"
       coulombFriction [
         0, 0.7, 1
       ]
@@ -22,14 +22,15 @@ WorldInfo {
   ]
 }
 Viewpoint {
-  orientation -0.41843937552213195 0.41739567751816264 0.806653170452954 1.7864703694947681
-  position 0.009313491904414403 -0.4744894037678536 0.9584517840800456
+  orientation 0.4977910191413901 -0.4944108359010162 -0.7125742253308316 4.373384547820132
+  position 0.07671607922966617 -3.1739219354830457 8.367216658516194
 }
 TexturedBackground {
 }
 TexturedBackgroundLight {
 }
 RectangleArena {
+  translation 0 4 0
   floorSize 3 2
   wallHeight 0.07
 }
@@ -74,7 +75,7 @@ Robot {
                 }
               ]
               endPoint Solid {
-                translation 0.0034990129992900545 0.0013527191834032198 0.0005367693031173768
+                translation 0.0034990129992900545 0.0013527191834032224 0.0005367693031173768
                 rotation -0.007181784677779341 -0.9999681543459736 0.003480267626062316 1.183116953957758
                 children [
                   DEF VISUAL_WHEEL_1 Transform {
@@ -201,7 +202,7 @@ Robot {
               ]
               endPoint Solid {
                 translation 0.004764112240599857 0.0008889910574271273 -8.173998515129729e-06
-                rotation 0.004404345644537049 0.9999863500931852 -0.0028109369884504586 4.2905524542629685
+                rotation 0.004404345644537017 0.9999863500931852 -0.002810936988450439 4.2905524542629685
                 children [
                   DEF VISUAL_WHEEL_3 Transform {
                     rotation 0 0 1 -1.57
@@ -244,7 +245,12 @@ Robot {
   controller "<none>"
 }
 DEF OMNI_WHEELS three_omniwheel {
-  translation 0 0 0.033
+  translation 1.19 0.729997 0.033
+  rotation 0 0 1 3.14159
   supervisor TRUE
   controller "teensy_controller"
+}
+Eurobot2026 {
+  yellow_game_elements FALSE
+  blue_game_elements FALSE
 }
