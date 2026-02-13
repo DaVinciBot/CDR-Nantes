@@ -235,72 +235,97 @@ void Holonomic_Basis::update_optical_odometry(double dtheta_robot) {
     if (!pmw3901) return;
     
     int16_t deltaX = 0, deltaY = 0;
-    int16_t raw_x = 0, raw_y = 0;
+    double dx_mm = 0.0, dy_mm = 0.0;
     
-    // 1. Lecture Capteur
+    // ✅ LECTURE CAPTEUR (API différente selon le mode)
     #ifdef WEBOTS_SIMULATION
-        pmw3901->readMotion(deltaX, deltaY); // Mock retourne mm
-        double dx_mm = deltaX; 
-        double dy_mm = deltaY;
-        raw_x = deltaX; raw_y = deltaY;
-    #else 
+        // Mock Webots : retourne directement en mm
+        pmw3901->readMotion(deltaX, deltaY);
+        dx_mm = (double)deltaX;
+        dy_mm = (double)deltaY;
+    #else
+        // Vrai capteur : retourne des counts
         pmw3901->readMotionCounts(&deltaX, &deltaY);
-        double dx_mm = deltaX * OPTICAL_SCALE; 
-        double dy_mm = deltaY * OPTICAL_SCALE;
+        dx_mm = deltaX * OPTICAL_SCALE;  // Conversion counts → mm
+        dy_mm = deltaY * OPTICAL_SCALE;
     #endif
     
-    // Ignore la toute première lecture qui est souvent aberrante (ex: 84km)
+    // Ignore la première lecture (souvent aberrante)
     static bool is_first_run_opt = true;
     if (is_first_run_opt) {
         is_first_run_opt = false;
         return; 
     }
 
-    // 3. Calculs Géométriques (Deltas)
-    // On fait les calculs MAINTENANT pour pouvoir les afficher dans le debug
+    // Debug périodique AVANT filtre (pour voir fréquence réelle d'appel)
+    static uint32_t debug_cnt = 0;
+    bool should_print = (++debug_cnt >= 200);  // Toutes les 2 secondes à 100Hz
+    if (should_print) {
+        debug_cnt = 0;
+    }
+
+    // ========== CODE COMMUN SIMULATION/RÉEL ==========
     
-    // Rotation Capteur -> Robot
+    // 1. Transformation Capteur → Robot
     double c_mnt = cos(OPTICAL_MOUNT_ANGLE);
     double s_mnt = sin(OPTICAL_MOUNT_ANGLE);
     double dx_robot = dx_mm * c_mnt - dy_mm * s_mnt;
     double dy_robot = dx_mm * s_mnt + dy_mm * c_mnt;
     
-    // Compensation levier (Rotation robot créant faux mouvement)
+    // 2. Compensation effet centrifuge (rotation robot créant faux mouvement)
     dx_robot -= -OPTICAL_OFFSET_Y * dtheta_robot;
     dy_robot -=  OPTICAL_OFFSET_X * dtheta_robot;
 
-    // Projection Delta dans le Monde (Juste pour l'info debug pour l'instant)
-    double c = cos(this->THETA);
-    double s = sin(this->THETA);    
-    double dx_world = dx_robot * c - dy_robot * s;
-    double dy_world = dx_robot * s + dy_robot * c;
+    // 3. Transformation Robot → Monde
+    double cos_theta = cos(this->THETA);
+    double sin_theta = sin(this->THETA);
+    double dx_world = dx_robot * cos_theta - dy_robot * sin_theta;
+    double dy_world = dx_robot * sin_theta + dy_robot * cos_theta;
 
-    // 4. [CORRECTIF] Debug Périodique (Placé AVANT le filtre de bruit)
-    // Cela garantit que le printf tourne même si le robot est à l'arrêt
-    static uint32_t debug_cnt = 0;
-    if (++debug_cnt >= 200) {
-        debug_cnt = 0;
-        #ifdef WEBOTS_SIMULATION
-        printf("📷 GPS: raw=[%4d,%4d]mm | robot=[%6.2f,%6.2f]mm | world=[%6.2f,%6.2f]mm | pos=[%7.1f,%7.1f]mm\n",
-               raw_x, raw_y,dx_robot, dy_robot,dx_world, dy_world,odo_data.optical_x_acc, odo_data.optical_y_acc);
-        #else
-        // Pour le réel, on ajoute la qualité de surface (Squal) A Calibrer 
-        // (Assurez-vous que votre librairie Bitcraze supporte readMotionCount avec Squal, sinon simplifiez)
-        //printf("📷 PAA: raw=[%d,%d] | world=[%.2f,%.2f] | pos=[%.1f,%.1f]\n",
-        //       deltaX, deltaY, dx_world, dy_world,odo_data.optical_x_acc, odo_data.optical_y_acc);
-        #endif
+    // 4. Filtrage anti-bruit UNIQUEMENT au repos (simulation Webots)
+    #ifdef WEBOTS_SIMULATION
+        // Détection repos : vitesses des roues nulles ET encodeurs immobiles
+        bool robot_at_rest = (abs(this->last_wheel1_speed) < 1.0 && 
+                             abs(this->last_wheel2_speed) < 1.0 && 
+                             abs(this->last_wheel3_speed) < 1.0);
+        
+        if (robot_at_rest) {
+            // Robot immobile : IGNORER le GPS (bruit 2-3mm par cycle)
+            // On fait confiance aux encodeurs qui montrent d[0,0,0]
+            static uint32_t noise_filter_debug = 0;
+            double movement_magnitude = sqrt(dx_world*dx_world + dy_world*dy_world);
+            if (should_print && movement_magnitude > 0.5 && ++noise_filter_debug >= 10) {
+                noise_filter_debug = 0;
+                printf("🔇 GPS au repos: Bruit ignoré (%.2fmm) - encodeurs prioritaires\n", 
+                       movement_magnitude);
+            }
+            // Pas d'accumulation optique au repos
+        } else {
+            // Robot en mouvement : accumulation GPS directe
+            odo_data.optical_x_acc += dx_world;
+            odo_data.optical_y_acc += dy_world;
+        }
+    #else
+        // Robot réel : accumulation directe (PAA5100 a moins de bruit)
+        odo_data.optical_x_acc += dx_world;
+        odo_data.optical_y_acc += dy_world;
+    #endif
+    
+    // 5. Debug périodique avec filtre d'affichage uniquement
+    if (should_print) {
+        // Filtre de bruit pour logs uniquement (pas d'impact sur accumulation)
+        bool is_display_noise = (abs(dx_mm) < 0.1 && abs(dy_mm) < 0.1);
+        if (is_display_noise) {
+            printf("📷 OPTIQUE: [FILTRÉ AFFICHAGE] raw=[%4d,%4d]mm → %.3f,%.3f < 0.1mm | pos=[%7.1f,%7.1f]mm\n", 
+                   deltaX, deltaY, dx_mm, dy_mm,
+                   odo_data.optical_x_acc, odo_data.optical_y_acc);
+        } else {
+            double movement_magnitude = sqrt(dx_world*dx_world + dy_world*dy_world);
+            printf("📷 OPTIQUE: raw=[%4d,%4d]mm | robot=[%6.2f,%6.2f]mm | world=[%6.2f,%6.2f]mm (%.2fmm) | pos=[%7.1f,%7.1f]mm\n",
+                   deltaX, deltaY, dx_robot, dy_robot, dx_world, dy_world, movement_magnitude,
+                   odo_data.optical_x_acc, odo_data.optical_y_acc);
+        }
     }
-
-    // 5. Filtre de bruit (Seuil d'activation)
-    // Si le mouvement est insignifiant, on quitte ICI (on n'intègre pas)
-    // Seuil augmenté à 1mm pour filtrer vibrations Webots
-    if(abs(dx_mm) < 1.0 && abs(dy_mm) < 1.0) {
-        return; 
-    }
-
-    // 6. Intégration (Seulement si mouvement réel)
-    odo_data.optical_x_acc += dx_world;
-    odo_data.optical_y_acc += dy_world;
 }
 
 void Holonomic_Basis::update_odometry() {
@@ -310,13 +335,13 @@ void Holonomic_Basis::update_odometry() {
     int32_t pos3 = wheel3 ? wheel3->getPosition() : 0;
     
     static bool is_first_run = true;
-    
+    static double last_theta_enc =0.0;
     if (is_first_run) {
         // On synchronise juste les "last_pos" avec la réalité
         odo_data.last_pos1 = pos1;
         odo_data.last_pos2 = pos2;
         odo_data.last_pos3 = pos3;
-        
+
         is_first_run = false;
         return; // On sort ! Pas de calcul de mouvement au démarrage.
     }
@@ -325,7 +350,98 @@ void Holonomic_Basis::update_odometry() {
     double d1 = double(pos1 - odo_data.last_pos1);
     double d2 = double(pos2 - odo_data.last_pos2);
     double d3 = double(pos3 - odo_data.last_pos3);
-    
+    const double ENCODER_NOISE_THRESHOLD = 5.0; // steps (ajuster selon tests)
+    if (abs(d1) < ENCODER_NOISE_THRESHOLD) d1 = 0.0;
+    if (abs(d2) < ENCODER_NOISE_THRESHOLD) d2 = 0.0;
+    if (abs(d3) < ENCODER_NOISE_THRESHOLD) d3 = 0.0;
+
+    // ⚠️ Appel du capteur optique AVANT check encodeurs (pour avoir logs même au repos)
+    bool optical_active = false;
+    double dx_optical_world = 0.0;
+    double dy_optical_world = 0.0;
+    if (use_optical_flow && pmw3901) {
+        double prev_acc_x = odo_data.optical_x_acc;
+        double prev_acc_y = odo_data.optical_y_acc;
+        
+        // omega_enc provisoire = 0 si encodeurs immobiles
+        double omega_temp = 0.0;
+        if (d1 != 0.0 || d2 != 0.0 || d3 != 0.0) {
+            // Conversion steps -> mm temporaire pour calcul omega
+            const double STEPS_TO_MM = (wheel_diameter * M_PI) / (steps_per_revolution * microsteps);
+            double w1_mm = d1 * STEPS_TO_MM;
+            double w2_mm = d2 * STEPS_TO_MM;
+            double w3_mm = d3 * STEPS_TO_MM;
+            omega_temp = (w1_mm + w2_mm + w3_mm) / (3.0 * robot_radius);
+        }
+        
+        update_optical_odometry(omega_temp);
+        
+        double diff_opt_x = odo_data.optical_x_acc - prev_acc_x;
+        double diff_opt_y = odo_data.optical_y_acc - prev_acc_y;
+        
+        // Détection rotation pure : pattern encodeurs (3 roues même sens/vitesse)
+        // Rotation pure si d1 ≈ d2 ≈ d3 (toutes tournent ensemble)
+        bool is_pure_rotation = false;
+        if (abs(omega_temp) > 0.005) { // Rotation détectée (> 0.005 rad = 0.3°)
+            // Vérifier si les 3 roues tournent dans le même sens
+            double d1_abs = abs(d1);
+            double d2_abs = abs(d2);
+            double d3_abs = abs(d3);
+            
+            // Vérifier même signe (toutes positives ou toutes négatives)
+            bool same_sign = (d1 * d2 > 0) && (d2 * d3 > 0);
+            
+            // Vérifier vitesses similaires (tolérance 20% pour imprécisions)
+            double d_avg = (d1_abs + d2_abs + d3_abs) / 3.0;
+            if (d_avg > 50.0) { // Mouvement significatif (>50 steps)
+                double d1_diff = abs(d1_abs - d_avg) / d_avg;
+                double d2_diff = abs(d2_abs - d_avg) / d_avg;
+                double d3_diff = abs(d3_abs - d_avg) / d_avg;
+                
+                // Rotation pure = même signe ET vitesses similaires (<20% écart)
+                if (same_sign && d1_diff < 0.2 && d2_diff < 0.2 && d3_diff < 0.2) {
+                    is_pure_rotation = true;
+                }
+            }
+        }
+        
+        // En simulation: GPS ground truth TOUJOURS prioritaire (même si delta=0)
+        // SAUF pendant rotations pures (filtrage mouvements parasites)
+        // En réel: seuil à 0.01mm pour éviter bruit capteur
+        #ifdef WEBOTS_SIMULATION
+            if (is_pure_rotation) {
+                // Rotation pure détectée : IGNORER mouvements X/Y optiques (glissement)
+                // On garde uniquement theta de l'IMU
+                dx_optical_world = 0.0;
+                dy_optical_world = 0.0;
+                optical_active = false;  // Fallback encodeurs (qui devraient aussi être ≈0)
+                
+                static uint32_t pure_rot_debug = 0;
+                if (++pure_rot_debug >= 50) { // Log toutes les 0.5s
+                    pure_rot_debug = 0;
+                    printf("🔄 ROTATION PURE: Filtrage X/Y optique (ω=%.3f rad, GPS filtré=[%.1f,%.1f]mm)\n",
+                           omega_temp, diff_opt_x, diff_opt_y);
+                }
+            } else {
+                // Mouvement normal : GPS Mock prioritaire
+                dx_optical_world = diff_opt_x;
+                dy_optical_world = diff_opt_y;
+                optical_active = true;  // Jamais de fallback encodeurs !
+            }
+        #else
+            // Robot réel: filtrer le bruit du capteur optique
+            const double OPTICAL_THRESHOLD = 0.01; // 10 microns
+            if (abs(diff_opt_x) > OPTICAL_THRESHOLD || abs(diff_opt_y) > OPTICAL_THRESHOLD) {
+                dx_optical_world = diff_opt_x;
+                dy_optical_world = diff_opt_y;
+                optical_active = true;
+            }
+        #endif
+    }
+
+    // Ne pas skipper même au repos : permet le logging optique continu
+    // (Au repos: encodeurs=0, optique filtré, mais logs debug utiles)
+
     // Conversion steps -> mm
     const double STEPS_TO_MM = (wheel_diameter * M_PI) / 
                                (steps_per_revolution * microsteps);
@@ -364,34 +480,24 @@ void Holonomic_Basis::update_odometry() {
         //     d1, d2, d3, dx_enc, dy_enc, omega_enc, this->X, this->Y, this->THETA);
     }
     
-    // MÉTHODE 2 : ODOMÉTRIE OPTIQUE (PAA5100)
-    bool optical_active=false;
-    double dx_final_world=0.0;
-    double dy_final_world=0.0;
-    if (use_optical_flow && pmw3901) {
-        double prev_acc_x = odo_data.optical_x_acc;
-        double prev_acc_y = odo_data.optical_y_acc;
-
-        // Mise à jour de l'accumulateur optique (avec correction centrifuge dtheta_enc)
-        update_optical_odometry(omega_enc);
-        
-        // Calcul du delta perçu ce cycle
-        double diff_opt_x = odo_data.optical_x_acc - prev_acc_x;
-        double diff_opt_y = odo_data.optical_y_acc - prev_acc_y;
-
-        // Si l'optique a bougé significativement, on l'utilise
-        if (abs(diff_opt_x) > 0.001 || abs(diff_opt_y) > 0.001) {
-            dx_final_world = diff_opt_x;
-            dy_final_world = diff_opt_y;
-            optical_active = true;
-        }
+    // Fusion : GPS prioritaire en simulation, PAA5100 sur robot réel
+    double dx_final_world, dy_final_world;
+    
+    if (optical_active) {
+        // Capteur optique actif : utiliser ses données
+        dx_final_world = dx_optical_world;
+        dy_final_world = dy_optical_world;
+    } else {
+        // Fallback encodeurs si capteur optique inactif
+        dx_final_world = dx_enc * cos(this->THETA) - dy_enc * sin(this->THETA);
+        dy_final_world = dx_enc * sin(this->THETA) + dy_enc * cos(this->THETA);
     }
-    // Méthode 3 : IMU BNO085
-      
+    
+    // Méthode 3 : IMU BNO085  
     bool theta_updated = false;
     if (use_imu && bno085 && odo_data.imu_calibrated) {
         #ifdef WEBOTS_SIMULATION
-            // ✅ SIMULATION : Utiliser getSensorEvent
+            // SIMULATION : Utiliser getSensorEvent
             sh2_SensorValue_t sv;
             if (bno085->getSensorEvent(&sv) && sv.sensorId == SH2_GAME_ROTATION_VECTOR) {
                 theta_updated = true;
@@ -409,7 +515,7 @@ void Holonomic_Basis::update_odometry() {
                 if (is_imu_first_run) {
                     loop_yaw_offset = yaw; // On capture l'angle actuel (ex: -1.26 rad) comme référence
                     is_imu_first_run = false;
-                    printf("🧭 IMU: Re-Tare au début de boucle (Offset dynamique = %.3f rad)\n", loop_yaw_offset);
+                    printf(" IMU: Re-Tare au début de boucle (Offset dynamique = %.3f rad)\n", loop_yaw_offset);
                 }
                 
                 this->THETA = normalizeAngle(yaw - loop_yaw_offset);
@@ -418,12 +524,12 @@ void Holonomic_Basis::update_odometry() {
                 static uint32_t imu_debug = 0;
                 if (++imu_debug >= 50) {
                     imu_debug = 0;
-                    printf("🧭 IMU: quat[%.3f,%.3f,%.3f,%.3f] → yaw=%.3frad (%.1f°)\n",
+                    printf(" IMU: quat[%.3f,%.3f,%.3f,%.3f] → yaw=%.3frad (%.1f°)\n",
                            r, i, j, k, yaw, yaw * 180.0 / M_PI);
                 }
             }
         #else
-            // ✅ ROBOT RÉEL : Utiliser getSensorEvent avec GAME_ROTATION_VECTOR
+            // ROBOT RÉEL : Utiliser getSensorEvent avec GAME_ROTATION_VECTOR
             sh2_SensorValue_t sv;
             if (bno085->getSensorEvent(&sv) && sv.sensorId == SH2_GAME_ROTATION_VECTOR) {
                 theta_updated = true;
@@ -450,20 +556,34 @@ void Holonomic_Basis::update_odometry() {
     // Normalisation θ ∈ [-π, +π]
     while (this->THETA >  M_PI) this->THETA -= 2.0 * M_PI;
     while (this->THETA < -M_PI) this->THETA += 2.0 * M_PI;
-    
+    double theta_moyen = (last_theta_enc + this->THETA) / 2.0;
     //Intégration position X,Y
+    static uint32_t fusion_debug = 0;
     if (optical_active) {
-        // PAA5100 prioritaire (pas de glissement)
-        this->X+= dx_final_world;
+        // 🥇 OPTIQUE PRIORITAIRE (GPS ground truth en simulation, pas de glissement)
+        this->X += dx_final_world;
         this->Y += dy_final_world;
+        
+        if (++fusion_debug >= 200) {
+            fusion_debug = 0;
+            printf("🥇 FUSION: Optique actif (dx=%.3f dy=%.3f) | Encodeurs ignorés\n", 
+                   dx_final_world, dy_final_world);
+        }
     } else if (use_encoders) {
-        // Encodeurs en fallback
-        double cos_theta = cos(this->THETA);
-        double sin_theta = sin(this->THETA);
+        // 🥈 Encodeurs en fallback uniquement
+        double cos_theta = cos(theta_moyen);     
+        double sin_theta = sin(theta_moyen);     
         
         this->X += dx_enc * cos_theta - dy_enc * sin_theta;
         this->Y += dx_enc * sin_theta + dy_enc * cos_theta;
+        
+        if (++fusion_debug >= 200) {
+            fusion_debug = 0;
+            printf("🥈 FUSION: Fallback encodeurs (dx=%.3f dy=%.3f) | Optique inactif\n", 
+                   dx_enc, dy_enc);
+        }
     }
+    last_theta_enc = this->THETA;
     // Sauvegarder pour prochaine itération
     odo_data.last_pos1 = pos1;
     odo_data.last_pos2 = pos2;
@@ -528,11 +648,15 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     double distance_error = sqrt(xerr*xerr + yerr*yerr);
     double angle_error = fabs(theta_error);
     
-    // Zone morte réduite pour améliorer la précision
-    if (distance_error < 0.5 && angle_error < 0.0001) {  // 0.5mm et 0.5°
+    // Zone morte adaptée à la précision GPS Mock (~3mm)
+    if (distance_error < 0.50 && angle_error < 0.009) {  // 1mm et 0.5°
         vx_world = 0.0;
         vy_world = 0.0;
         omega = 0.0;
+
+        last_wheel1_speed = 0.0;
+        last_wheel2_speed = 0.0;
+        last_wheel3_speed = 0.0;
     }
     
 
@@ -562,10 +686,19 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
 
     // DEBUG: Affichage des vitesses calculées
     
-    // Stockage des vitesses cibles (bornées par max_speed)
-    last_wheel1_speed = constrain(w1, -max_speed, max_speed);
-    last_wheel2_speed = constrain(w2, -max_speed, max_speed);
-    last_wheel3_speed = constrain(w3, -max_speed, max_speed);
+    // Normalisation proportionnelle pour préserver la direction du mouvement
+    // Si une roue dépasse MAX_SPEED, on réduit toutes les roues du même ratio
+    double max_wheel_speed = fmax(fmax(fabs(w1), fabs(w2)), fabs(w3));
+    if (max_wheel_speed > max_speed) {
+        double scale = max_speed / max_wheel_speed;
+        last_wheel1_speed = w1 * scale;
+        last_wheel2_speed = w2 * scale;
+        last_wheel3_speed = w3 * scale;
+    } else {
+        last_wheel1_speed = w1;
+        last_wheel2_speed = w2;
+        last_wheel3_speed = w3;
+    }
 
     static int i = 0;
     if (i++ > 100) {  // ~1 seconde
