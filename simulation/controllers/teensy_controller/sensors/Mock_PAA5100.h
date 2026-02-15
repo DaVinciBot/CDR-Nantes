@@ -13,6 +13,10 @@ private:
     double last_x_world = 0.0;
     double last_y_world = 0.0;
     bool first_read = true;
+    
+    // Accumulateurs pour les fractions de mm (comme le vrai capteur)
+    double accumulated_x = 0.0;
+    double accumulated_y = 0.0;
 
 public:
     PAA5100() {
@@ -63,6 +67,8 @@ public:
         if (first_read) {
             last_x_world = current_x_world;
             last_y_world = current_y_world;
+            accumulated_x = 0.0;
+            accumulated_y = 0.0;
             first_read = false;
             out_x = 0;
             out_y = 0;
@@ -79,11 +85,35 @@ public:
         double dx_capteur = cos_yaw * dx_world + sin_yaw * dy_world;
         double dy_capteur = -sin_yaw * dx_world + cos_yaw * dy_world;
         
-        // 6. Retour en mm (arrondi pour simuler quantification)
-        out_x = (int16_t)round(dx_capteur);
-        out_y = (int16_t)round(dy_capteur);
+        // 5.5. FILTRAGE DU BRUIT GPS (zone morte)
+        //      Le GPS Webots a un bruit résiduel de ±2mm même au repos (magnitude ~2-3mm)
+        //      On filtre les mouvements < 2.0mm/cycle pour éviter l'accumulation de bruit
+        //      Les vrais mouvements en déplacement sont >5mm donc non affectés
+        const double NOISE_THRESHOLD = 2.0;  // mm - Seuil calibré sur bruit GPS Webots observé
+        double magnitude = sqrt(dx_capteur*dx_capteur + dy_capteur*dy_capteur);
+        
+        if (magnitude < NOISE_THRESHOLD) {
+            // Mouvement trop faible = bruit GPS → ignorer
+            dx_capteur = 0.0;
+            dy_capteur = 0.0;
+        }
+        
+        // 6. ACCUMULATION des fractions (comme le vrai PAA5100)
+        //    Le vrai capteur accumule les micro-mouvements et n'incrémente
+        //    son compteur que quand il dépasse 1 count (≈0.03mm)
+        //    Ici on simule le même principe pour éviter de perdre la précision
+        accumulated_x += dx_capteur;
+        accumulated_y += dy_capteur;
+        
+        // 7. Extraction de la partie entière (counts transmis)
+        out_x = (int16_t)floor(accumulated_x);
+        out_y = (int16_t)floor(accumulated_y);
+        
+        // 8. Conservation de la fraction pour le prochain cycle
+        accumulated_x -= out_x;
+        accumulated_y -= out_y;
 
-        // 7. Sauvegarder pour prochain cycle
+        // 9. Sauvegarder position pour prochain cycle
         last_x_world = current_x_world;
         last_y_world = current_y_world;
     }
@@ -92,5 +122,7 @@ public:
         first_read = true;
         last_x_world = 0.0;
         last_y_world = 0.0;
+        accumulated_x = 0.0;
+        accumulated_y = 0.0;
     }
 };

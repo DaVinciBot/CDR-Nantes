@@ -75,6 +75,12 @@ class Holonomic_Basis {
     double last_wheel2_speed = 0.0;
     double last_wheel3_speed = 0.0;
 
+    // Variables pour le filtre passe-bas (lissage des commandes)
+    double filtered_wheel1_speed = 0.0;
+    double filtered_wheel2_speed = 0.0;
+    double filtered_wheel3_speed = 0.0;
+    double speed_filter_alpha = 0.3;  // Coefficient de filtrage (0 = pas de filtre, 1 = pas de lissage)
+
     // Constructor
     Holonomic_Basis(double robot_radius,
                     double wheel_diameter,
@@ -128,9 +134,16 @@ class Holonomic_Basis {
         double imu_yaw_offset = 0.0;
         bool imu_calibrated = false;
 
-        //Capteur optique PAA5100
+        // Capteur optique PAA5100
         double optical_x_acc = 0.0;
         double optical_y_acc = 0.0;
+        
+        // Fusion complémentaire (encodeurs + optique)
+        double encoder_x_acc = 0.0;      // Accumulation position encodeurs
+        double encoder_y_acc = 0.0;
+        float encoder_confidence = 0.20f; // Poids dynamique encodeurs (50% par défaut = filtre complémentaire équilibré)
+        uint32_t optical_outlier_count = 0; // Nombre de rejets outliers
+        uint32_t optical_valid_count = 0;   // Nombre de lectures valides
         
         uint32_t debug_counter = 0;
     } odo_data;

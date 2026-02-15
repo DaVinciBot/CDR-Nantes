@@ -38,6 +38,13 @@ Holonomic_Basis::Holonomic_Basis(double robot_radius,
       steps_per_revolution(steps_per_revolution),
       microsteps(microsteps) {
     
+    // Initialisation du filtre de lissage
+    #ifdef SPEED_FILTER_ALPHA
+        speed_filter_alpha = SPEED_FILTER_ALPHA;
+    #else
+        speed_filter_alpha = 0.3;  // Valeur par défaut
+    #endif
+    
     // Initialisation des pointeurs à null
     wheel1 = nullptr;
     wheel2 = nullptr;
@@ -282,6 +289,28 @@ void Holonomic_Basis::update_optical_odometry(double dtheta_robot) {
     double dx_world = dx_robot * cos_theta - dy_robot * sin_theta;
     double dy_world = dx_robot * sin_theta + dy_robot * cos_theta;
 
+    // 3.5. Filtrage outliers basé sur magnitude (protection robot réel)
+    double magnitude = sqrt(dx_world*dx_world + dy_world*dy_world);
+    bool is_outlier = false;
+    
+    // Rejet outliers : magnitude > 15mm en une lecture = physiquement impossible
+    // (robot max ~300mm/s @ 100Hz = 3mm/lecture max attendu)
+    if (magnitude > 15.0) {
+        is_outlier = true;
+        odo_data.optical_outlier_count++;
+        if (should_print) {
+            printf("⚠️ OPTIQUE: Outlier rejeté! Mag=%.1fmm > 15mm (X:%d Y:%d)\n", 
+                   magnitude, deltaX, deltaY);
+        }
+    }
+    
+    // Filtre bruit au repos : magnitude < 2mm = oscillation capteur ±1mm
+    if (magnitude < 2.0 && !is_outlier) {
+        // Considérer comme bruit, ne pas accumuler
+        dx_world = 0.0;
+        dy_world = 0.0;
+    }
+
     // 4. Filtrage anti-bruit UNIQUEMENT au repos (simulation Webots)
     #ifdef WEBOTS_SIMULATION
         // Détection repos : vitesses des roues nulles ET encodeurs immobiles
@@ -301,14 +330,20 @@ void Holonomic_Basis::update_optical_odometry(double dtheta_robot) {
             }
             // Pas d'accumulation optique au repos
         } else {
-            // Robot en mouvement : accumulation GPS directe
-            odo_data.optical_x_acc += dx_world;
-            odo_data.optical_y_acc += dy_world;
+            // Robot en mouvement : accumulation GPS directe (si non rejeté)
+            if (!is_outlier) {
+                odo_data.optical_x_acc += dx_world;
+                odo_data.optical_y_acc += dy_world;
+                odo_data.optical_valid_count++;
+            }
         }
     #else
-        // Robot réel : accumulation directe (PAA5100 a moins de bruit)
-        odo_data.optical_x_acc += dx_world;
-        odo_data.optical_y_acc += dy_world;
+        // Robot réel : accumulation avec filtrage outliers
+        if (!is_outlier) {
+            odo_data.optical_x_acc += dx_world;
+            odo_data.optical_y_acc += dy_world;
+            odo_data.optical_valid_count++;
+        }
     #endif
     
     // 5. Debug périodique avec filtre d'affichage uniquement
@@ -450,15 +485,29 @@ void Holonomic_Basis::update_odometry() {
     double w2_mm = d2 * STEPS_TO_MM;
     double w3_mm = d3 * STEPS_TO_MM;
     
-    // Cinématique Directe : Vitesses Roues -> Vitesse Robot  Matrice Inverse des équations mouvement
-    // Configuration : Roue1 à 210° (-150°), Roue2 à 330° (-30°), Roue3 à 90°
-    // Vitesse X = (2*W3 - W1 - W2) / 3
+    // ============= CINÉMATIQUE DIRECTE (INVERSE MATHÉMATIQUE DE L'INVERSE) =============
+    // Configuration physique confirmée : Roue1=Haut-Droite, Roue2=Haut-Gauche, Roue3=Arrière
+    // Angles utilisés dans cinématique inverse : Roue1=120°, Roue2=240°, Roue3=0°
+    //
+    // Système à résoudre (de la cinématique inverse) :
+    //   w1 = -0.5*vx + 0.866*vy + ω*R
+    //   w2 = -0.5*vx - 0.866*vy + ω*R
+    //   w3 = 1.0*vx + ω*R
+    //
+    // Solutions (inverse matricielle) :
+    //   vx = (2*w3 - w1 - w2) / 3
+    //   vy = (w1 - w2) / √3
+    //   ω*R = (w1 + w2 + w3) / 3
+    // ==================================================================================
+
+    // Vitesse X (longitudinale - vers l'avant robot)
     double dx_enc = (2.0 * w3_mm - w1_mm - w2_mm) / 3.0;
 
-    // Vitesse Y = (W1 - W2) / sqrt(3)
-    double dy_enc = (w1_mm - w2_mm) / 1.73205;
+    // Vitesse Y (latérale - vers la gauche robot)
+    double dy_enc = (w1_mm - w2_mm) / 1.73205080757;  // 1.73205... = sqrt(3)
 
-    // Rotation = -(W1 + W2 + W3) / (3 * Rayon)
+    // Rotation angulaire (en radians) : ω*R = (w1+w2+w3)/3, donc ω = (w1+w2+w3)/(3*R)
+    // Note: les w_mm contiennent déjà la contribution (ω*R) de la cinématique inverse
     double omega_enc = (w1_mm + w2_mm + w3_mm) / (3.0 * robot_radius);
     
     
@@ -472,25 +521,38 @@ void Holonomic_Basis::update_odometry() {
 
     if (++odo_data.debug_counter >= 20) { 
         odo_data.debug_counter = 0;
-        //Debug complet :
-        // 1. Les variations encodeurs brutes (d1, d2, d3)
-        // 2. Le déplacement calculé en Y (dy_enc)
-        // 3. La position Y globale
-        //printf("DEBUG: d1=%.1f d2=%.1f d3=%.1f  ->  dx_enc=%.4f dy_enc=%.4f omega_enc=%.4f ->  X_Global=%.2f Y_Global=%.2f\n Theta_Global=%.3f\n", 
-        //     d1, d2, d3, dx_enc, dy_enc, omega_enc, this->X, this->Y, this->THETA);
+       
     }
     
-    // Fusion : GPS prioritaire en simulation, PAA5100 sur robot réel
+    // Transformation encodeurs dans le repère monde
+    double dx_enc_world = dx_enc * cos(this->THETA) - dy_enc * sin(this->THETA);
+    double dy_enc_world = dx_enc * sin(this->THETA) + dy_enc * cos(this->THETA);
+    
+    // Accumulateurs pour statistiques (debugging uniquement)
+    odo_data.encoder_x_acc += dx_enc_world;
+    odo_data.encoder_y_acc += dy_enc_world;
+    
     double dx_final_world, dy_final_world;
     
-    if (optical_active) {
-        // Capteur optique actif : utiliser ses données
-        dx_final_world = dx_optical_world;
-        dy_final_world = dy_optical_world;
+    if (optical_active && odo_data.optical_valid_count > 0) {
+        // FILTRE COMPLÉMENTAIRE CONSTANT - OPTIQUE MAJORITAIRE
+        
+        const float ALPHA = 0.20f;  // 20% encodeurs + 80% optique (OPTIQUE ULTRA-DOMINANT)
+        
+        dx_final_world = ALPHA * dx_enc_world + (1.0f - ALPHA) * dx_optical_world;
+        dy_final_world = ALPHA * dy_enc_world + (1.0f - ALPHA) * dy_optical_world;
+        
+        // Debug périodique
+        static uint32_t fusion_debug = 0;
+        if (++fusion_debug >= 50) {
+            fusion_debug = 0;
+            printf("🔀 FUSION CONSTANTE: α=%.2f (%.0f%% enc + %.0f%% opt) | dx=%.2fmm dy=%.2fmm\n",
+                   ALPHA, ALPHA*100, (1.0f-ALPHA)*100, dx_final_world, dy_final_world);
+        }
     } else {
         // Fallback encodeurs si capteur optique inactif
-        dx_final_world = dx_enc * cos(this->THETA) - dy_enc * sin(this->THETA);
-        dy_final_world = dx_enc * sin(this->THETA) + dy_enc * cos(this->THETA);
+        dx_final_world = dx_enc_world;
+        dy_final_world = dy_enc_world;
     }
     
     // Méthode 3 : IMU BNO085  
@@ -560,14 +622,15 @@ void Holonomic_Basis::update_odometry() {
     //Intégration position X,Y
     static uint32_t fusion_debug = 0;
     if (optical_active) {
-        // 🥇 OPTIQUE PRIORITAIRE (GPS ground truth en simulation, pas de glissement)
+        // 🔀 FUSION ADAPTATIVE (blending encodeurs + optique pondéré)
         this->X += dx_final_world;
         this->Y += dy_final_world;
         
         if (++fusion_debug >= 200) {
             fusion_debug = 0;
-            printf("🥇 FUSION: Optique actif (dx=%.3f dy=%.3f) | Encodeurs ignorés\n", 
-                   dx_final_world, dy_final_world);
+            printf("🔀 FUSION ACTIVE: dx_final=%.3fmm dy_final=%.3fmm (enc %.0f%% + opt %.0f%%)\n", 
+                   dx_final_world, dy_final_world,
+                   odo_data.encoder_confidence*100, (1.0f-odo_data.encoder_confidence)*100);
         }
     } else if (use_encoders) {
         // 🥈 Encodeurs en fallback uniquement
@@ -648,8 +711,8 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     double distance_error = sqrt(xerr*xerr + yerr*yerr);
     double angle_error = fabs(theta_error);
     
-    // Zone morte adaptée à la précision GPS Mock (~3mm)
-    if (distance_error < 0.50 && angle_error < 0.009) {  // 1mm et 0.5°
+    // Zone morte
+    if (distance_error < 1.0 && angle_error < 0.02) {  // 1mm et ~1.15°
         vx_world = 0.0;
         vy_world = 0.0;
         omega = 0.0;
@@ -657,6 +720,11 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
         last_wheel1_speed = 0.0;
         last_wheel2_speed = 0.0;
         last_wheel3_speed = 0.0;
+        
+        // Réinitialiser aussi les vitesses filtrées pour un arrêt propre
+        filtered_wheel1_speed = 0.0;
+        filtered_wheel2_speed = 0.0;
+        filtered_wheel3_speed = 0.0;
     }
     
 
@@ -700,14 +768,30 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
         last_wheel3_speed = w3;
     }
 
+    // Application du filtre passe-bas pour lisser les changements de vitesse
+    // Formule : filtered = alpha * new_value + (1 - alpha) * old_value
+    filtered_wheel1_speed = speed_filter_alpha * last_wheel1_speed + (1.0 - speed_filter_alpha) * filtered_wheel1_speed;
+    filtered_wheel2_speed = speed_filter_alpha * last_wheel2_speed + (1.0 - speed_filter_alpha) * filtered_wheel2_speed;
+    filtered_wheel3_speed = speed_filter_alpha * last_wheel3_speed + (1.0 - speed_filter_alpha) * filtered_wheel3_speed;
+    
+    // Normalisation proportionnelle APRÈS filtrage pour garantir le respect des limites
+    // Cela préserve la direction du mouvement même après le lissage
+    double max_filtered_speed = fmax(fmax(fabs(filtered_wheel1_speed), fabs(filtered_wheel2_speed)), fabs(filtered_wheel3_speed));
+    if (max_filtered_speed > max_speed) {
+        double scale_filtered = max_speed / max_filtered_speed;
+        filtered_wheel1_speed *= scale_filtered;
+        filtered_wheel2_speed *= scale_filtered;
+        filtered_wheel3_speed *= scale_filtered;
+    }
+
     static int i = 0;
     if (i++ > 100) {  // ~1 seconde
         printf("🎯 PID: Target[%.1f,%.1f,%.2f] Actual[%.1f,%.1f,%.2f] Err[%.1f,%.1f,%.2f]\n",
                target_position.x, target_position.y, target_position.theta,
                this->X, this->Y, this->THETA,
                xerr, yerr, theta_error);
-        printf("⚡ Cmds: Vx=%.1f Vy=%.1f ω=%.2f -> W1=%.0f W2=%.0f W3=%.0f steps/s\n",
-               vx_world, vy_world, omega, last_wheel1_speed, last_wheel2_speed, last_wheel3_speed);
+        printf("⚡ Cmds: Vx=%.1f Vy=%.1f ω=%.2f -> W1=%.0f W2=%.0f W3=%.0f steps/s (filtered)\n",
+               vx_world, vy_world, omega, filtered_wheel1_speed, filtered_wheel2_speed, filtered_wheel3_speed);
         i = 0;
     }
 
@@ -723,16 +807,18 @@ void Holonomic_Basis::run_motors() {
 void Holonomic_Basis::execute_movement() {
 
     #ifdef WEBOTS_SIMULATION
-        if (wheel1) wheel1->setMaxSpeed(last_wheel1_speed);
-        if (wheel2) wheel2->setMaxSpeed(last_wheel2_speed);
-        if (wheel3) wheel3->setMaxSpeed(last_wheel3_speed);
+        // Utilisation des vitesses filtrées pour un mouvement plus fluide
+        if (wheel1) wheel1->setMaxSpeed(filtered_wheel1_speed);
+        if (wheel2) wheel2->setMaxSpeed(filtered_wheel2_speed);
+        if (wheel3) wheel3->setMaxSpeed(filtered_wheel3_speed);
     #else
         // ✅ HARDWARE : Mouvement relatif par delta T
         float dt = 0.01f; // 100Hz = 10ms
         
-        int32_t steps1 = (int32_t)(last_wheel1_speed * dt);
-        int32_t steps2 = (int32_t)(last_wheel2_speed * dt);
-        int32_t steps3 = (int32_t)(last_wheel3_speed * dt);
+        // Utilisation des vitesses filtrées pour un mouvement plus fluide
+        int32_t steps1 = (int32_t)(filtered_wheel1_speed * dt);
+        int32_t steps2 = (int32_t)(filtered_wheel2_speed * dt);
+        int32_t steps3 = (int32_t)(filtered_wheel3_speed * dt);
         
         if (stepperGroup) {
             stepperGroup->setTargetsRel(steps1, steps2, steps3);
