@@ -46,7 +46,8 @@ void set_target_position(byte* msg, byte size) {
 
 void (*callback_functions[256])(byte* msg, byte size);
 
-// Fonction pour traiter et envoyer les données LIDAR par secteurs
+// Fonction pour traiter et envoyer les données LIDAR (360 points, comme RPLIDAR A2M8)
+// Divisé en 4 messages de 90 points pour respecter la limitation de taille (255 bytes max)
 void process_lidar_scan(WbDeviceTag lidar, Com* com) {
     if (lidar == 0) return;
     
@@ -54,65 +55,47 @@ void process_lidar_scan(WbDeviceTag lidar, Com* com) {
     if (range_image == NULL) return;
     
     int num_points = wb_lidar_get_horizontal_resolution(lidar);
-    float fov = wb_lidar_get_fov(lidar);  // Champ de vision en radians
-    
-    // Diviser en 8 secteurs de 45° (π/4 radians)
-    const int NUM_SECTORS = 8;
-    const float SECTOR_ANGLE = 2.0f * M_PI / NUM_SECTORS;  // 45° en radians
-    
-    msg_lidar_scan lidar_data;
-    lidar_data.timestamp = (uint32_t)wb_robot_get_time() * 1000;  // Conversion en ms
-    
-    // Initialisation des secteurs
-    for (int i = 0; i < NUM_SECTORS; i++) {
-        lidar_data.sector_min[i] = 65535;  // Max uint16 (infini)
-        lidar_data.sector_max[i] = 0;
+    if (num_points != 360) {
+        printf("⚠️  LIDAR: Résolution incorrecte (%d au lieu de 360)\n", num_points);
+        return;
     }
     
-    // Traitement de chaque point LIDAR
-    float angle_step = fov / (num_points - 1);
-    float start_angle = -fov / 2.0f;  // Angle de départ (généralement -π)
+    uint32_t timestamp = (uint32_t)(wb_robot_get_time() * 1000.0);  // Timestamp commun
     
-    for (int i = 0; i < num_points; i++) {
+    // Conversion des 360 points en 4 messages de 90 points
+    uint16_t all_distances[360];
+    for (int i = 0; i < 360; i++) {
         float distance = range_image[i];
         
-        // Ignorer les points à l'infini ou invalides
-        if (isinf(distance) || isnan(distance) || distance < 0.01f) {
-            continue;
-        }
-        
-        // Calculer l'angle du point (normalisé entre 0 et 2π)
-        float point_angle = start_angle + (i * angle_step);
-        while (point_angle < 0) point_angle += 2.0f * M_PI;
-        while (point_angle >= 2.0f * M_PI) point_angle -= 2.0f * M_PI;
-        
-        // Déterminer le secteur (0-7)
-        int sector = (int)(point_angle / SECTOR_ANGLE);
-        if (sector >= NUM_SECTORS) sector = NUM_SECTORS - 1;
-        
-        // Conversion mètres → millimètres
-        uint16_t distance_mm = (uint16_t)(distance * 1000.0f);
-        if (distance_mm > 10000) distance_mm = 10000;  // Limiter à 10m
-        
-        // Mise à jour min/max du secteur
-        if (distance_mm < lidar_data.sector_min[sector]) {
-            lidar_data.sector_min[sector] = distance_mm;
-        }
-        if (distance_mm > lidar_data.sector_max[sector]) {
-            lidar_data.sector_max[sector] = distance_mm;
+        // Vérification limites RPLIDAR A2M8 (0.15m - 12m)
+        if (isinf(distance) || isnan(distance) || distance < 0.15f || distance > 12.0f) {
+            all_distances[i] = 0;  // 0 = pas de détection
+        } else {
+            all_distances[i] = (uint16_t)(distance * 1000.0f);  // Conversion m → mm
         }
     }
     
-    // Remplacer les secteurs vides (infini) par 10000mm (10m = hors portée)
-    for (int i = 0; i < NUM_SECTORS; i++) {
-        if (lidar_data.sector_min[i] == 65535) {
-            lidar_data.sector_min[i] = 10000;
-            lidar_data.sector_max[i] = 10000;
-        }
-    }
+    // Envoi des 4 parties
+    // Partie 1: angles 0° à 89° (181 bytes: 1 cmd + 180 data)
+    msg_lidar_scan_part1 part1;
+    memcpy(part1.distances, &all_distances[0], 90 * sizeof(uint16_t));
+    com->send_msg((byte*)&part1, sizeof(part1));
     
-    // Envoi des données au Raspberry Pi
-    com->send_msg((byte*)&lidar_data, sizeof(lidar_data));
+    // Partie 2: angles 90° à 179° (181 bytes)
+    msg_lidar_scan_part2 part2;
+    memcpy(part2.distances, &all_distances[90], 90 * sizeof(uint16_t));
+    com->send_msg((byte*)&part2, sizeof(part2));
+    
+    // Partie 3: angles 180° à 269° (181 bytes)
+    msg_lidar_scan_part3 part3;
+    memcpy(part3.distances, &all_distances[180], 90 * sizeof(uint16_t));
+    com->send_msg((byte*)&part3, sizeof(part3));
+    
+    // Partie 4: angles 270° à 359° + timestamp (185 bytes: 1 cmd + 180 data + 4 timestamp)
+    msg_lidar_scan_part4 part4;
+    memcpy(part4.distances, &all_distances[270], 90 * sizeof(uint16_t));
+    part4.timestamp = timestamp;
+    com->send_msg((byte*)&part4, sizeof(part4));
 }
 
 int main(int argc, char **argv) {
@@ -144,16 +127,9 @@ int main(int argc, char **argv) {
     // Initialisation des sensors pour odométrie
     //paa5100 = new PAA5100();
 
-    // Initialisation du LIDAR
+    // Initialisation du LIDAR - sera activé après wb_robot_get_basic_time_step()
     lidar = wb_robot_get_device("lidar");
-    if (lidar != 0) {
-        wb_lidar_enable(lidar, time_step);
-        wb_lidar_enable_point_cloud(lidar);
-        int h_res = wb_lidar_get_horizontal_resolution(lidar);
-        printf("✅ LIDAR activé : %d points de résolution\n", h_res);
-    } else {
-        printf("⚠️  LIDAR non trouvé (device 'lidar' absent du .wbt)\n");
-    }
+    
     //bno085 = new Adafruit_BNO085();
     holonomic_basis_ptr->init_sensors();
     printf("✅ Sensors d'odométrie initialisés (GPS + IMU)\n");
@@ -171,6 +147,16 @@ int main(int argc, char **argv) {
     // BOUCLE PRINCIPALE (remplace loop())
     int time_step = (int)wb_robot_get_basic_time_step();
     uint32_t loop_counter = 0;
+
+    // Activation du LIDAR maintenant que time_step est défini
+    if (lidar != 0) {
+        wb_lidar_enable(lidar, time_step);
+        wb_lidar_enable_point_cloud(lidar);
+        int h_res = wb_lidar_get_horizontal_resolution(lidar);
+        printf("✅ LIDAR activé : %d points de résolution\n", h_res);
+    } else {
+        printf("⚠️  LIDAR non trouvé (device 'lidar' absent du .wbt)\n");
+    }
 
     while (wb_robot_step(time_step) != -1) {
         loop_counter++;

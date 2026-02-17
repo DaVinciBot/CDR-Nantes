@@ -43,7 +43,7 @@ positions = [
     #(200, 0, 0, "Origine"),
     #(0, 200, 1.57, "Déplacement diagonal"),
     #(0,200,0, "Retour origine"),
-    (200,200,1.57, "Déplacement en ligne droite")
+    (200,0,0, "Déplacement en ligne droite")
 
 
    

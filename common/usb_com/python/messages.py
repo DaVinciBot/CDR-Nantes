@@ -74,6 +74,16 @@ class Messages(Enum):
     SWITCH_STATE_RETURN = 129
     """Report the state of a switch."""
 
+    # Sensors (Simulation)
+    LIDAR_SCAN_PART1 = 130
+    """LIDAR scan data part 1 (angles 0-89°)."""
+    LIDAR_SCAN_PART2 = 131
+    """LIDAR scan data part 2 (angles 90-179°)."""
+    LIDAR_SCAN_PART3 = 132
+    """LIDAR scan data part 3 (angles 180-269°)."""
+    LIDAR_SCAN_PART4 = 133
+    """LIDAR scan data part 4 (angles 270-359° + timestamp)."""
+
     # Common (Rolling Basis + Actuators)
     PRINT = 254
     """Print a message from the Teensy."""

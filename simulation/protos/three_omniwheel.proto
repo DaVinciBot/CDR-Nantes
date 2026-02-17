@@ -16,6 +16,7 @@ PROTO three_omniwheel [
   field SFString   encoder3     "encoder3"
   field SFString   gps          "GPS"        # Capteur optique PAA5100
   field SFString   imu          "IMU"
+  field SFString   lidar        "lidar"      # LIDAR 360°
   field MFString   meshPath     ["meshes/base_link.stl"]  # Chemin vers le mesh
 ]
 {
@@ -281,6 +282,15 @@ PROTO three_omniwheel [
         width 640
         height 640
         projection "spherical"
+      }
+      Lidar {
+        translation 0 0 0.35
+        name IS lidar
+        horizontalResolution 360
+        fieldOfView 6.28318
+        numberOfLayers 1
+        minRange 0.15
+        maxRange 12.0
       }
       DEF BODY_TRANS Pose {
         translation 0 0 0
