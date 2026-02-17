@@ -57,10 +57,13 @@ def parse_lidar_part(payload, part_num):
         return {'distances': distances, 'timestamp': timestamp}
 
 
-def display_lidar_ascii(distances):
+def display_lidar_ascii(lidar_points):
     """
     Affichage ASCII art du LIDAR (vue du dessus, robot au centre)
     Format: 360 points, 1° de résolution (comme RPLIDAR A2M8)
+    
+    Args:
+        lidar_points: Liste de tuples (angle, distance) en degrés et mm
     """
     print("\n╔═══════════════════════════════════════════════════════════════════╗")
     print("║               LIDAR SCAN - 360 points (RPLIDAR A2M8)             ║")
@@ -82,10 +85,10 @@ def display_lidar_ascii(distances):
     bar_width = 40
     
     for sector_idx in range(8):
-        # Récupérer les 45 points du secteur
+        # Récupérer les points du secteur (filtre par angle)
         start_angle = sector_idx * 45
         end_angle = start_angle + 45
-        sector_points = distances[start_angle:end_angle]
+        sector_points = [dist for angle, dist in lidar_points if start_angle <= angle < end_angle]
         
         # Filtrer les points valides (> 0)
         valid_points = [d for d in sector_points if d > 0]
@@ -122,7 +125,7 @@ def process_complete_scan():
     if None in lidar_buffer.values():
         return
     
-    # Reconstituer les 360 points
+    # Reconstituer les 360 points (liste simple)
     distances = (
         lidar_buffer['part1'] +
         lidar_buffer['part2'] +
@@ -131,6 +134,10 @@ def process_complete_scan():
     )
     timestamp = lidar_buffer['part4']['timestamp']
     
+    # Structure réaliste: liste de tuples (angle, distance)
+    # Comme ce sera le cas avec un vrai RPLIDAR A2M8
+    lidar_points = [(angle, distances[angle]) for angle in range(360)]
+    
     # Réinitialiser le buffer
     lidar_buffer['part1'] = None
     lidar_buffer['part2'] = None
@@ -138,14 +145,10 @@ def process_complete_scan():
     lidar_buffer['part4'] = None
     
     # Affichage des données
-    display_lidar_ascii(distances)
+    display_lidar_ascii(lidar_points)
     
     # Analyse des obstacles proches (< 500mm)
-    obstacles_angles = []
-    for angle in range(360):
-        dist = distances[angle]
-        if 0 < dist < 500:  # Obstacle entre 0 et 50cm
-            obstacles_angles.append((angle, dist))
+    obstacles_angles = [(angle, dist) for angle, dist in lidar_points if 0 < dist < 500]
     
     if obstacles_angles:
         print("\n⚠️  OBSTACLES PROCHES détectés (<500mm) :")
@@ -165,7 +168,7 @@ def process_complete_scan():
 
     
     # Statistiques globales
-    valid_distances = [d for d in distances if d > 0]
+    valid_distances = [dist for angle, dist in lidar_points if dist > 0]
     if valid_distances:
         min_global = min(valid_distances)
         max_global = max(valid_distances)
