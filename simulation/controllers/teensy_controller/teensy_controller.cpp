@@ -9,6 +9,8 @@
 
 // Supervisor pour lire la vraie position du robot
 #include <webots/supervisor.h>
+// LIDAR Webots
+#include <webots/lidar.h>
 
 // PID et Base (Mêmes valeurs que votre vrai robot ou ajustées pour la simu)
 PID x_pid(KP_X, KI_X, KD_X, -MAX_SPEED, MAX_SPEED, 5.0);
@@ -21,6 +23,9 @@ Com* com = nullptr;
 // Sensors pour odométrie (noms compatibles avec les vraies librairies)
 PAA5100* paa5100 = nullptr;           // Capteur optique
 Adafruit_BNO085* bno085 = nullptr;    // IMU
+
+// LIDAR Webots
+WbDeviceTag lidar = 0;
 
 // --- MODIFICATION ICI : Cible définie à 100, 0, 0 pour le test ---
 // Au lieu de START_X, START_Y, START_THETA
@@ -40,6 +45,75 @@ void set_target_position(byte* msg, byte size) {
 }
 
 void (*callback_functions[256])(byte* msg, byte size);
+
+// Fonction pour traiter et envoyer les données LIDAR par secteurs
+void process_lidar_scan(WbDeviceTag lidar, Com* com) {
+    if (lidar == 0) return;
+    
+    const float* range_image = wb_lidar_get_range_image(lidar);
+    if (range_image == NULL) return;
+    
+    int num_points = wb_lidar_get_horizontal_resolution(lidar);
+    float fov = wb_lidar_get_fov(lidar);  // Champ de vision en radians
+    
+    // Diviser en 8 secteurs de 45° (π/4 radians)
+    const int NUM_SECTORS = 8;
+    const float SECTOR_ANGLE = 2.0f * M_PI / NUM_SECTORS;  // 45° en radians
+    
+    msg_lidar_scan lidar_data;
+    lidar_data.timestamp = (uint32_t)wb_robot_get_time() * 1000;  // Conversion en ms
+    
+    // Initialisation des secteurs
+    for (int i = 0; i < NUM_SECTORS; i++) {
+        lidar_data.sector_min[i] = 65535;  // Max uint16 (infini)
+        lidar_data.sector_max[i] = 0;
+    }
+    
+    // Traitement de chaque point LIDAR
+    float angle_step = fov / (num_points - 1);
+    float start_angle = -fov / 2.0f;  // Angle de départ (généralement -π)
+    
+    for (int i = 0; i < num_points; i++) {
+        float distance = range_image[i];
+        
+        // Ignorer les points à l'infini ou invalides
+        if (isinf(distance) || isnan(distance) || distance < 0.01f) {
+            continue;
+        }
+        
+        // Calculer l'angle du point (normalisé entre 0 et 2π)
+        float point_angle = start_angle + (i * angle_step);
+        while (point_angle < 0) point_angle += 2.0f * M_PI;
+        while (point_angle >= 2.0f * M_PI) point_angle -= 2.0f * M_PI;
+        
+        // Déterminer le secteur (0-7)
+        int sector = (int)(point_angle / SECTOR_ANGLE);
+        if (sector >= NUM_SECTORS) sector = NUM_SECTORS - 1;
+        
+        // Conversion mètres → millimètres
+        uint16_t distance_mm = (uint16_t)(distance * 1000.0f);
+        if (distance_mm > 10000) distance_mm = 10000;  // Limiter à 10m
+        
+        // Mise à jour min/max du secteur
+        if (distance_mm < lidar_data.sector_min[sector]) {
+            lidar_data.sector_min[sector] = distance_mm;
+        }
+        if (distance_mm > lidar_data.sector_max[sector]) {
+            lidar_data.sector_max[sector] = distance_mm;
+        }
+    }
+    
+    // Remplacer les secteurs vides (infini) par 10000mm (10m = hors portée)
+    for (int i = 0; i < NUM_SECTORS; i++) {
+        if (lidar_data.sector_min[i] == 65535) {
+            lidar_data.sector_min[i] = 10000;
+            lidar_data.sector_max[i] = 10000;
+        }
+    }
+    
+    // Envoi des données au Raspberry Pi
+    com->send_msg((byte*)&lidar_data, sizeof(lidar_data));
+}
 
 int main(int argc, char **argv) {
     wb_robot_init(); // 1. Initialisation Webots obligatoire
@@ -69,6 +143,17 @@ int main(int argc, char **argv) {
     
     // Initialisation des sensors pour odométrie
     //paa5100 = new PAA5100();
+
+    // Initialisation du LIDAR
+    lidar = wb_robot_get_device("lidar");
+    if (lidar != 0) {
+        wb_lidar_enable(lidar, time_step);
+        wb_lidar_enable_point_cloud(lidar);
+        int h_res = wb_lidar_get_horizontal_resolution(lidar);
+        printf("✅ LIDAR activé : %d points de résolution\n", h_res);
+    } else {
+        printf("⚠️  LIDAR non trouvé (device 'lidar' absent du .wbt)\n");
+    }
     //bno085 = new Adafruit_BNO085();
     holonomic_basis_ptr->init_sensors();
     printf("✅ Sensors d'odométrie initialisés (GPS + IMU)\n");
@@ -102,6 +187,11 @@ int main(int argc, char **argv) {
         
         // D. Action (Envoi des vitesses aux moteurs Webots)
         holonomic_basis_ptr->execute_movement();
+
+        // E. Acquisition et envoi des données LIDAR (toutes les 100ms = 10Hz)
+        if (lidar != 0 && loop_counter % 10 == 0) {
+            process_lidar_scan(lidar, com);
+        }
 
         if (loop_counter % (1000 / time_step) == 0) { // Log périodique toutes les 1 sec
             Point current_pos = holonomic_basis_ptr->get_current_position();

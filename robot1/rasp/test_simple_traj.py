@@ -41,12 +41,10 @@ com.add_callback(handle_position, Messages.UPDATE_ROLLING_BASIS.value)
 # Test avec quelques points seulement
 positions = [
     #(200, 0, 0, "Origine"),
-    #(0, 0, 1.57, "Tourner 90°"),
-    #(0,0,3.14, "Tourner 180°"),
-    #(0,0,3*3.14/2, "Tourner 270°"),
-    #(200, 0, 0, "Retour origine"),
-    (0, 500, 0, "Déplacement diagonal"),
-    (0,0,0, "Retour origine")
+    #(0, 200, 1.57, "Déplacement diagonal"),
+    #(0,200,0, "Retour origine"),
+    (200,200,1.57, "Déplacement en ligne droite")
+
 
    
     
