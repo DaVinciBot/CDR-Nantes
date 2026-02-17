@@ -121,32 +121,29 @@ void Holonomic_Basis::init_holonomic_basis(double x, double y, double theta) {
         #ifdef WEBOTS_SIMULATION
             ((PAA5100*)pmw3901)->reset(); 
         #endif
-        // (Sur le vrai robot Bitcraze, il n'y a pas de reset soft nécessaire, 
-        // car le vrai capteur donne des deltas relatifs matériels)
+        
     }
 }
 
 // === GESTION ÉTAT MOTEURS ===
 
 void Holonomic_Basis::enable_motors() {
-    // Active LOW (classique pour les drivers type TB6600/DM542/A4988)
+    // Active LOW (classique pour les drivers) 
     digitalWrite(wheel1_enable_pin, LOW);
     digitalWrite(wheel2_enable_pin, LOW);
     digitalWrite(wheel3_enable_pin, LOW);
     
-    // Active la logique logicielle
     if (wheel1) wheel1->enable();
     if (wheel2) wheel2->enable();
     if (wheel3) wheel3->enable();
 }
 
 void Holonomic_Basis::disable_motors() {
-    // Désactive les drivers
+    
     digitalWrite(wheel1_enable_pin, HIGH);
     digitalWrite(wheel2_enable_pin, HIGH);
     digitalWrite(wheel3_enable_pin, HIGH);
     
-    // Désactive la logique logicielle
     if (wheel1) wheel1->disable();
     if (wheel2) wheel2->disable();
     if (wheel3) wheel3->disable();
@@ -154,7 +151,7 @@ void Holonomic_Basis::disable_motors() {
 
 // === ODOMÉTRIE & PID ===
 void Holonomic_Basis::init_sensors() {
-    printf("🔧 Initialisation des capteurs d'odométrie...\n"); //Si ca marche a supprimer
+    //printf(" Initialisation des capteurs d'odométrie...\n"); 
     // === CAPTEUR OPTIQUE PAA5100JE ===
     #ifdef WEBOTS_SIMULATION
         pmw3901 = new PAA5100();
@@ -162,31 +159,30 @@ void Holonomic_Basis::init_sensors() {
         pmw3901 = new Bitcraze_PMW3901(PAA5100_CS_PIN);
 
         if (pmw3901->begin()){
-            printf("✅ PMW3901 : Capteur optique initialisé\n");
+            //printf(" PMW3901 : Capteur optique initialisé\n");
         } else {
-            printf("❌ PMW3901 : Échec initialisation\n"); //Si ca marche a supprimer
+            //printf(" PMW3901 : Échec initialisation\n"); //Si ca marche a supprimer
         }
     #endif
     
         if (pmw3901 && pmw3901->begin()) {
-            printf("✅ PAA5100 : Capteur optique initialisé\n"); //Si ca marche a supprimer
+            //printf(" PAA5100 : Capteur optique initialisé\n"); //Si ca marche a supprimer
         } else {
-            printf("❌ PAA5100 : Échec initialisation\n"); //Si ca marche a supprimer
+            //printf(" PAA5100 : Échec initialisation\n"); //Si ca marche a supprimer
         }
 
       // === IMU BNO085 ===
     #ifdef WEBOTS_SIMULATION
         bno085 = new Adafruit_BNO08x();
         if (bno085 && bno085->begin_I2C()) {
-            printf("✅ BNO08x : IMU Mock initialisée\n");
+            //printf("✅ BNO08x : IMU Mock initialisée\n");
             
-            // ✅ ACTIVATION GAME ROTATION VECTOR (simulation)
             bno085->enableReport(SH2_GAME_ROTATION_VECTOR, 10000); // 100Hz
             
             odo_data.imu_calibrated = true;
             odo_data.imu_yaw_offset = 0.0; // Géré par le Mock
         } else {
-            printf("❌ BNO08x Mock : Échec\n");
+            //printf("BNO08x Mock : Échec\n");
         }
     #else
         // ROBOT RÉEL
@@ -195,14 +191,12 @@ void Holonomic_Basis::init_sensors() {
         if (bno085 && bno085->begin_I2C()) {
             Wire.setClock(400000); // I2C Fast Mode
             
-            // ✅ ACTIVATION GAME ROTATION VECTOR (matériel réel)
             bno085->enableReport(SH2_GAME_ROTATION_VECTOR, 10000); // 100Hz
             
-            printf("✅ BNO08x : IMU réelle initialisée\n");
+            printf("BNO08x : IMU réelle initialisée\n");
             
             delay(100); // Attendre stabilisation
             
-            // ✅ Calibration initiale (optionnelle car Game RV démarre à 0)
             sh2_SensorValue_t sv;
             if (bno085->getSensorEvent(&sv) && sv.sensorId == SH2_GAME_ROTATION_VECTOR) {
                 float r = sv.un.gameRotationVector.real;
@@ -214,14 +208,14 @@ void Holonomic_Basis::init_sensors() {
                 odo_data.imu_yaw_offset = atan2(2.0f*(r*k + i*j), 1.0f-2.0f*(j*j + k*k));
                 odo_data.imu_calibrated = true;
                 
-                printf("🧭 IMU calibrée : yaw_offset = %.3f rad\n", odo_data.imu_yaw_offset);
+                //printf(" IMU calibrée : yaw_offset = %.3f rad\n", odo_data.imu_yaw_offset);
             } else {
-                printf("⚠️  IMU : Calibration impossible, utilisation directe\n");
+                //printf("  IMU : Calibration impossible, utilisation directe\n");
                 odo_data.imu_yaw_offset = 0.0;
                 odo_data.imu_calibrated = true;
             }
         } else {
-            printf("❌ BNO08x : Échec initialisation I2C\n");
+            printf(" BNO08x : Échec initialisation I2C\n");
         }
     #endif
 }     
@@ -244,7 +238,7 @@ void Holonomic_Basis::update_optical_odometry(double dtheta_robot) {
     int16_t deltaX = 0, deltaY = 0;
     double dx_mm = 0.0, dy_mm = 0.0;
     
-    // ✅ LECTURE CAPTEUR (API différente selon le mode)
+    // LECTURE CAPTEUR (API différente selon le mode)
     #ifdef WEBOTS_SIMULATION
         // Mock Webots : retourne directement en mm
         pmw3901->readMotion(deltaX, deltaY);
@@ -270,8 +264,6 @@ void Holonomic_Basis::update_optical_odometry(double dtheta_robot) {
     if (should_print) {
         debug_cnt = 0;
     }
-
-    // ========== CODE COMMUN SIMULATION/RÉEL ==========
     
     // 1. Transformation Capteur → Robot
     double c_mnt = cos(OPTICAL_MOUNT_ANGLE);
@@ -299,8 +291,8 @@ void Holonomic_Basis::update_optical_odometry(double dtheta_robot) {
         is_outlier = true;
         odo_data.optical_outlier_count++;
         if (should_print) {
-            printf("⚠️ OPTIQUE: Outlier rejeté! Mag=%.1fmm > 15mm (X:%d Y:%d)\n", 
-                   magnitude, deltaX, deltaY);
+            //printf(" OPTIQUE: Outlier rejeté! Mag=%.1fmm > 15mm (X:%d Y:%d)\n", 
+            //       magnitude, deltaX, deltaY);
         }
     }
     
@@ -325,7 +317,7 @@ void Holonomic_Basis::update_optical_odometry(double dtheta_robot) {
             double movement_magnitude = sqrt(dx_world*dx_world + dy_world*dy_world);
             if (should_print && movement_magnitude > 0.5 && ++noise_filter_debug >= 10) {
                 noise_filter_debug = 0;
-                printf("🔇 GPS au repos: Bruit ignoré (%.2fmm) - encodeurs prioritaires\n", 
+                printf(" GPS au repos: Bruit ignoré (%.2fmm) - encodeurs prioritaires\n", 
                        movement_magnitude);
             }
             // Pas d'accumulation optique au repos
@@ -351,14 +343,14 @@ void Holonomic_Basis::update_optical_odometry(double dtheta_robot) {
         // Filtre de bruit pour logs uniquement (pas d'impact sur accumulation)
         bool is_display_noise = (abs(dx_mm) < 0.1 && abs(dy_mm) < 0.1);
         if (is_display_noise) {
-            printf("📷 OPTIQUE: [FILTRÉ AFFICHAGE] raw=[%4d,%4d]mm → %.3f,%.3f < 0.1mm | pos=[%7.1f,%7.1f]mm\n", 
-                   deltaX, deltaY, dx_mm, dy_mm,
-                   odo_data.optical_x_acc, odo_data.optical_y_acc);
+            //printf("📷 OPTIQUE: [FILTRÉ AFFICHAGE] raw=[%4d,%4d]mm → %.3f,%.3f < 0.1mm | pos=[%7.1f,%7.1f]mm\n", 
+            //       deltaX, deltaY, dx_mm, dy_mm,
+            //       odo_data.optical_x_acc, odo_data.optical_y_acc);
         } else {
-            double movement_magnitude = sqrt(dx_world*dx_world + dy_world*dy_world);
-            printf("📷 OPTIQUE: raw=[%4d,%4d]mm | robot=[%6.2f,%6.2f]mm | world=[%6.2f,%6.2f]mm (%.2fmm) | pos=[%7.1f,%7.1f]mm\n",
-                   deltaX, deltaY, dx_robot, dy_robot, dx_world, dy_world, movement_magnitude,
-                   odo_data.optical_x_acc, odo_data.optical_y_acc);
+            //double movement_magnitude = sqrt(dx_world*dx_world + dy_world*dy_world);
+            //printf("📷 OPTIQUE: raw=[%4d,%4d]mm | robot=[%6.2f,%6.2f]mm | world=[%6.2f,%6.2f]mm (%.2fmm) | pos=[%7.1f,%7.1f]mm\n",
+            //       deltaX, deltaY, dx_robot, dy_robot, dx_world, dy_world, movement_magnitude,
+            //       odo_data.optical_x_acc, odo_data.optical_y_acc);
         }
     }
 }
@@ -390,7 +382,7 @@ void Holonomic_Basis::update_odometry() {
     if (abs(d2) < ENCODER_NOISE_THRESHOLD) d2 = 0.0;
     if (abs(d3) < ENCODER_NOISE_THRESHOLD) d3 = 0.0;
 
-    // ⚠️ Appel du capteur optique AVANT check encodeurs (pour avoir logs même au repos)
+    //  Appel du capteur optique AVANT check encodeurs (pour avoir logs même au repos)
     bool optical_active = false;
     double dx_optical_world = 0.0;
     double dy_optical_world = 0.0;
@@ -454,7 +446,7 @@ void Holonomic_Basis::update_odometry() {
                 static uint32_t pure_rot_debug = 0;
                 if (++pure_rot_debug >= 50) { // Log toutes les 0.5s
                     pure_rot_debug = 0;
-                    printf("🔄 ROTATION PURE: Filtrage X/Y optique (ω=%.3f rad, GPS filtré=[%.1f,%.1f]mm)\n",
+                    printf(" ROTATION PURE: Filtrage X/Y optique (ω=%.3f rad, GPS filtré=[%.1f,%.1f]mm)\n",
                            omega_temp, diff_opt_x, diff_opt_y);
                 }
             } else {
@@ -514,7 +506,7 @@ void Holonomic_Basis::update_odometry() {
     static uint32_t enc_debug_counter = 0;
         if (++enc_debug_counter >= 20) {  // Affichage toutes les 0.2s au lieu de 2s
             enc_debug_counter = 0;
-            printf("📏 ENC: d[%+4.0f,%+4.0f,%+4.0f] v[%+5.1f,%+5.1f] dθ=%+.3f | pos[%+6ld,%+6ld,%+6ld]\n", 
+            printf(" ENC: d[%+4.0f,%+4.0f,%+4.0f] v[%+5.1f,%+5.1f] dθ=%+.3f | pos[%+6ld,%+6ld,%+6ld]\n", 
                 (double)d1, (double)d2, (double)d3, dx_enc, dy_enc, omega_enc,
                 (long)pos1, (long)pos2, (long)pos3);
         }
@@ -546,7 +538,7 @@ void Holonomic_Basis::update_odometry() {
         static uint32_t fusion_debug = 0;
         if (++fusion_debug >= 50) {
             fusion_debug = 0;
-            printf("🔀 FUSION CONSTANTE: α=%.2f (%.0f%% enc + %.0f%% opt) | dx=%.2fmm dy=%.2fmm\n",
+            printf(" FUSION CONSTANTE: α=%.2f (%.0f%% enc + %.0f%% opt) | dx=%.2fmm dy=%.2fmm\n",
                    ALPHA, ALPHA*100, (1.0f-ALPHA)*100, dx_final_world, dy_final_world);
         }
     } else {
@@ -628,9 +620,8 @@ void Holonomic_Basis::update_odometry() {
         
         if (++fusion_debug >= 200) {
             fusion_debug = 0;
-            printf("🔀 FUSION ACTIVE: dx_final=%.3fmm dy_final=%.3fmm (enc %.0f%% + opt %.0f%%)\n", 
-                   dx_final_world, dy_final_world,
-                   odo_data.encoder_confidence*100, (1.0f-odo_data.encoder_confidence)*100);
+            printf(" FUSION ACTIVE: dx_final=%.3fmm dy_final=%.3fmm\n", 
+                   dx_final_world, dy_final_world);
         }
     } else if (use_encoders) {
         // 🥈 Encodeurs en fallback uniquement
@@ -642,7 +633,7 @@ void Holonomic_Basis::update_odometry() {
         
         if (++fusion_debug >= 200) {
             fusion_debug = 0;
-            printf("🥈 FUSION: Fallback encodeurs (dx=%.3f dy=%.3f) | Optique inactif\n", 
+            printf(" FUSION: Fallback encodeurs (dx=%.3f dy=%.3f) | Optique inactif\n", 
                    dx_enc, dy_enc);
         }
     }
@@ -662,10 +653,10 @@ void Holonomic_Basis::update_odometry() {
         odo_data.debug_counter = 0;
         
         #ifdef WEBOTS_SIMULATION
-        printf("🎮 [WEBOTS] Odo: X=%.1f Y=%.1f θ=%.3f | ENC:[%.1f,%.1f,%.1f] GPS:[%.2f,%.2f]\n",
+        printf(" [WEBOTS] Odo: X=%.1f Y=%.1f θ=%.3f | ENC:[%.1f,%.1f,%.1f] GPS:[%.2f,%.2f]\n",
                this->X, this->Y, this->THETA,w1_mm, w2_mm, w3_mm,dx_optical, dy_optical);
         #else
-        //printf("📊 Odo: X=%.1f Y=%.1f θ=%.3f | ENC:[%.1f,%.1f,%.1f] PAA:[%.2f,%.2f]\n",
+        //printf(" Odo: X=%.1f Y=%.1f θ=%.3f | ENC:[%.1f,%.1f,%.1f] PAA:[%.2f,%.2f]\n",
         //       this->X, this->Y, this->THETA,w1_mm, w2_mm, w3_mm,dx_optical, dy_optical);
         #endif
     }
@@ -680,7 +671,7 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
 
     static uint32_t debug_err = 0;
     if (++debug_err > 100) {  // ~1 seconde à 100Hz
-        printf("📐 Erreurs: ΔX=%.1f ΔY=%.1f Δθ=%.2f\n", xerr, yerr, theta_error);
+        printf(" Erreurs: ΔX=%.1f ΔY=%.1f Δθ=%.2f\n", xerr, yerr, theta_error);
         debug_err = 0;
     }
     // 2. Calcul des vitesses cibles via PID (référentiel Monde)
@@ -786,12 +777,12 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
 
     static int i = 0;
     if (i++ > 100) {  // ~1 seconde
-        printf("🎯 PID: Target[%.1f,%.1f,%.2f] Actual[%.1f,%.1f,%.2f] Err[%.1f,%.1f,%.2f]\n",
-               target_position.x, target_position.y, target_position.theta,
-               this->X, this->Y, this->THETA,
-               xerr, yerr, theta_error);
-        printf("⚡ Cmds: Vx=%.1f Vy=%.1f ω=%.2f -> W1=%.0f W2=%.0f W3=%.0f steps/s (filtered)\n",
-               vx_world, vy_world, omega, filtered_wheel1_speed, filtered_wheel2_speed, filtered_wheel3_speed);
+        //printf(" PID: Target[%.1f,%.1f,%.2f] Actual[%.1f,%.1f,%.2f] Err[%.1f,%.1f,%.2f]\n",
+        //       target_position.x, target_position.y, target_position.theta,
+        //       this->X, this->Y, this->THETA,
+        //       xerr, yerr, theta_error);
+        //printf(" Cmds: Vx=%.1f Vy=%.1f ω=%.2f -> W1=%.0f W2=%.0f W3=%.0f steps/s (filtered)\n",
+         //      vx_world, vy_world, omega, filtered_wheel1_speed, filtered_wheel2_speed, filtered_wheel3_speed);
         i = 0;
     }
 
@@ -812,7 +803,7 @@ void Holonomic_Basis::execute_movement() {
         if (wheel2) wheel2->setMaxSpeed(filtered_wheel2_speed);
         if (wheel3) wheel3->setMaxSpeed(filtered_wheel3_speed);
     #else
-        // ✅ HARDWARE : Mouvement relatif par delta T
+        // HARDWARE : Mouvement relatif par delta T
         float dt = 0.01f; // 100Hz = 10ms
         
         // Utilisation des vitesses filtrées pour un mouvement plus fluide

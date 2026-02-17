@@ -25,13 +25,13 @@ class Holonomic_Basis {
     double Y = 0.0;
     double THETA = 0.0;
 
-    bool use_encoders = true;       // ÉTAPE 1 - Encodeurs moteurs (parfaits en Webots)
-    bool use_optical_flow = true;  // ÉTAPE 2 - GPS Mock ne détecte pas assez de mouvement
-    bool use_imu = true;            // ÉTAPE 3 - IMU pour angle (très précis)
-    bool use_pid_control = true;    // PID activé
+    bool use_encoders = true;       
+    bool use_optical_flow = true; 
+    bool use_imu = true;            
+    bool use_pid_control = true;    
 
 
-    const double OPTICAL_SCALE = 1.0; // 1.0 Pour webots sinon 0.0423 pour réel
+    const double OPTICAL_SCALE = 1.0; // 1.0 Pour webots sinon 0.0423 ( a redefinir) pour réel
     const double OPTICAL_OFFSET_X = 0.0; // mm
     const double OPTICAL_OFFSET_Y = 0.0; // mm
     const double OPTICAL_MOUNT_ANGLE = 0.0; // rad
@@ -46,9 +46,9 @@ class Holonomic_Basis {
 
     // Stepper motors (KaribouMotion)
     // On utilise nos propres classes Stepper maintenant
-    Stepper* wheel1;  // Front wheel (0°)
-    Stepper* wheel2;  // Back-left wheel (120°)
-    Stepper* wheel3;  // Back-right wheel (240°)
+    Stepper* wheel1;  // Front-Rigth wheel (120°)
+    Stepper* wheel2;  // Front-left wheel (240°)
+    Stepper* wheel3;  // Back wheel (0°)
     
     // Le groupe de synchronisation KaribouMotion
     StepperGroup* stepperGroup;
@@ -141,7 +141,6 @@ class Holonomic_Basis {
         // Fusion complémentaire (encodeurs + optique)
         double encoder_x_acc = 0.0;      // Accumulation position encodeurs
         double encoder_y_acc = 0.0;
-        float encoder_confidence = 0.20f; // Poids dynamique encodeurs (50% par défaut = filtre complémentaire équilibré)
         uint32_t optical_outlier_count = 0; // Nombre de rejets outliers
         uint32_t optical_valid_count = 0;   // Nombre de lectures valides
         
