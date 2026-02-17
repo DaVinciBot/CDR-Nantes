@@ -193,7 +193,7 @@ void Holonomic_Basis::init_sensors() {
             
             bno085->enableReport(SH2_GAME_ROTATION_VECTOR, 10000); // 100Hz
             
-            printf("BNO08x : IMU réelle initialisée\n");
+            //printf("BNO08x : IMU réelle initialisée\n");
             
             delay(100); // Attendre stabilisation
             
@@ -317,8 +317,8 @@ void Holonomic_Basis::update_optical_odometry(double dtheta_robot) {
             double movement_magnitude = sqrt(dx_world*dx_world + dy_world*dy_world);
             if (should_print && movement_magnitude > 0.5 && ++noise_filter_debug >= 10) {
                 noise_filter_debug = 0;
-                printf(" GPS au repos: Bruit ignoré (%.2fmm) - encodeurs prioritaires\n", 
-                       movement_magnitude);
+                //printf(" GPS au repos: Bruit ignoré (%.2fmm) - encodeurs prioritaires\n", 
+                //       movement_magnitude);
             }
             // Pas d'accumulation optique au repos
         } else {
@@ -446,8 +446,8 @@ void Holonomic_Basis::update_odometry() {
                 static uint32_t pure_rot_debug = 0;
                 if (++pure_rot_debug >= 50) { // Log toutes les 0.5s
                     pure_rot_debug = 0;
-                    printf(" ROTATION PURE: Filtrage X/Y optique (ω=%.3f rad, GPS filtré=[%.1f,%.1f]mm)\n",
-                           omega_temp, diff_opt_x, diff_opt_y);
+                    //printf(" ROTATION PURE: Filtrage X/Y optique (ω=%.3f rad, GPS filtré=[%.1f,%.1f]mm)\n",
+                    //       omega_temp, diff_opt_x, diff_opt_y);
                 }
             } else {
                 // Mouvement normal : GPS Mock prioritaire
@@ -506,9 +506,9 @@ void Holonomic_Basis::update_odometry() {
     static uint32_t enc_debug_counter = 0;
         if (++enc_debug_counter >= 20) {  // Affichage toutes les 0.2s au lieu de 2s
             enc_debug_counter = 0;
-            printf(" ENC: d[%+4.0f,%+4.0f,%+4.0f] v[%+5.1f,%+5.1f] dθ=%+.3f | pos[%+6ld,%+6ld,%+6ld]\n", 
-                (double)d1, (double)d2, (double)d3, dx_enc, dy_enc, omega_enc,
-                (long)pos1, (long)pos2, (long)pos3);
+            //printf(" ENC: d[%+4.0f,%+4.0f,%+4.0f] v[%+5.1f,%+5.1f] dθ=%+.3f | pos[%+6ld,%+6ld,%+6ld]\n", 
+            //    (double)d1, (double)d2, (double)d3, dx_enc, dy_enc, omega_enc,
+            //    (long)pos1, (long)pos2, (long)pos3);
         }
 
     if (++odo_data.debug_counter >= 20) { 
@@ -538,8 +538,8 @@ void Holonomic_Basis::update_odometry() {
         static uint32_t fusion_debug = 0;
         if (++fusion_debug >= 50) {
             fusion_debug = 0;
-            printf(" FUSION CONSTANTE: α=%.2f (%.0f%% enc + %.0f%% opt) | dx=%.2fmm dy=%.2fmm\n",
-                   ALPHA, ALPHA*100, (1.0f-ALPHA)*100, dx_final_world, dy_final_world);
+            //printf(" FUSION CONSTANTE: α=%.2f (%.0f%% enc + %.0f%% opt) | dx=%.2fmm dy=%.2fmm\n",
+            //       ALPHA, ALPHA*100, (1.0f-ALPHA)*100, dx_final_world, dy_final_world);
         }
     } else {
         // Fallback encodeurs si capteur optique inactif
@@ -569,7 +569,7 @@ void Holonomic_Basis::update_odometry() {
                 if (is_imu_first_run) {
                     loop_yaw_offset = yaw; // On capture l'angle actuel (ex: -1.26 rad) comme référence
                     is_imu_first_run = false;
-                    printf(" IMU: Re-Tare au début de boucle (Offset dynamique = %.3f rad)\n", loop_yaw_offset);
+                    //printf(" IMU: Re-Tare au début de boucle (Offset dynamique = %.3f rad)\n", loop_yaw_offset);
                 }
                 
                 this->THETA = normalizeAngle(yaw - loop_yaw_offset);
@@ -578,8 +578,8 @@ void Holonomic_Basis::update_odometry() {
                 static uint32_t imu_debug = 0;
                 if (++imu_debug >= 50) {
                     imu_debug = 0;
-                    printf(" IMU: quat[%.3f,%.3f,%.3f,%.3f] → yaw=%.3frad (%.1f°)\n",
-                           r, i, j, k, yaw, yaw * 180.0 / M_PI);
+                    //printf(" IMU: quat[%.3f,%.3f,%.3f,%.3f] → yaw=%.3frad (%.1f°)\n",
+                    //       r, i, j, k, yaw, yaw * 180.0 / M_PI);
                 }
             }
         #else
@@ -620,8 +620,8 @@ void Holonomic_Basis::update_odometry() {
         
         if (++fusion_debug >= 200) {
             fusion_debug = 0;
-            printf(" FUSION ACTIVE: dx_final=%.3fmm dy_final=%.3fmm\n", 
-                   dx_final_world, dy_final_world);
+            //printf(" FUSION ACTIVE: dx_final=%.3fmm dy_final=%.3fmm\n", 
+            //       dx_final_world, dy_final_world);
         }
     } else if (use_encoders) {
         // 🥈 Encodeurs en fallback uniquement
@@ -633,8 +633,8 @@ void Holonomic_Basis::update_odometry() {
         
         if (++fusion_debug >= 200) {
             fusion_debug = 0;
-            printf(" FUSION: Fallback encodeurs (dx=%.3f dy=%.3f) | Optique inactif\n", 
-                   dx_enc, dy_enc);
+            //printf(" FUSION: Fallback encodeurs (dx=%.3f dy=%.3f) | Optique inactif\n", 
+            //       dx_enc, dy_enc);
         }
     }
     last_theta_enc = this->THETA;
@@ -653,8 +653,8 @@ void Holonomic_Basis::update_odometry() {
         odo_data.debug_counter = 0;
         
         #ifdef WEBOTS_SIMULATION
-        printf(" [WEBOTS] Odo: X=%.1f Y=%.1f θ=%.3f | ENC:[%.1f,%.1f,%.1f] GPS:[%.2f,%.2f]\n",
-               this->X, this->Y, this->THETA,w1_mm, w2_mm, w3_mm,dx_optical, dy_optical);
+        //printf(" [WEBOTS] Odo: X=%.1f Y=%.1f θ=%.3f | ENC:[%.1f,%.1f,%.1f] GPS:[%.2f,%.2f]\n",
+        //       this->X, this->Y, this->THETA,w1_mm, w2_mm, w3_mm,dx_optical, dy_optical);
         #else
         //printf(" Odo: X=%.1f Y=%.1f θ=%.3f | ENC:[%.1f,%.1f,%.1f] PAA:[%.2f,%.2f]\n",
         //       this->X, this->Y, this->THETA,w1_mm, w2_mm, w3_mm,dx_optical, dy_optical);
@@ -671,7 +671,7 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
 
     static uint32_t debug_err = 0;
     if (++debug_err > 100) {  // ~1 seconde à 100Hz
-        printf(" Erreurs: ΔX=%.1f ΔY=%.1f Δθ=%.2f\n", xerr, yerr, theta_error);
+        //printf(" Erreurs: ΔX=%.1f ΔY=%.1f Δθ=%.2f\n", xerr, yerr, theta_error);
         debug_err = 0;
     }
     // 2. Calcul des vitesses cibles via PID (référentiel Monde)
