@@ -1,0 +1,4 @@
+pyserial=3.5
+crc8=0.1.0
+loggerplusplus=1.7.0
+pyusb=1.2.1
