@@ -1,3 +1,6 @@
+#ifndef MESSAGES_H
+#define MESSAGES_H
+
 #pragma pack(1)
 // dans nos structures, nous avons des variables plus petites que la taille
 // défaut du processeur (processeur 32 bits et variables 8 bits de type byte)
@@ -40,6 +43,12 @@ const byte END_BYTES_SIGNATURE[4] = {0xBA, 0xDD, 0x1C, 0xC5};
 
 // Actuators
 #define SWITCH_STATE_RETURN 129
+
+// Sensors (Simulation)
+#define LIDAR_SCAN_PART1 130  // Angles 0-89
+#define LIDAR_SCAN_PART2 131  // Angles 90-179
+#define LIDAR_SCAN_PART3 132  // Angles 180-269
+#define LIDAR_SCAN_PART4 133  // Angles 270-359 + timestamp
 
 // Common (Rolling Basis + Actuators)
 #define PRINT 254
@@ -138,8 +147,34 @@ struct msg_switch_state_return {
     bool state;  // switch state
 };
 
+// Sensors (Simulation)
+// LIDAR data: 360 points divisés en 4 messages (90 points chacun)
+// Chaque point = distance en mm (0-12000), 0 = pas de détection
+struct msg_lidar_scan_part1 {
+    byte command = LIDAR_SCAN_PART1;
+    uint16_t distances[90];  // Angles 0° à 89°
+};
+
+struct msg_lidar_scan_part2 {
+    byte command = LIDAR_SCAN_PART2;
+    uint16_t distances[90];  // Angles 90° à 179°
+};
+
+struct msg_lidar_scan_part3 {
+    byte command = LIDAR_SCAN_PART3;
+    uint16_t distances[90];  // Angles 180° à 269°
+};
+
+struct msg_lidar_scan_part4 {
+    byte command = LIDAR_SCAN_PART4;
+    uint16_t distances[90];  // Angles 270° à 359°
+    uint32_t timestamp;      // Horodatage millisecondes
+};
+
 // Common (Rolling Basis + Actuators)
 struct msg_unknown_msg_type {
     byte command = UNKNOWN_MSG_TYPE;
     byte type_id;  // ID of the unknown message
 };
+
+#endif // MESSAGES_H

@@ -1,0 +1,328 @@
+#VRML_SIM R2023b utf8
+# PROTO Robot Holonome 3 Roues - Configuration réelle Webots
+# Roue 1: 210° (bas gauche) | Roue 2: 330° (bas droite) | Roue 3: 90° (haut)
+# Rayon Robot = 156.9mm | Rayon Roue = 30mm
+
+PROTO three_omniwheel [
+  field SFVec3f    translation  0 0 0.030
+  field SFRotation rotation     0 0 1 0
+  field SFBool     supervisor   FALSE
+  field SFString   controller   "omni_robot_test"
+  field SFString   motor1       "motor1"
+  field SFString   motor2       "motor2"
+  field SFString   motor3       "motor3"
+  field SFString   encoder1     "encoder1"
+  field SFString   encoder2     "encoder2"
+  field SFString   encoder3     "encoder3"
+  field SFString   gps          "GPS"        # Capteur optique PAA5100
+  field SFString   imu          "IMU"
+  field SFString   lidar        "lidar"      # LIDAR 360°
+  field MFString   meshPath     ["meshes/base_link.stl"]  # Chemin vers le mesh
+]
+{
+  DEF OMNI_WHEELS Robot {
+    translation IS translation
+    rotation IS rotation
+    controller IS controller
+    supervisor IS supervisor
+    recognitionColors [ 0 0 0 ]
+    children [
+      GPS {
+        name IS gps
+        accuracy 0.001
+      }
+      InertialUnit { name IS imu }
+
+      # ==========================================
+      # ROUE 1 (210° = -150°) - EN BAS À GAUCHE
+      # ==========================================
+      DEF SOLID1 Solid {
+        rotation 0 0 1 3.6652
+        children [
+          DEF WHEEL1 HingeJoint {
+            jointParameters HingeJointParameters { position 0 anchor -0.1569 0 0 }
+            device [
+              RotationalMotor { name IS motor1 maxVelocity 40 maxTorque 2.5 }
+              PositionSensor { name IS encoder1 }
+            ]
+            endPoint Solid {
+              translation -0.1569 0 0
+              rotation 1 0 0 0
+              children [
+                DEF r1 Pose {
+                  translation -0.02 0 0.03
+                  rotation -1 0 0 1.5708
+                  children [
+                    DEF SMALL_WHEEL_SHAPE Shape {
+                      appearance PBRAppearance { baseColor 1 0.75 0.8 roughness 1 metalness 0 }
+                      geometry Cylinder { height 0.02 radius 0.002 }
+                    }
+                  ]
+                }
+                DEF r2 Pose {
+                  translation -0.02 0.0212 0.0212
+                  rotation -1 0 0 2.27
+                  children [ USE SMALL_WHEEL_SHAPE ]
+                }
+                DEF r3 Pose {
+                  translation -0.02 0 -0.03
+                  rotation -1 0 0 1.5708
+                  children [ USE SMALL_WHEEL_SHAPE ]
+                }
+                DEF r4 Pose {
+                  translation -0.02 -0.0212 -0.0212
+                  rotation -1 0 0 2.27
+                  children [ USE SMALL_WHEEL_SHAPE ]
+                }
+                DEF r5 Pose {
+                  translation -0.02 0.03 0
+                  children [ USE SMALL_WHEEL_SHAPE ]
+                }
+                DEF r6 Pose {
+                  translation -0.02 -0.03 0
+                  children [ USE SMALL_WHEEL_SHAPE ]
+                }
+                DEF r7 Pose {
+                  translation -0.02 0.0212 -0.0212
+                  rotation -1 0 0 0.76
+                  children [ USE SMALL_WHEEL_SHAPE ]
+                }
+                DEF r8 Pose {
+                  translation -0.02 -0.0212 0.0212
+                  rotation -1 0 0 0.76
+                  children [ USE SMALL_WHEEL_SHAPE ]
+                }
+                DEF WHEEL_TRANS Pose {
+                  translation -0.02 0 0 rotation 0 -1 0 1.5708
+                  children [
+                    DEF WHEEL_SHAPE Shape {
+                      appearance PBRAppearance { baseColor 1 0 0 roughness 1 metalness 0 }
+                      geometry Cylinder { height 0.02 radius 0.030 subdivision 24 }
+                    }
+                  ]
+                }
+              ]
+              name "wheel_1"
+              contactMaterial "OmniWheelMat"
+              boundingObject Pose {
+                translation -0.02 0 0 rotation 0 -1 0 1.5708
+                children [
+                  DEF wheel_collider Shape {
+                    appearance PBRAppearance { baseColor 0.8 0.8 0.8 transparency 0.8 }
+                    geometry Cylinder { height 0.02 radius 0.030 }
+                  }
+                ]
+              }
+              physics Physics { density -1 mass 0.5 }
+            }
+          }
+        ]
+        name "wheel 1 container"
+        boundingObject DEF DUMMY Sphere { radius 0.01 }
+        physics Physics { density -1 mass 0.1 }
+      }
+
+      # ==========================================
+      # ROUE 2 (330° = -30°) - EN BAS À DROITE
+      # ==========================================
+      DEF SOLID2 Solid {
+        rotation 0 0 1 5.7596
+        children [
+          DEF WHEEL2 HingeJoint {
+            jointParameters HingeJointParameters { position 0 anchor -0.1569 0 0 }
+            device [
+              RotationalMotor { name IS motor2 maxVelocity 40 maxTorque 2.5 }
+              PositionSensor { name IS encoder2 }
+            ]
+            endPoint Solid {
+              translation -0.1569 0 0
+              rotation -1 0 0 0
+              children [
+                DEF r1_w2 Pose {
+                  translation -0.02 0 0.03
+                  rotation -1 0 0 1.5708
+                  children [ USE SMALL_WHEEL_SHAPE ]
+                }
+                DEF r2_w2 Pose {
+                  translation -0.02 0.0212 0.0212
+                  rotation -1 0 0 2.27
+                  children [ USE SMALL_WHEEL_SHAPE ]
+                }
+                DEF r3_w2 Pose {
+                  translation -0.02 0 -0.03
+                  rotation -1 0 0 1.5708
+                  children [ USE SMALL_WHEEL_SHAPE ]
+                }
+                DEF r4_w2 Pose {
+                  translation -0.02 -0.0212 -0.0212
+                  rotation -1 0 0 2.27
+                  children [ USE SMALL_WHEEL_SHAPE ]
+                }
+                DEF r5_w2 Pose {
+                  translation -0.02 0.03 0
+                  children [ USE SMALL_WHEEL_SHAPE ]
+                }
+                DEF r6_w2 Pose {
+                  translation -0.02 -0.03 0
+                  children [ USE SMALL_WHEEL_SHAPE ]
+                }
+                DEF r7_w2 Pose {
+                  translation -0.02 0.0212 -0.0212
+                  rotation -1 0 0 0.76
+                  children [ USE SMALL_WHEEL_SHAPE ]
+                }
+                DEF r8_w2 Pose {
+                  translation -0.02 -0.0212 0.0212
+                  rotation -1 0 0 0.76
+                  children [ USE SMALL_WHEEL_SHAPE ]
+                }
+                Pose {
+                  translation -0.02 0 0 rotation 0 -1 0 1.5708
+                  children [
+                    Shape {
+                      appearance PBRAppearance { baseColor 0 1 0 roughness 1 metalness 0 }
+                      geometry Cylinder { height 0.02 radius 0.030 subdivision 24 }
+                    }
+                  ]
+                }
+              ]
+              name "wheel_2"
+              contactMaterial "OmniWheelMat"
+              boundingObject Pose { translation -0.02 0 0 rotation 0 -1 0 1.5708 children [ USE wheel_collider ] }
+              physics Physics { density -1 mass 0.5 }
+            }
+          }
+        ]
+        name "wheel 2 container"
+        boundingObject USE DUMMY
+        physics Physics { density -1 mass 0.1 }
+      }
+
+      # ==========================================
+      # ROUE 3 (90°) - EN HAUT, alignée avec Y+
+      # ==========================================
+      DEF SOLID3 Solid {
+        rotation 0 0 1 1.5708
+        children [
+          DEF WHEEL3 HingeJoint {
+            jointParameters HingeJointParameters { position 0 anchor -0.1569 0 0 }
+            device [
+              RotationalMotor { name IS motor3 maxVelocity 40 maxTorque 2.5 }
+              PositionSensor { name IS encoder3 }
+            ]
+            endPoint Solid {
+              translation -0.1569 0 0
+              rotation -1 0 0 0
+              children [
+                DEF r1_w3 Pose {
+                  translation -0.02 0 0.03
+                  rotation -1 0 0 1.5708
+                  children [ USE SMALL_WHEEL_SHAPE ]
+                }
+                DEF r2_w3 Pose {
+                  translation -0.02 0.0212 0.0212
+                  rotation -1 0 0 2.27
+                  children [ USE SMALL_WHEEL_SHAPE ]
+                }
+                DEF r3_w3 Pose {
+                  translation -0.02 0 -0.03
+                  rotation -1 0 0 1.5708
+                  children [ USE SMALL_WHEEL_SHAPE ]
+                }
+                DEF r4_w3 Pose {
+                  translation -0.02 -0.0212 -0.0212
+                  rotation -1 0 0 2.27
+                  children [ USE SMALL_WHEEL_SHAPE ]
+                }
+                DEF r5_w3 Pose {
+                  translation -0.02 0.03 0
+                  children [ USE SMALL_WHEEL_SHAPE ]
+                }
+                DEF r6_w3 Pose {
+                  translation -0.02 -0.03 0
+                  children [ USE SMALL_WHEEL_SHAPE ]
+                }
+                DEF r7_w3 Pose {
+                  translation -0.02 0.0212 -0.0212
+                  rotation -1 0 0 0.76
+                  children [ USE SMALL_WHEEL_SHAPE ]
+                }
+                DEF r8_w3 Pose {
+                  translation -0.02 -0.0212 0.0212
+                  rotation -1 0 0 0.76
+                  children [ USE SMALL_WHEEL_SHAPE ]
+                }
+                Pose {
+                  translation -0.02 0 0 rotation 0 -1 0 1.5708
+                  children [
+                    Shape {
+                      appearance PBRAppearance { baseColor 0 0 1 roughness 1 metalness 0 }
+                      geometry Cylinder { height 0.02 radius 0.030 subdivision 24 }
+                    }
+                  ]
+                }
+              ]
+              name "wheel_3"
+              contactMaterial "OmniWheelMat"
+              boundingObject Pose { translation -0.02 0 0 rotation 0 -1 0 1.5708 children [ USE wheel_collider ] }
+              physics Physics { density -1 mass 0.5 }
+            }
+          }
+        ]
+        name "wheel 3 container"
+        boundingObject USE DUMMY
+        physics Physics { density -1 mass 0.1 }
+      }
+
+      # --- CORPS (Body) avec Mesh ---
+      Camera {
+        translation 0 0 0.4
+        rotation 0 1 0 1.5708
+        fieldOfView 3.14
+        width 640
+        height 640
+        projection "spherical"
+      }
+      Lidar {
+        translation 0 0 0.340
+        name IS lidar
+        horizontalResolution 360
+        fieldOfView 6.28318
+        numberOfLayers 1
+        minRange 0.15
+        maxRange 12.0
+      }
+      DEF BODY_TRANS Pose {
+        translation 0 0 0
+        children [
+          Transform {
+            scale 0.001 0.001 0.001
+            rotation 0 0 1 -1.023595307179586
+            children [
+              Transform {
+                rotation 1 0 0 1.5708
+                children [
+                  Shape {
+                    appearance PBRAppearance {
+                      baseColor 0 0 1
+                      roughness 1
+                      metalness 0
+                    }
+                    geometry Mesh {
+                      url IS meshPath
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+    boundingObject Cylinder {
+      height 0.06
+      radius 0.16
+    }
+    physics Physics { density -1 mass 5 }
+  }
+}

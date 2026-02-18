@@ -1,0 +1,649 @@
+<?xml version='1.0' encoding='utf-8'?>
+<robot name="Assemblage_base">
+    <link name="base_link_profile_11cm">
+        <inertial>
+            <origin xyz="-4.510136857490269e-17 0.0 -1.8076249036807935e-14" rpy="0.0 0.0 0.0" />
+            <mass value="0.14576451103807006" />
+            <inertia ixx="0.00015284708166414076" iyy="1.1735732733136883e-05" izz="0.0001528470816624321" ixy="-5.199464378649358e-20" iyz="7.208108161779711e-17" ixz="1.7618285302889447e-18" />
+        </inertial>
+        <visual name="base_link_profile_11cm_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_profile_11cm.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_profile_11cm_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_profile_11cm.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="base_link_poulie_moyeu">
+        <inertial>
+            <origin xyz="-1.7721067668841073e-13 1.0633304073250572e-16 0.009380677008760448" rpy="0.0 0.0 0.0" />
+            <mass value="0.3483496815620319" />
+            <inertia ixx="8.264023793088296e-05" iyy="8.26402375112556e-05" izz="0.00013062544626262423" ixy="7.240522448874634e-19" iyz="4.7935770889507985e-19" ixz="-1.4671965899160089e-16" />
+        </inertial>
+        <visual name="base_link_poulie_moyeu_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_poulie_moyeu.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_poulie_moyeu_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_poulie_moyeu.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="base_link_STEPPER_NEMA_23">
+        <inertial>
+            <origin xyz="-3.261974024226788e-14 -4.0161048904368364e-07 -0.020289326546941072" rpy="0.0 0.0 0.0" />
+            <mass value="0.9751935553655836" />
+            <inertia ixx="0.0003802982347405989" iyy="0.00038029928058858076" izz="0.0004512369865779806" ixy="1.1297667282419178e-17" iyz="1.3695765502117742e-08" ixz="8.046677473644293e-16" />
+        </inertial>
+        <visual name="base_link_STEPPER_NEMA_23_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_STEPPER_NEMA_23.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_STEPPER_NEMA_23_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_STEPPER_NEMA_23.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="base_link_poulie_moteur">
+        <inertial>
+            <origin xyz="4.2934406030425976e-17 1.5561241168882134e-06 0.008000000000000035" rpy="0.0 0.0 0.0" />
+            <mass value="0.3344118834302431" />
+            <inertia ixx="7.485708189162405e-05" iyy="7.485558659059421e-05" izz="0.0001309719647911424" ixy="1.2018516789897272e-17" iyz="6.938893903907235e-18" ixz="-4.6674903525500966e-17" />
+        </inertial>
+        <visual name="base_link_poulie_moteur_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_poulie_moteur.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_poulie_moteur_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_poulie_moteur.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="base_link_support_moteur">
+        <inertial>
+            <origin xyz="2.1361420930732233e-09 -0.041418413840911675 0.03900248949254995" rpy="0.0 0.0 0.0" />
+            <mass value="1.0529446290094577" />
+            <inertia ixx="0.0021175551045542326" iyy="0.0017242238744044065" izz="0.002542410739113101" ixy="1.0141933934408995e-10" iyz="0.0005349005937730842" ixz="-1.6281311802229803e-11" />
+        </inertial>
+        <visual name="base_link_support_moteur_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_support_moteur.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_support_moteur_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_support_moteur.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="base_link_profile_11cm">
+        <inertial>
+            <origin xyz="-4.272150167196836e-17 0.0 -1.8115898223987067e-14" rpy="0.0 0.0 0.0" />
+            <mass value="0.14576451103807006" />
+            <inertia ixx="0.00015284708166414963" iyy="1.1735732733164639e-05" izz="0.00015284708166246998" ixy="-4.411258206268502e-19" iyz="7.188771484890528e-17" ixz="-2.3405214398530827e-17" />
+        </inertial>
+        <visual name="base_link_profile_11cm_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_profile_11cm.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_profile_11cm_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_profile_11cm.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="base_link_profile_30cm">
+        <inertial>
+            <origin xyz="-5.567057208494147e-17 -1.7763568394002505e-17 -1.3195139612554935e-16" rpy="0.0 0.0 0.0" />
+            <mass value="0.3975395755583725" />
+            <inertia ixx="0.0029975500885954668" iyy="3.2006543815188415e-05" izz="0.00299755008859544" ixy="0.0" iyz="0.0" ixz="-2.3201926491189795e-17" />
+        </inertial>
+        <visual name="base_link_profile_30cm_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_profile_30cm.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_profile_30cm_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_profile_30cm.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="base_link_tige_moyeu">
+        <inertial>
+            <origin xyz="2.5054862870096625e-19 0.0379252451229466 1.437044927499187e-14" rpy="0.0 0.0 0.0" />
+            <mass value="0.005664834389566744" />
+            <inertia ixx="3.0322563466592123e-06" iyy="8.74771993771705e-09" izz="3.0322563467208e-06" ixy="-5.1521136412065804e-21" iyz="3.898778505287012e-18" ixz="1.2583865749875036e-20" />
+        </inertial>
+        <visual name="base_link_tige_moyeu_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_tige_moyeu.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_tige_moyeu_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_tige_moyeu.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="base_link_moyeu_roues">
+        <inertial>
+            <origin xyz="-1.734723475976807e-17 -3.7945069741056e-20 0.037500000000000006" rpy="0.0 0.0 0.0" />
+            <mass value="0.059823025219642084" />
+            <inertia ixx="2.8617059049940136e-05" iyy="2.861705904995404e-05" izz="1.1500319564626785e-06" ixy="1.945655884201814e-19" iyz="9.671117746614674e-20" ixz="1.1841520602615119e-18" />
+        </inertial>
+        <visual name="base_link_moyeu_roues_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_moyeu_roues.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_moyeu_roues_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_moyeu_roues.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="base_link_support_moyeu">
+        <inertial>
+            <origin xyz="-1.6005203708003313e-05 0.007999973269883935 -4.0083293129968e-17" rpy="0.0 0.0 0.0" />
+            <mass value="0.22230041636211617" />
+            <inertia ixx="2.548077089412371e-05" iyy="6.937382205757237e-05" izz="8.136524428033114e-05" ixy="3.1852379042611876e-09" iyz="-6.932083725924079e-20" ixz="2.014583161749628e-17" />
+        </inertial>
+        <visual name="base_link_support_moyeu_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_support_moyeu.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_support_moyeu_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_support_moyeu.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="base_link_tige_moyeu">
+        <inertial>
+            <origin xyz="2.5054862870099783e-19 0.03792524512294668 1.4203915821298096e-14" rpy="0.0 0.0 0.0" />
+            <mass value="0.005664834389566744" />
+            <inertia ixx="3.0322563466574776e-06" iyy="8.747719936763582e-09" izz="3.0322563467201737e-06" ixy="6.933309414533047e-21" iyz="3.088922363483295e-18" ixz="1.1736832802620583e-20" />
+        </inertial>
+        <visual name="base_link_tige_moyeu_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_tige_moyeu.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_tige_moyeu_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_tige_moyeu.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="base_link_tige_moyeu">
+        <inertial>
+            <origin xyz="2.505486287009955e-19 0.03792524512294662 1.4225650886275386e-14" rpy="0.0 0.0 0.0" />
+            <mass value="0.005664834389566744" />
+            <inertia ixx="3.0322563466574776e-06" iyy="8.747719936291168e-09" izz="3.032256346720795e-06" ixy="1.570458364987329e-22" iyz="3.059765271550207e-18" ixz="4.2351647361350724e-22" />
+        </inertial>
+        <visual name="base_link_tige_moyeu_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_tige_moyeu.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_tige_moyeu_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_tige_moyeu.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="base_link_support_moyeu">
+        <inertial>
+            <origin xyz="-1.6005203708003316e-05 0.007999973269883935 3.9991813571664536e-17" rpy="0.0 0.0 0.0" />
+            <mass value="0.22230041636211617" />
+            <inertia ixx="2.5480770894137272e-05" iyy="6.937382205768339e-05" izz="8.136524428037268e-05" ixy="3.185237904423818e-09" iyz="3.5102298512846224e-19" ixz="3.764214417598111e-18" />
+        </inertial>
+        <visual name="base_link_support_moyeu_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_support_moyeu.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_support_moyeu_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_support_moyeu.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="base_link_support_moyeu">
+        <inertial>
+            <origin xyz="-1.600520370796499e-05 0.007999973269883935 -1.5725870918302815e-19" rpy="0.0 0.0 0.0" />
+            <mass value="0.22230041636211617" />
+            <inertia ixx="2.548077089417622e-05" iyy="6.937382205765563e-05" izz="8.136524428037465e-05" ixy="3.1852379047065185e-09" iyz="8.673930344598809e-19" ixz="-5.490914272908221e-19" />
+        </inertial>
+        <visual name="base_link_support_moyeu_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_support_moyeu.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_support_moyeu_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_support_moyeu.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="base_link_moyeu_roues">
+        <inertial>
+            <origin xyz="-1.3877787807814457e-17 2.7263653527066007e-19 0.037500000000000026" rpy="0.0 0.0 0.0" />
+            <mass value="0.059823025219642084" />
+            <inertia ixx="2.8617059049936162e-05" iyy="2.8617059049926286e-05" izz="1.1500319564531028e-06" ixy="-1.355252715606979e-20" iyz="-2.2046984626776257e-20" ixz="-7.616520261710669e-18" />
+        </inertial>
+        <visual name="base_link_moyeu_roues_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_moyeu_roues.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_moyeu_roues_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_moyeu_roues.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="base_link_moyeu_roues">
+        <inertial>
+            <origin xyz="0.0 0.0 0.0375" rpy="0.0 0.0 0.0" />
+            <mass value="0.059823025219642084" />
+            <inertia ixx="2.8617059049926286e-05" iyy="2.8617059049926286e-05" izz="1.1500319564660658e-06" ixy="0.0" iyz="0.0" ixz="0.0" />
+        </inertial>
+        <visual name="base_link_moyeu_roues_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_moyeu_roues.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_moyeu_roues_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_moyeu_roues.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="base_link_profile_30cm">
+        <inertial>
+            <origin xyz="4.338734978715564e-31 -1.7763568394002505e-17 -8.881784197001253e-17" rpy="0.0 0.0 0.0" />
+            <mass value="0.3975395755583725" />
+            <inertia ixx="0.002997550088595427" iyy="3.200654381529944e-05" izz="0.0029975500885953688" ixy="-6.938893903907226e-18" iyz="-4.336808689942357e-19" ixz="2.834968878138011e-31" />
+        </inertial>
+        <visual name="base_link_profile_30cm_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_profile_30cm.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_profile_30cm_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_profile_30cm.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="base_link_profile_30cm">
+        <inertial>
+            <origin xyz="-6.153480596427371e-17 -1.7763568394002505e-17 -3.5527136788005596e-17" rpy="0.0 0.0 0.0" />
+            <mass value="0.3975395755583725" />
+            <inertia ixx="0.0029975500885953002" iyy="3.200654381529944e-05" izz="0.0029975500885953844" ixy="3.469446951953671e-18" iyz="-6.0092583949486046e-18" ixz="-7.3075226425523e-17" />
+        </inertial>
+        <visual name="base_link_profile_30cm_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_profile_30cm.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_profile_30cm_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_profile_30cm.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="base_link_profile_11cm">
+        <inertial>
+            <origin xyz="2.49579332780609e-17 0.0 -1.8146665626969205e-14" rpy="0.0 0.0 0.0" />
+            <mass value="0.14576451103807006" />
+            <inertia ixx="0.00015284708166414" iyy="1.1735732733109128e-05" izz="0.0001528470816624523" ixy="5.1994643786117636e-20" iyz="7.208108161779711e-17" ixz="9.446111427779957e-18" />
+        </inertial>
+        <visual name="base_link_profile_11cm_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_profile_11cm.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_profile_11cm_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_profile_11cm.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="base_link_profile_11cm">
+        <inertial>
+            <origin xyz="-2.8310687127769175e-17 0.0 -1.8047785488306545e-14" rpy="0.0 0.0 0.0" />
+            <mass value="0.14576451103807006" />
+            <inertia ixx="0.00015284708166415917" iyy="1.1735732733109128e-05" izz="0.00015284708166243182" ixy="-7.453889935906993e-20" iyz="7.24247051220317e-17" ixz="1.6492701078760094e-29" />
+        </inertial>
+        <visual name="base_link_profile_11cm_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_profile_11cm.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_profile_11cm_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_profile_11cm.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="base_link_support_moteur">
+        <inertial>
+            <origin xyz="2.1361421728705032e-09 -0.041418413840911675 0.03900248949254995" rpy="0.0 0.0 0.0" />
+            <mass value="1.0529446290094577" />
+            <inertia ixx="0.0021175551045544408" iyy="0.001724223874404851" izz="0.002542410739113659" ixy="1.0141932880022383e-10" iyz="0.0005349005937730836" ixz="-1.6281145702456978e-11" />
+        </inertial>
+        <visual name="base_link_support_moteur_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_support_moteur.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_support_moteur_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_support_moteur.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="base_link_support_moteur">
+        <inertial>
+            <origin xyz="2.136142129849361e-09 -0.041418413840911675 0.039002489492550016" rpy="0.0 0.0 0.0" />
+            <mass value="1.0529446290094577" />
+            <inertia ixx="0.0021175551045544694" iyy="0.001724223874404407" izz="0.0025424107391132282" ixy="1.0141933451911223e-10" iyz="0.0005349005937730841" ixz="-1.628139983944621e-11" />
+        </inertial>
+        <visual name="base_link_support_moteur_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_support_moteur.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_support_moteur_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_support_moteur.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="base_link_poulie_moteur">
+        <inertial>
+            <origin xyz="4.0766001685454967e-17 1.5561241168882134e-06 0.007999999999999972" rpy="0.0 0.0 0.0" />
+            <mass value="0.3344118834302431" />
+            <inertia ixx="7.485708189156213e-05" iyy="7.485558659037217e-05" izz="0.00013097196479098573" ixy="-4.3368086899419797e-19" iyz="-7.511572993685819e-19" ixz="-5.650048571365085e-17" />
+        </inertial>
+        <visual name="base_link_poulie_moteur_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_poulie_moteur.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_poulie_moteur_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_poulie_moteur.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="base_link_poulie_moteur">
+        <inertial>
+            <origin xyz="-1.1546319456101355e-17 1.5561241168882134e-06 0.007999999999999972" rpy="0.0 0.0 0.0" />
+            <mass value="0.3344118834302431" />
+            <inertia ixx="7.485708189153284e-05" iyy="7.485558659037217e-05" izz="0.00013097196479106097" ixy="-2.168404344969653e-19" iyz="-1.387778780781446e-17" ixz="4.655930119761456e-18" />
+        </inertial>
+        <visual name="base_link_poulie_moteur_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_poulie_moteur.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_poulie_moteur_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_poulie_moteur.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="base_link_STEPPER_NEMA_23">
+        <inertial>
+            <origin xyz="-3.258331104927237e-14 -4.0161048904253983e-07 -0.020289326546941086" rpy="0.0 0.0 0.0" />
+            <mass value="0.9751935553655836" />
+            <inertia ixx="0.00038029823474069785" iyy="0.00038029928058902485" izz="0.00045123698657828065" ixy="1.4474012710481928e-17" iyz="1.3695765491240583e-08" ixz="7.013432803265607e-16" />
+        </inertial>
+        <visual name="base_link_STEPPER_NEMA_23_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_STEPPER_NEMA_23.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_STEPPER_NEMA_23_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_STEPPER_NEMA_23.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="base_link_STEPPER_NEMA_23">
+        <inertial>
+            <origin xyz="-3.2600588895093095e-14 -4.016104890425254e-07 -0.020289326546941027" rpy="0.0 0.0 0.0" />
+            <mass value="0.9751935553655836" />
+            <inertia ixx="0.00038029823474095004" iyy="0.0003802992805888028" izz="0.0004512369865782191" ixy="8.673617379884035e-19" iyz="1.3695765507804047e-08" ixz="6.730727086790012e-16" />
+        </inertial>
+        <visual name="base_link_STEPPER_NEMA_23_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_STEPPER_NEMA_23.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_STEPPER_NEMA_23_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_STEPPER_NEMA_23.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="base_link_poulie_moyeu">
+        <inertial>
+            <origin xyz="-1.772349628170744e-13 1.0677061405752916e-16 0.009380677008760246" rpy="0.0 0.0 0.0" />
+            <mass value="0.3483496815620319" />
+            <inertia ixx="8.264023793082918e-05" iyy="8.264023751103355e-05" izz="0.00013062544626249244" ixy="-6.969471909133593e-19" iyz="5.2854336974062075e-19" ixz="-1.0847442735717472e-16" />
+        </inertial>
+        <visual name="base_link_poulie_moyeu_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_poulie_moyeu.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_poulie_moyeu_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_poulie_moyeu.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="base_link_poulie_moyeu">
+        <inertial>
+            <origin xyz="-1.7737367130621352e-13 1.0658141036401502e-16 0.00938067700876033" rpy="0.0 0.0 0.0" />
+            <mass value="0.3483496815620319" />
+            <inertia ixx="8.264023793086439e-05" iyy="8.264023751120009e-05" izz="0.00013062544626252367" ixy="0.0" iyz="0.0" ixz="-8.500145032286355e-17" />
+        </inertial>
+        <visual name="base_link_poulie_moyeu_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_poulie_moyeu.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_poulie_moyeu_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_poulie_moyeu.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="base_link_profile_11cm">
+        <inertial>
+            <origin xyz="-1.0497358982091906e-18 0.0 -1.8049603684216927e-14" rpy="0.0 0.0 0.0" />
+            <mass value="0.14576451103807006" />
+            <inertia ixx="0.00015284708166416467" iyy="1.1735732733164639e-05" izz="0.00015284708166243632" ixy="-3.5263511555312406e-19" iyz="7.181392318536138e-17" ixz="-1.1872013788716274e-17" />
+        </inertial>
+        <visual name="base_link_profile_11cm_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_profile_11cm.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_profile_11cm_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_profile_11cm.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="base_link_profile_11cm">
+        <inertial>
+            <origin xyz="1.7291239396765663e-28 0.0 -1.8109957977685554e-14" rpy="0.0 0.0 0.0" />
+            <mass value="0.14576451103807006" />
+            <inertia ixx="0.0001528470816641351" iyy="1.1735732733136883e-05" izz="0.00015284708166243832" ixy="-6.889171781694667e-31" iyz="7.215365457891032e-17" ixz="1.734723475993008e-18" />
+        </inertial>
+        <visual name="base_link_profile_11cm_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_profile_11cm.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_profile_11cm_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_profile_11cm.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="base_link_plaque_soutien_stepper">
+        <inertial>
+            <origin xyz="-8.788976491036493e-15 0.059630166590210906 0.003999999999999933" rpy="0.0 0.0 0.0" />
+            <mass value="0.15728590689335886" />
+            <inertia ixx="6.306440258017489e-05" iyy="0.00019432993480628102" izz="0.00025571662104623166" ixy="-4.737986417049091e-18" iyz="1.266401281131067e-18" ixz="1.0957218205681629e-17" />
+        </inertial>
+        <visual name="base_link_plaque_soutien_stepper_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_plaque_soutien_stepper.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="base_link_plaque_soutien_stepper_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/base_link_plaque_soutien_stepper.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="wheel_2_roue_60mm">
+        <inertial>
+            <origin xyz="1.6100515346925644e-14 1.3197683074725848e-07 -5.882743080354622e-18" rpy="0.0 0.0 0.0" />
+            <mass value="0.19017531909715332" />
+            <inertia ixx="4.99602189807703e-05" iyy="4.997152669152372e-05" izz="9.604750871590199e-05" ixy="2.378976735658428e-17" iyz="-3.533821455944941e-18" ixz="7.399679827213568e-18" />
+        </inertial>
+        <visual name="wheel_2_roue_60mm_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/wheel_2_roue_60mm.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="wheel_2_roue_60mm_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/wheel_2_roue_60mm.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="wheel_2_roue_60mm">
+        <inertial>
+            <origin xyz="1.61005153403082e-14 1.3197683074725848e-07 5.882412208109601e-18" rpy="0.0 0.0 0.0" />
+            <mass value="0.19017531909715332" />
+            <inertia ixx="4.996021898080132e-05" iyy="4.99715266915295e-05" izz="9.604750871597627e-05" ixy="1.0415117119438877e-17" iyz="-1.677972268510769e-17" ixz="4.15012262836717e-17" />
+        </inertial>
+        <visual name="wheel_2_roue_60mm_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/wheel_2_roue_60mm.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="wheel_2_roue_60mm_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/wheel_2_roue_60mm.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+    <link name="wheel_2_roue_60mm">
+        <inertial>
+            <origin xyz="1.6122210560622346e-14 1.319768307381963e-07 1.4210803798226286e-16" rpy="0.0 0.0 0.0" />
+            <mass value="0.19017531909715332" />
+            <inertia ixx="4.996021898074332e-05" iyy="4.997152669147264e-05" izz="9.604750871591568e-05" ixy="1.2529311355785608e-17" iyz="5.779354267469224e-19" ixz="-2.8055844654850214e-19" />
+        </inertial>
+        <visual name="wheel_2_roue_60mm_visual">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/wheel_2_roue_60mm.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+        <collision name="wheel_2_roue_60mm_collision">
+            <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0" />
+            <geometry>
+                <mesh filename="meshes/wheel_2_roue_60mm.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </collision>
+    </link>
+</robot>

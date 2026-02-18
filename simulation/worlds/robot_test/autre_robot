@@ -1,0 +1,213 @@
+DEF ROBOT_2 Robot {
+  translation 0.108133 1.26837 0.0265855
+  rotation 0.00746699213409679 0.0007899741228627073 0.9999718095873275 0
+  children [
+    DEF CORPS_PRINCIPAL Pose {
+      translation 6.60597e-08 3.10842e-07 -0.01
+      rotation -0.7745972141184518 0.44721212362085194 0.44721412362140484 -1.823475307179586
+      children [
+        Transform {
+          scale 0.001 0.001 0.001
+          children [
+            Shape {
+              appearance PBRAppearance {
+                baseColor 0 0.2 0.8
+                transparency 0.8
+                roughness 0.5
+                metalness 0
+              }
+              geometry Mesh {
+                url [
+                  "../protos/meshes/base_link.stl"
+                ]
+              }
+              castShadows FALSE
+            }
+          ]
+        }
+      ]
+    }
+    DEF WHEEL_A_WRAPPER Pose {
+      rotation 0 0 1 -1.0472
+      children [
+        DEF WHEEL_A_RADIUS Pose {
+          translation 0 0.1569 0
+          children [
+            HingeJoint {
+              jointParameters HingeJointParameters {
+                position 27.57987164408847
+                axis 0.866025 0.5 0
+              }
+              device [
+                RotationalMotor {
+                  name "motor1"
+                  maxVelocity 20
+                }
+                PositionSensor {
+                  name "encoder1"
+                }
+              ]
+              endPoint Solid {
+                rotation -0.2950657520885234 0.21671809975109282 0.9305748047227098 2.4859767088844604
+                children [
+                  DEF ROUE_VISUEL Pose {
+                    rotation 1 0 0 1.5708
+                    children [
+                      Shape {
+                        appearance Asphalt {
+                        }
+                        geometry Cylinder {
+                          height 0.02
+                          radius 0.03
+                        }
+                      }
+                    ]
+                  }
+                ]
+                name "wheel_solid_1"
+                contactMaterial "OmniWheelMat"
+                boundingObject Pose {
+                  rotation 1 0 0 1.5708
+                  children [
+                    Cylinder {
+                      height 0.02
+                      radius 0.03
+                    }
+                  ]
+                }
+                physics Physics {
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+    DEF WHEEL_B_WRAPPER Pose {
+      rotation 0 0 1 1.0472
+      children [
+        DEF WHEEL_B_RADIUS Pose {
+          translation 0 0.1569 0
+          children [
+            HingeJoint {
+              jointParameters HingeJointParameters {
+                position 601.3638596018836
+                axis -0.866025 0.5 0
+              }
+              device [
+                RotationalMotor {
+                  name "motor2"
+                  maxVelocity 20
+                }
+                PositionSensor {
+                  name "encoder2"
+                }
+              ]
+              endPoint Solid {
+                rotation 0.39681781188498344 -0.8795242587698116 0.2626265455094501 2.517025448197841
+                children [
+                  Pose {
+                    rotation 1 0 0 1.5708
+                    children [
+                      Shape {
+                        appearance Asphalt {
+                        }
+                        geometry Cylinder {
+                          height 0.02
+                          radius 0.03
+                        }
+                      }
+                    ]
+                  }
+                ]
+                name "wheel_solid_2"
+                contactMaterial "OmniWheelMat"
+                boundingObject Pose {
+                  rotation 1 0 0 1.5708
+                  children [
+                    Cylinder {
+                      height 0.02
+                      radius 0.03
+                    }
+                  ]
+                }
+                physics Physics {
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+    DEF WHEEL_C_WRAPPER Pose {
+      rotation 0 0 1 3.14159
+      children [
+        DEF WHEEL_C_RADIUS Pose {
+          translation 0 0.1569 0
+          children [
+            HingeJoint {
+              jointParameters HingeJointParameters {
+                position 718.3420299988728
+                axis 0 -1 0
+              }
+              device [
+                RotationalMotor {
+                  name "motor3"
+                  maxVelocity 20
+                }
+                PositionSensor {
+                  name "encoder3"
+                }
+              ]
+              endPoint Solid {
+                rotation 0.6069697270330254 0.07579299563351553 0.7911025042801676 2.740418799568703
+                children [
+                  Pose {
+                    rotation 1 0 0 1.5708
+                    children [
+                      Shape {
+                        appearance Asphalt {
+                        }
+                        geometry Cylinder {
+                          height 0.02
+                          radius 0.03
+                        }
+                      }
+                    ]
+                  }
+                ]
+                name "wheel_solid_3"
+                contactMaterial "OmniWheelMat"
+                boundingObject Pose {
+                  rotation 1 0 0 1.5708
+                  children [
+                    Cylinder {
+                      height 0.02
+                      radius 0.03
+                    }
+                  ]
+                }
+                physics Physics {
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+  name "RobotOmniTriangle"
+  boundingObject Pose {
+    translation 0 0 0.05
+    children [
+      Box {
+        size 0.3 0.3 0.1
+      }
+    ]
+  }
+  physics Physics {
+    density -1
+    mass 10
+  }
+  controller "<none>"
+}

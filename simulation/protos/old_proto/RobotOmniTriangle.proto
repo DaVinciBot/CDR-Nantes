@@ -1,0 +1,220 @@
+#VRML_SIM R2025a utf8
+# license: Apache License 2.0
+# license url: http://www.apache.org/licenses/LICENSE-2.0
+# This is a proto file for Webots for the RobotOmniTriangle
+# Configuration: ROUES TANGENTIELLES - Adaptée à la configuration réelle du world
+
+PROTO RobotOmniTriangle [
+  field  SFVec3f     translation     0 0 0
+  field  SFRotation  rotation        0 0 1 0
+  field  SFString    name            "RobotOmniTriangle"
+  field  SFString    controller      "void"
+  field  MFString    controllerArgs  []
+  field  SFString    customData      ""
+  field  SFBool      supervisor      FALSE
+  field  SFBool      synchronization TRUE
+  field  SFBool      selfCollision   FALSE
+]
+{
+  Robot {
+    translation IS translation
+    rotation IS rotation
+    controller IS controller
+    controllerArgs IS controllerArgs
+    customData IS customData
+    supervisor IS supervisor
+    synchronization IS synchronization
+    selfCollision IS selfCollision
+    children [
+      Pose {
+        rotation -1.000000 0.000000 0.000000 1.570796
+        children [
+          Shape {
+            appearance DEF blue PBRAppearance {
+              baseColor 0.200000 0.200000 0.800000
+              roughness 1.000000
+              metalness 0
+            }
+            geometry DEF base_link Mesh {
+              url "meshes/base_link.stl"
+            }
+          }
+        ]
+      }
+      
+      # ============================================
+      # ROUE 1 - Position angulaire: 300° (-60°)
+      # ============================================
+      # Position: x = L·cos(300°) = 0.07845, y = L·sin(300°) = -0.1359
+      # AXE RADIAL : cos(300°) = 0.5, sin(300°) = -0.866
+      HingeJoint {
+        jointParameters HingeJointParameters {
+          axis 0.500000 -0.866025 0.000000  # Axe radial à 300°
+          anchor 0.078450 -0.135877 0.035000
+        }
+        device [
+          RotationalMotor {
+            name "motor1"
+            maxTorque 10000
+          }
+          PositionSensor {
+            name "motor1_sensor"
+          }
+        ]
+        endPoint Solid {
+          translation 0.135877 0.078450 0.035000
+          rotation 0.000000 0.000000 1.000000 2.617994  # 150° pour alignement visuel
+          children [
+            Shape {
+              appearance DEF black PBRAppearance {
+                baseColor 0.100000 0.100000 0.100000
+                roughness 1.000000
+                metalness 0
+              }
+              geometry DEF roue Mesh {
+                url "meshes/roue.stl"
+              }
+            }
+          ]
+          name "roue_1"
+          boundingObject Pose {
+            rotation 1.000000 0.000000 0.000000 1.570796
+            children [
+              Cylinder {
+                radius 0.03
+                height 0.02
+              }
+            ]
+          }
+          physics Physics {
+            density -1
+            mass 0.200000
+            centerOfMass [ 0.000000 0.000000 0.000000 ]
+            inertiaMatrix [
+              1.000000e-03 1.000000e-03 1.000000e-03
+              0.000000e+00 0.000000e+00 0.000000e+00
+            ]
+          }
+        }
+      }
+      
+      # ============================================
+      # ROUE 2 - Position angulaire: 60°
+      # ============================================
+      # Position: x = L·cos(60°) = 0.07845, y = L·sin(60°) = 0.1359
+      # AXE RADIAL : cos(60°) = 0.5, sin(60°) = 0.866
+      HingeJoint {
+        jointParameters HingeJointParameters {
+          axis 0.500000 0.866025 0.000000  # Axe radial à 60°
+          anchor 0.078450 0.135877 0.035000
+        }
+        device [
+          RotationalMotor {
+            name "motor2"
+            maxTorque 10000
+          }
+          PositionSensor {
+            name "motor2_sensor"
+          }
+        ]
+        endPoint Solid {
+          translation -0.135877 0.078450 0.035000
+          rotation 0.000000 0.000000 1.000000 4.188790  # 240° pour alignement visuel
+          children [
+            Shape {
+              appearance USE black
+              geometry USE roue
+            }
+          ]
+          name "roue_2"
+          boundingObject Pose {
+            rotation 1.000000 0.000000 0.000000 1.570796
+            children [
+              Cylinder {
+                radius 0.03
+                height 0.02
+              }
+            ]
+          }
+          physics Physics {
+            density -1
+            mass 0.200000
+            centerOfMass [ 0.000000 0.000000 0.000000 ]
+            inertiaMatrix [
+              1.000000e-03 1.000000e-03 1.000000e-03
+              0.000000e+00 0.000000e+00 0.000000e+00
+            ]
+          }
+        }
+      }
+      
+      # ============================================
+      # ROUE 3 - Position angulaire: 180°
+      # ============================================
+      # Position: x = L·cos(180°) = -0.1569, y = L·sin(180°) = 0
+      # AXE RADIAL : cos(180°) = -1, sin(180°) = 0
+      HingeJoint {
+        jointParameters HingeJointParameters {
+          axis -1.000000 0.000000 0.000000  # Axe radial à 180°
+          anchor -0.156900 0.000000 0.035000
+        }
+        device [
+          RotationalMotor {
+            name "motor3"
+            maxTorque 10000
+          }
+          PositionSensor {
+            name "motor3_sensor"
+          }
+        ]
+        endPoint Solid {
+          translation 0.000000 -0.156900 0.035000
+          rotation 0.000000 0.000000 1.000000 4.712389  # 270° pour alignement visuel
+          children [
+            Shape {
+              appearance USE black
+              geometry USE roue
+            }
+          ]
+          name "roue_3"
+          boundingObject Pose {
+            rotation 1.000000 0.000000 0.000000 1.570796
+            children [
+              Cylinder {
+                radius 0.03
+                height 0.02
+              }
+            ]
+          }
+          physics Physics {
+            density -1
+            mass 0.200000
+            centerOfMass [ 0.000000 0.000000 0.000000 ]
+            inertiaMatrix [
+              1.000000e-03 1.000000e-03 1.000000e-03
+              0.000000e+00 0.000000e+00 0.000000e+00
+            ]
+          }
+        }
+      }
+    ]
+    name IS name
+    boundingObject Pose {
+      translation 0.000000 0.000000 0.050000
+      children [
+        Box {
+           size 0.400000 0.400000 0.100000
+        }
+      ]
+    }
+    physics Physics {
+      density -1
+      mass 5.000000
+      centerOfMass [ 0.000000 0.000000 0.000000 ]
+      inertiaMatrix [
+        1.000000e-01 1.000000e-01 1.000000e-01
+        0.000000e+00 0.000000e+00 0.000000e+00
+      ]
+    }
+  }
+}

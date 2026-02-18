@@ -1,112 +1,70 @@
-#pragma once
-// Externe libraries used: Arduino, TimerOne, ATOMIC
+// External libraries used: Arduino
 #include <Arduino.h>      // Arduino framework
-#include <TimerOne.h>     // Timer interrupt library
-#include <util/atomic.h>  // Atomic block library
+            // Communication class (includes messages.h)
+#include <holonomic_basis.h>  // Holonomic Basis with KaribouMotion
+#include <config.h>           // Configuration file
 
-// Custom libraries used: RollingBasis, Com
-#include <rolling_basis.h>  // Rolling Basis object to manage the motors and robot position
 
-// Configuration file (contains all the constants and pinout), it is just a
-// main.cpp header file
-#include <config.h>
+PID x_pid(KP_X, KI_X, KD_X, -MAX_SPEED, MAX_SPEED, 5.0);
+PID y_pid(KP_Y, KI_Y, KD_Y, -MAX_SPEED, MAX_SPEED, 5.0);
+PID theta_pid(KP_THETA, KI_THETA, KD_THETA, -MAX_SPEED, MAX_SPEED, 2.0);
 
-// 1. Instanciate the Rolling Basis object
-// a. Define the PID controllers
-PID linear_distance_pid(KP_LINEAR_DISTANCE,
-                        KI_LINEAR_DISTANCE,
-                        KD_LINEAR_DISTANCE,
-                        -240,
-                        240,
-                        5.0);
-PID angular_distance_pid(KP_ANGULAR_DISTANCE,
-                         KI_ANGULAR_DISTANCE,
-                         KD_ANGULAR_DISTANCE,
-                         -200,
-                         200,
-                         2.0);
+Holonomic_Basis* holonomic_basis_ptr = new Holonomic_Basis(
+    ROBOT_RADIUS,
+    WHEEL_DIAMETER,
+    MAX_SPEED,
+    MAX_ACCELERATION,
+    STEPS_PER_REVOLUTION,
+    MICROSTEPS,
+    x_pid,
+    y_pid,
+    theta_pid
+);
 
-// b. Instanciate the Rolling Basis object
-Rolling_Basis* rolling_basis_ptr = new Rolling_Basis(ENCODER_RESOLUTION,
-                                                     ENTRAXE,
-                                                     WHEEL_DIAMETER,
-                                                     linear_distance_pid,
-                                                     angular_distance_pid);
-
-// 2. Instanciate the Communication object
 Com* com;
-
-// c. Define the motors interrupt functions
-/******* Attach Interrupt *******/
-inline void left_motor_read_encoder() {
-    if (digitalRead(L_ENCB))
-        rolling_basis_ptr->left_motor->ticks--;
-    else
-        rolling_basis_ptr->left_motor->ticks++;
-}
-
-inline void right_motor_read_encoder() {
-    if (digitalRead(R_ENCB))
-        rolling_basis_ptr->right_motor->ticks--;
-    else
-        rolling_basis_ptr->right_motor->ticks++;
-}
-
-// 3. Define all com callback functions
-// a. define globals variables to keep in memory callback functions updated
 Point target_position(START_X, START_Y, START_THETA);
 
-// b. define the callback functions
-void set_target_position(byte* msg, byte size) {
-    msg_set_target_position* target_position_msg =
-        (msg_set_target_position*)msg;
+// Timers Hardware (Teensy 4.1 possède 4 IntervalTimers)
+IntervalTimer timer_compute; // Pour l'asservissement (Lent)
+IntervalTimer timer_step;    // Pour les moteurs (Rapide)
 
-    // Update position
-    target_position.x = target_position_msg->target_position_x;
-    target_position.y = target_position_msg->target_position_y;
-    target_position.theta = target_position_msg->target_position_theta;
+void set_target_position(byte* msg, byte size) {
+    msg_set_target_position* target_msg = (msg_set_target_position*)msg;
+    target_position.x = target_msg->target_position_x;
+    target_position.y = target_msg->target_position_y;
+    target_position.theta = target_msg->target_position_theta;
 }
 
 void set_pid(byte* msg, byte size) {
     msg_set_pid* pid_msg = (msg_set_pid*)msg;
     PID* pid = nullptr;
-    bool is_valid_pid = true;
+    
     switch (pid_msg->pid_type) {
-        case LINEAR_POSITION_PID_ID:
-            pid = &rolling_basis_ptr->linear_distance_pid;
-            break;
-        case ANGULAR_POSITION_PID_ID:
-            pid = &rolling_basis_ptr->angular_distance_pid;
-            break;
-        default:
-            is_valid_pid = false;
-            break;
+        case X_PID_ID: pid = &holonomic_basis_ptr->x_pid; break;
+        case Y_PID_ID: pid = &holonomic_basis_ptr->y_pid; break;
+        case THETA_PID_ID: pid = &holonomic_basis_ptr->theta_pid; break;
     }
-    if (is_valid_pid) {
+    
+    if (pid) {
         pid->updateParameters(pid_msg->kp, pid_msg->ki, pid_msg->kd);
     }
 }
 
 void set_odometrie(byte* msg, byte size) {
-    msg_set_odometrie* odometrie = (msg_set_odometrie*)msg;
+    msg_set_odometrie* odo = (msg_set_odometrie*)msg;
+    
+    holonomic_basis_ptr->init_holonomic_basis(odo->x, odo->y, odo->theta);
 
-    rolling_basis_ptr->X = odometrie->x;
-    rolling_basis_ptr->Y = odometrie->y;
-    rolling_basis_ptr->THETA = odometrie->theta;
-
-    // Update target position: avoid the usage of old stored target point
-    target_position.x = odometrie->x;
-    target_position.y = odometrie->y;
-    target_position.theta = odometrie->theta;
+    target_position.x = odo->x;
+    target_position.y = odo->y;
+    target_position.theta = odo->theta;
 }
 
 void reset_teensy(byte* msg, byte size) {
-    // TODO: reset the teensy, à tester !
-    void (*reboot)(void) = 0;
-    reboot();
+    void(*reboot)(void)=0;
+    reboot(); // Reset Hardware ARM
 }
 
-// c. assign the callback functions to the right message id
 void (*callback_functions[256])(byte* msg, byte size);
 
 void initialize_callback_functions() {
@@ -116,67 +74,76 @@ void initialize_callback_functions() {
     callback_functions[RESET_TEENSY] = &reset_teensy;
 }
 
-// 4. Define the timer interrupt handle function (this function will be called
-// every 10ms, and which manage the robot position and speed: asservissement)
-void handle() {
-    rolling_basis_ptr->odometrie_handle();
-    rolling_basis_ptr->handle(target_position, com);
+
+// [TIMER LENT] - 100 Hz (10ms)
+// Gère l'intelligence : PID, Cinématique, Planification de trajectoire
+void interruption_compute() {
+    // 1. Calcul du PID et mise à jour de l'odométrie (Dead Reckoning)
+    holonomic_basis_ptr->handle(target_position, com);
+    
+    // 2. Conversion des vitesses PID en commandes de pas (Relatif)
+    holonomic_basis_ptr->execute_movement();
+    
+    // 3. Mise à jour du profil de vitesse trapézoïdal des steppers
+    holonomic_basis_ptr->compute_steppers();
+}
+
+// [TIMER RAPIDE] - 25 kHz (40µs)
+// Gère la physique : Génération des signaux STEP pour les drivers
+// Plus ce timer est rapide, plus la vitesse max est élevée et le mouvement fluide.
+// Teensy 4.1 peut encaisser 50kHz ou 100kHz sans problème si le code est optimisé.
+void interruption_step() {
+    holonomic_basis_ptr->step_steppers();
 }
 
 void setup() {
+    
     com = new Com(&Serial, BAUDRATE);
 
-    // Change pwm frequency
-    analogWriteFrequency(R_PWM, PWM_FREQUENCY);
-    analogWriteFrequency(L_PWM, PWM_FREQUENCY);
+    // Configuration des Pins Moteurs
+    holonomic_basis_ptr->define_wheel1(W1_STEP_PIN, W1_DIR_PIN, W1_ENABLE_PIN);
+    holonomic_basis_ptr->define_wheel2(W2_STEP_PIN, W2_DIR_PIN, W2_ENABLE_PIN);
+    holonomic_basis_ptr->define_wheel3(W3_STEP_PIN, W3_DIR_PIN, W3_ENABLE_PIN);
+    
+    // Initialisation (Création du StepperGroup KaribouMotion)
+    holonomic_basis_ptr->init_motors();
+    holonomic_basis_ptr->init_holonomic_basis(START_X, START_Y, START_THETA);
+    holonomic_basis_ptr->enable_motors();
 
-    // Init Rolling Basis
-    rolling_basis_ptr->define_right_motor(R_ENCA, R_ENCB, R_PWM, R_IN2, R_IN1,
-                                          MAX_PWM);
-    rolling_basis_ptr->define_left_motor(L_ENCA, L_ENCB, L_PWM, L_IN2, L_IN1,
-                                         MAX_PWM);
-    rolling_basis_ptr->init_motors();
+    
 
-    rolling_basis_ptr->init_rolling_basis(START_X, START_Y, START_THETA);
-    attachInterrupt(digitalPinToInterrupt(L_ENCA), left_motor_read_encoder,
-                    RISING);
-    attachInterrupt(digitalPinToInterrupt(R_ENCA), right_motor_read_encoder,
-                    RISING);
+    // Démarrage des Timers
+    // timer_compute : 100Hz = 10000 µs
+    timer_compute.begin(interruption_compute, ASSERVISSEMENT_FREQUENCY); 
+    
+    // timer_step : 25kHz = 40 µs
+    // C'est ici qu'on remplace la magie de TeensyStep4 par notre contrôle direct
+    timer_step.begin(interruption_step, 40);
 
-    // Init motors handle timer
-    Timer1.initialize(ASSERVISSEMENT_FREQUENCY);
-    Timer1.attachInterrupt(handle);
-
-    // Initialize callback functions
+    // Init Callbacks
     initialize_callback_functions();
+    
+    delay(100);
 }
 
+
 uint_fast32_t counter = 0;
+
 void loop() {
-    // Handle the communication
+    // Gestion des messages entrants (USB)
     com->handle_callback(callback_functions);
 
-    // Send rolling basis state
-    if (counter++ > 4096)  // 4096 = 2^12
-    {
-        msg_update_rolling_basis rolling_basis_msg;
-        // Rolling Basis position
-        rolling_basis_msg.x = rolling_basis_ptr->X;
-        rolling_basis_msg.y = rolling_basis_ptr->Y;
-        rolling_basis_msg.theta = rolling_basis_ptr->THETA;
+    // Envoi périodique de la télémétrie vers la Raspberry Pi
+    // On utilise un compteur simple pour ne pas saturer le port série
+    if (counter++ > 50000) { 
+        msg_update_rolling_basis odo_msg;
+        Point current = holonomic_basis_ptr->get_current_position();
+        
+        odo_msg.x = current.x;
+        odo_msg.y = current.y;
+        odo_msg.theta = current.theta;
 
-        com->send_msg((byte*)&rolling_basis_msg,
-                      sizeof(msg_update_rolling_basis));
+        com->send_msg((byte*)&odo_msg, sizeof(msg_update_rolling_basis));
         counter = 0;
     }
 }
-
-/*
-
- This code was realized by Florian BARRE
-    ____ __
-   / __// /___
-  / _/ / // _ \
- /_/  /_/ \___/
-
-*/
