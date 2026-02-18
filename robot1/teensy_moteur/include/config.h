@@ -22,7 +22,7 @@
 // ========== STEPPER MOTOR 3 (Arrière - 0°) ==========
 #define W3_STEP_PIN 8
 #define W3_DIR_PIN 9
-#define W3_ENABLE_PIN 10
+#define W3_ENABLE_PIN 11  // Modifié (était 10, conflit avec CS_PIN capteur optique)
 
 // ========== STEPPER MOTORS CONFIGURATION ==========
 // Stepper motor specifications
@@ -69,6 +69,17 @@
 // ========== COMMUNICATION ==========
 // Com baudrate
 #define BAUDRATE 115200
+
+// ========== SENSORS PINS ==========
+// IMU BNO085 (I2C)
+#define PIN_SDA 18
+#define PIN_SCL 19
+#define BNO085_RESET_PIN -1  // -1 si relié au Reset de la Teensy ou non utilisé
+
+// Capteur optique PAA5100/PMW3901 (SPI)
+#define PAA5100_CS_PIN 10
+#define HAUTEUR_MM 25.0   // Hauteur du capteur par rapport au sol (mm)
+#define SEUIL_BRUIT 2     // Seuil de bruit pour filtrage capteur optique
 
 // ========== PWM (non utilisé pour steppers, mais gardé pour compatibilité) ==========
 #define PWM_FREQUENCY 40000

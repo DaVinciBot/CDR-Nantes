@@ -1,10 +1,9 @@
 // External libraries used: Arduino
 #include <Arduino.h>      // Arduino framework
-            // Communication class (includes messages.h)
 #include <holonomic_basis.h>  // Holonomic Basis with KaribouMotion
 #include <config.h>           // Configuration file
 
-
+// PID Controllers
 PID x_pid(KP_X, KI_X, KD_X, -MAX_SPEED, MAX_SPEED, 5.0);
 PID y_pid(KP_Y, KI_Y, KD_Y, -MAX_SPEED, MAX_SPEED, 5.0);
 PID theta_pid(KP_THETA, KI_THETA, KD_THETA, -MAX_SPEED, MAX_SPEED, 2.0);
@@ -25,8 +24,8 @@ Com* com;
 Point target_position(START_X, START_Y, START_THETA);
 
 // Timers Hardware (Teensy 4.1 possède 4 IntervalTimers)
-IntervalTimer timer_compute; // Pour l'asservissement (Lent)
-IntervalTimer timer_step;    // Pour les moteurs (Rapide)
+IntervalTimer timer_compute; // Pour l'asservissement (Lent - 100Hz)
+IntervalTimer timer_step;    // Pour les moteurs (Rapide - 25kHz)
 
 void set_target_position(byte* msg, byte size) {
     msg_set_target_position* target_msg = (msg_set_target_position*)msg;
@@ -78,13 +77,16 @@ void initialize_callback_functions() {
 // [TIMER LENT] - 100 Hz (10ms)
 // Gère l'intelligence : PID, Cinématique, Planification de trajectoire
 void interruption_compute() {
-    // 1. Calcul du PID et mise à jour de l'odométrie (Dead Reckoning)
+    // 1. Fusion de capteurs (GPS/IMU + Dead Reckoning)
+    holonomic_basis_ptr->update_odometry();
+    
+    // 2. Calcul du PID et mise à jour de l'odométrie
     holonomic_basis_ptr->handle(target_position, com);
     
-    // 2. Conversion des vitesses PID en commandes de pas (Relatif)
+    // 3. Conversion des vitesses PID en commandes de pas (Relatif)
     holonomic_basis_ptr->execute_movement();
     
-    // 3. Mise à jour du profil de vitesse trapézoïdal des steppers
+    // 4. Mise à jour du profil de vitesse trapézoïdal des steppers
     holonomic_basis_ptr->compute_steppers();
 }
 
@@ -97,7 +99,7 @@ void interruption_step() {
 }
 
 void setup() {
-    
+    // Initialisation communication
     com = new Com(&Serial, BAUDRATE);
 
     // Configuration des Pins Moteurs
@@ -105,22 +107,19 @@ void setup() {
     holonomic_basis_ptr->define_wheel2(W2_STEP_PIN, W2_DIR_PIN, W2_ENABLE_PIN);
     holonomic_basis_ptr->define_wheel3(W3_STEP_PIN, W3_DIR_PIN, W3_ENABLE_PIN);
     
-    // Initialisation (Création du StepperGroup KaribouMotion)
+    // Initialisation moteurs et base holonome
     holonomic_basis_ptr->init_motors();
     holonomic_basis_ptr->init_holonomic_basis(START_X, START_Y, START_THETA);
     holonomic_basis_ptr->enable_motors();
 
-    
+    // Initialisation des capteurs (PMW3901, BNO085)
+    holonomic_basis_ptr->init_sensors();
 
     // Démarrage des Timers
-    // timer_compute : 100Hz = 10000 µs
     timer_compute.begin(interruption_compute, ASSERVISSEMENT_FREQUENCY); 
-    
-    // timer_step : 25kHz = 40 µs
-    // C'est ici qu'on remplace la magie de TeensyStep4 par notre contrôle direct
     timer_step.begin(interruption_step, 40);
 
-    // Init Callbacks
+    // Initialisation des callbacks
     initialize_callback_functions();
     
     delay(100);
@@ -133,8 +132,7 @@ void loop() {
     // Gestion des messages entrants (USB)
     com->handle_callback(callback_functions);
 
-    // Envoi périodique de la télémétrie vers la Raspberry Pi
-    // On utilise un compteur simple pour ne pas saturer le port série
+    // Envoi télémétrie vers Raspberry Pi
     if (counter++ > 50000) { 
         msg_update_rolling_basis odo_msg;
         Point current = holonomic_basis_ptr->get_current_position();

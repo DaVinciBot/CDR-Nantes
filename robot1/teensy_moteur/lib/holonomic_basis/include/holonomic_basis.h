@@ -1,5 +1,6 @@
 #pragma once
 #include <Arduino.h>
+#include <config.h>
 #include "../../KaribouMotion/stepper.h" //Librairie Maison KaribouMotion
 
 #include <pid.h>
@@ -25,7 +26,7 @@ class Holonomic_Basis {
     double Y = 0.0;
     double THETA = 0.0;
 
-    bool use_encoders = true;       
+    bool use_encoders = false;       
     bool use_optical_flow = true; 
     bool use_imu = true;            
     bool use_pid_control = true;    

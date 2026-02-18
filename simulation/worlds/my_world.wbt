@@ -4,7 +4,6 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
 EXTERNPROTO "../protos/three_omniwheel.proto"
-EXTERNPROTO "../protos/table/Eurobot2026.proto"
 
 WorldInfo {
   basicTimeStep 8
@@ -23,20 +22,19 @@ WorldInfo {
 }
 Viewpoint {
   orientation 0.4977910191413901 -0.4944108359010162 -0.7125742253308316 4.373384547820132
-  position 0.07671607922966617 -3.1739219354830457 8.367216658516194
+  position 1.775107154891665 -0.9002366934511804 10.525759557380582
 }
 TexturedBackground {
 }
 TexturedBackgroundLight {
 }
 RectangleArena {
-  translation 0 4 0
   floorSize 3 2
   wallHeight 0.07
 }
 Robot {
-  translation -3.70379e-05 -1.33991 0.0268368
-  rotation -0.9232252780865396 -0.38425911574345983 0.00013367904026573212 0.00326142
+  translation -3.984387031766149e-05 -1.3399188582365276 0.028997529855296522
+  rotation -0.8950506081378496 -0.4459645807672586 3.9662939772675756e-05 0.0030259405099759057
   children [
     DEF CORPS_DEPLACE Pose {
       translation 0 0 0.22
@@ -62,7 +60,7 @@ Robot {
           children [
             HingeJoint {
               jointParameters HingeJointParameters {
-                position -53.01471931566815
+                position -53.01471957524991
                 axis 0 1 0
               }
               device [
@@ -75,8 +73,8 @@ Robot {
                 }
               ]
               endPoint Solid {
-                translation 0.0034990129992900545 0.0013527191834032224 0.0005367693031173768
-                rotation -0.007181784677779341 -0.9999681543459736 0.003480267626062316 1.183116953957758
+                translation 0.0034990128599544177 0.0013527191834032228 0.0005367702113973133
+                rotation -0.00718178374205057 -0.9999681543582783 0.0034802660215858708 1.183117213531254
                 children [
                   DEF VISUAL_WHEEL_1 Transform {
                     rotation 0 0 1 -1.57
@@ -119,6 +117,8 @@ Robot {
                 physics Physics {
                   mass 0.2
                 }
+                linearVelocity 2.9683477344238237e-06 9.79571573203525e-06 -0.005155502891070416
+                angularVelocity -0.0003469215692674155 0.00011776517785671793 9.554241146734469e-08
               }
             }
           ]
@@ -133,7 +133,7 @@ Robot {
           children [
             HingeJoint {
               jointParameters HingeJointParameters {
-                position 521.7689470464898
+                position 521.7689472350447
                 axis 0.5 0.866025 0
               }
               device [
@@ -146,8 +146,8 @@ Robot {
                 }
               ]
               endPoint Solid {
-                translation -0.003232696894298255 -0.00016166641891839794 0.0010108712175341474
-                rotation -0.007978022626059282 -0.9999600348781187 0.004034823605760079 5.4851853129854415
+                translation -0.003232696729229633 -0.00016166651422084725 0.0010108717301705848
+                rotation -0.007978132549821586 -0.9999600341918377 0.004034776335354565 5.485185148946449
                 children [
                   DEF VISUAL_WHEEL_2 Transform {
                     rotation 0 0 1 -1.57
@@ -174,6 +174,8 @@ Robot {
                 physics Physics {
                   mass 0.2
                 }
+                linearVelocity 3.594267425978126e-06 9.978164338213802e-06 -0.005114726888328409
+                angularVelocity -0.0003472947386504504 0.00011934780449387779 9.480684937677041e-08
               }
             }
           ]
@@ -188,7 +190,7 @@ Robot {
           children [
             HingeJoint {
               jointParameters HingeJointParameters {
-                position 701.5947784210991
+                position 701.5947780875508
                 axis 0 1 0
               }
               device [
@@ -201,8 +203,8 @@ Robot {
                 }
               ]
               endPoint Solid {
-                translation 0.004764112240599857 0.0008889910574271273 -8.173998515129729e-06
-                rotation 0.004404345644537017 0.9999863500931852 -0.002810936988450439 4.2905524542629685
+                translation 0.004764112243326011 0.0008889910574271275 -8.172409453521736e-06
+                rotation 0.004404345637867322 0.9999863500961323 -0.0028109359504710643 4.290552120719203
                 children [
                   DEF VISUAL_WHEEL_3 Transform {
                     rotation 0 0 1 -1.57
@@ -229,6 +231,8 @@ Robot {
                 physics Physics {
                   mass 0.2
                 }
+                linearVelocity 3.4874846077431048e-06 9.353549791788107e-06 -0.005041722591296267
+                angularVelocity -0.0003468667108828092 0.00012038303789723335 9.48922718105504e-08
               }
             }
           ]
@@ -243,14 +247,29 @@ Robot {
     mass 10
   }
   controller "<none>"
+  linearVelocity 2.933995719899302e-05 8.537915438438638e-05 -0.005409458949419321
+  angularVelocity -0.0003463889920108936 0.00011897261617921202 9.459566740658969e-08
 }
 DEF OMNI_WHEELS three_omniwheel {
-  translation 1.19 0.729997 0.033
-  rotation 0 0 1 3.14159
+  hidden linearVelocity_0 -0.012492254439432306 0.0029224947722693633 -0.043113405277524504
+  hidden angularVelocity_0 -0.25942253729568093 -0.40835893687060004 0.07547840748995464
+  hidden position_3_0 -4.38817296444644
+  hidden translation_4 -0.1569 0 0
+  hidden rotation_4 -1 0 0 4.38817296444644
+  hidden linearVelocity_4 -0.019128503800686918 0.014492754805641253 -0.0033632273042612723
+  hidden angularVelocity_4 -10.476193096440282 -6.274262986865448 0.07547810904822132
+  hidden position_5_0 -3.345885227199173
+  hidden translation_6 -0.1569 0 0
+  hidden rotation_6 -1 0 0 3.345885227199173
+  hidden linearVelocity_6 -0.0191840895834637 -0.00861932518701139 -0.12859699782902445
+  hidden angularVelocity_6 9.929014587373445 -6.3233384723356245 0.07547819553415333
+  hidden position_7_0 10.14773788093416
+  hidden translation_8 -0.1569 0 0
+  hidden rotation_8 -1 0 0 2.4186327334250124
+  hidden linearVelocity_8 0.0009216703933585677 0.0028883047871736483 0.0026565388441218687
+  hidden angularVelocity_8 -0.2583833451463886 0.022845418913163607 0.07547841374471355
+  translation -9.993803551545843e-05 2.33799581781549e-05 0.029487092757779804
+  rotation -0.48470243820622555 -0.7650141067048812 -0.4240483026018061 0.00427361218411053
   supervisor TRUE
   controller "teensy_controller"
-}
-Eurobot2026 {
-  yellow_game_elements FALSE
-  blue_game_elements FALSE
 }

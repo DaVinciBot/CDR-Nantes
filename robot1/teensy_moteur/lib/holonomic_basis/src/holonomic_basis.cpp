@@ -246,7 +246,7 @@ void Holonomic_Basis::update_optical_odometry(double dtheta_robot) {
         dy_mm = (double)deltaY;
     #else
         // Vrai capteur : retourne des counts
-        pmw3901->readMotionCounts(&deltaX, &deltaY);
+        pmw3901->readMotionCount(&deltaX, &deltaY);
         dx_mm = deltaX * OPTICAL_SCALE;  // Conversion counts → mm
         dy_mm = deltaY * OPTICAL_SCALE;
     #endif
@@ -496,7 +496,7 @@ void Holonomic_Basis::update_odometry() {
     double dx_enc = (2.0 * w3_mm - w1_mm - w2_mm) / 3.0;
 
     // Vitesse Y (latérale - vers la gauche robot)
-    double dy_enc = (w1_mm - w2_mm) / 1.73205080757;  // 1.73205... = sqrt(3)
+    double dy_enc = (w1_mm - w2_mm) / sqrt(3.0);  // 1.73205... = sqrt(3)
 
     // Rotation angulaire (en radians) : ω*R = (w1+w2+w3)/3, donc ω = (w1+w2+w3)/(3*R)
     // Note: les w_mm contiennent déjà la contribution (ω*R) de la cinématique inverse
@@ -703,7 +703,7 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     double angle_error = fabs(theta_error);
     
     // Zone morte
-    if (distance_error < 0.75 && angle_error < 0.02) {  // 1mm et ~1.15°
+    if (distance_error < 1.0 && angle_error < 0.02) {  // 1mm et ~1.15°
         vx_world = 0.0;
         vy_world = 0.0;
         omega = 0.0;
@@ -737,9 +737,9 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     
     //Equation de mouvements
     // Roue 1 avec axe à 120° : cos(120°) = -0.5, sin(120°) = +0.866
-    double w1 = -(0.5 * vx_steps - 0.866025 * vy_steps - omega_steps);
+    double w1 = -(0.5 * vx_steps - sqrt(3.0)/2.0 * vy_steps - omega_steps);
     // Roue 2 avec axe à 240° : cos(240°) = -0.5, sin(240°) = -0.866
-    double w2 = -(0.5 * vx_steps +0.866025 * vy_steps -omega_steps);
+    double w2 = -(0.5 * vx_steps +sqrt(3.0)/2.0 * vy_steps -omega_steps);
     // Roue 3 avec axe à 0° : cos(0°) = +1.0, sin(0°) = 0
     double w3 = 1.0*vx_steps + omega_steps;
 
