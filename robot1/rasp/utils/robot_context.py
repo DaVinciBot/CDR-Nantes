@@ -36,8 +36,8 @@ def is_simulation() -> bool:
     if (current_dir / '.simulation_mode').exists():
         return True
     
-    # 3. Lecture de config.json (nouveau critère)
-    config_file = Path(__file__).parent / 'config.json'
+    # 3. Lecture de config.json (chercher dans le parent)
+    config_file = Path(__file__).parent.parent / 'config.json'
     if config_file.exists():
         try:
             with open(config_file, 'r') as f:
@@ -98,12 +98,12 @@ def get_com_class():
         class: WebotsComBridge en simulation, Com en hardware
     """
     if is_simulation():
-        # Import de la classe simulation
-        sys.path.insert(0, str(Path(__file__).parent))
-        from webots_com import WebotsComBridge
+        # Import de la classe simulation depuis utils
+        from .webots_com import WebotsComBridge
         return WebotsComBridge
     else:
         # Import de la classe hardware réelle
+        sys.path.insert(0, str(Path(__file__).parent.parent))
         from loader import loader
         return loader.load_class('usb_com', 'Com')
 
@@ -153,7 +153,7 @@ def init_robot(logger=None):
         tuple: (com, mode_string) où mode_string est "SIMULATION" ou "HARDWARE"
         
     Example:
-        from robot_context import init_robot
+        from utils.robot_context import init_robot
         com, mode = init_robot(logger)
         logger.info(f"Mode: {mode}")
     """
@@ -169,6 +169,11 @@ def init_robot(logger=None):
         logger.info("=" * 70)
     
     return com, mode_str
+
+
+# Alias pour compatibilité
+get_config = get_com_config
+RobotContext = create_com
 
 
 if __name__ == '__main__':

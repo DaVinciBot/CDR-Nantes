@@ -16,7 +16,7 @@ Messages = loader.load_class('usb_com', 'Messages')
 #A mettre partout dans les codes python
 # Initialisation automatique (simulation ou hardware)
 sys.path.insert(0, str(Path(__file__).parent))
-from robot_context import init_robot
+from utils import init_robot
 
 com, mode = init_robot(logger)
 

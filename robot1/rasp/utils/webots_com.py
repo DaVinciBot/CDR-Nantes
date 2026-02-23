@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 """Wrapper simplifié de Com pour la simulation Webots avec ports COM virtuels."""
 
+import sys
 import struct
 import threading
 import time
 import crc8
+from pathlib import Path
 from serial import Serial
+
+# Ajouter le parent au path pour accéder à loader
+parent_dir = Path(__file__).parent.parent
+if str(parent_dir) not in sys.path:
+    sys.path.insert(0, str(parent_dir))
 
 from loader import loader
 
@@ -157,6 +164,19 @@ class WebotsComBridge:
             message_id: ID du message à écouter
         """
         self.message_id_callback[message_id] = callback
+    
+    def send_msg(self, message: bytes, size: int):
+        """Envoie un message (compatible avec Com).
+        
+        Args:
+            message: Message à envoyer
+            size: Taille du message
+        """
+        self.send_bytes(message[:size])
+    
+    def handle_callback(self, callbacks):
+        """Compatibilité avec Com (non utilisé car thread de réception)."""
+        pass
 
     def close(self):
         """Ferme la connexion série."""

@@ -10,7 +10,7 @@ from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).parent))
 from loader import loader
-from robot_context import is_simulation, create_com
+from utils import is_simulation, create_com
 
 # Configuration du logging pour fichier + console
 log_filename = f"debug_wheels_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"

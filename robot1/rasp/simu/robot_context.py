@@ -8,7 +8,13 @@ La détection se fait automatiquement selon le contexte d'exécution.
 
 import os
 import sys
+import logging
 from pathlib import Path
+
+# Ajouter le workspace root au sys.path pour les imports absolus
+WORKSPACE_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+if str(WORKSPACE_ROOT) not in sys.path:
+    sys.path.insert(0, str(WORKSPACE_ROOT))
 
 
 def is_simulation() -> bool:
@@ -34,8 +40,9 @@ def is_simulation() -> bool:
     if (current_dir / '.simulation_mode').exists():
         return True
     
-    # 3. Détection par chemin (si on est dans simulation/)
-    if 'simulation' in str(current_dir).lower():
+    # 3. Détection par chemin (si on est dans simulation/ ou simu/)
+    current_path = str(current_dir).lower()
+    if 'simulation' in current_path or 'simu' in current_path:
         return True
     
     # Par défaut : hardware réel
@@ -100,6 +107,15 @@ def create_com(logger=None):
     Returns:
         Com instance configurée pour le contexte actuel
     """
+    # Créer un logger par défaut si aucun n'est fourni
+    if logger is None:
+        logger = logging.getLogger('robot_com')
+        if not logger.handlers:
+            handler = logging.StreamHandler()
+            handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
+            logger.addHandler(handler)
+            logger.setLevel(logging.INFO)
+    
     config = get_com_config()
     ComClass = get_com_class()
     

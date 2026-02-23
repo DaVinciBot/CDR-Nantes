@@ -15,7 +15,7 @@
         }
     },
     "serial_config": {
-        "port": "COM1",
+        "port": "COM2",
         "serial_number": null,
         "vid": null,
         "pid": null,
