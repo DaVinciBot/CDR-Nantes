@@ -43,7 +43,7 @@ positions = [
     #(200, 0, 0, "Origine"),
     #(0, 200, 1.57, "Déplacement diagonal"),
     #(0,200,0, "Retour origine"),
-    (200,0,0, "Déplacement en ligne droite"),
+    
 
    
     
@@ -51,7 +51,7 @@ positions = [
 
 for x, y, theta, desc in positions:
     send_position(x, y, theta, com, desc)
-    time.sleep(10)  # Attendre 10 secondes entre chaque commande
+    time.sleep(5)  # Attendre 10 secondes entre chaque commande
 
 logger.info("=" * 70)
 logger.info(" Test terminé ! Attente des derniers messages...")
