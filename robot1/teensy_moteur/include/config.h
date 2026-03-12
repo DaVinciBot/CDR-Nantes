@@ -9,6 +9,11 @@
 #define START_Y 0.0
 #define START_THETA 0.0
 
+// ========== DRIVER CONFIGURATION ==========
+// Certains drivers (TB6600, TB6560, DM542) ont ENABLE actif à HIGH
+// D'autres (A4988, DRV8825) ont ENABLE actif à LOW
+#define ENABLE_ACTIVE_STATE LOW  // Changez en HIGH si vos drivers ne répondent pas
+
 // ========== STEPPER MOTOR 1 (Haut Droite - 120°) ==========
 #define W1_STEP_PIN 2
 #define W1_DIR_PIN 3

@@ -128,10 +128,10 @@ void Holonomic_Basis::init_holonomic_basis(double x, double y, double theta) {
 // === GESTION ÉTAT MOTEURS ===
 
 void Holonomic_Basis::enable_motors() {
-    // Active LOW (classique pour les drivers) 
-    digitalWrite(wheel1_enable_pin, LOW);
-    digitalWrite(wheel2_enable_pin, LOW);
-    digitalWrite(wheel3_enable_pin, LOW);
+    // Utilise ENABLE_ACTIVE_STATE du config.h (LOW pour A4988/DRV8825, HIGH pour TB6600/DM542)
+    digitalWrite(wheel1_enable_pin, ENABLE_ACTIVE_STATE);
+    digitalWrite(wheel2_enable_pin, ENABLE_ACTIVE_STATE);
+    digitalWrite(wheel3_enable_pin, ENABLE_ACTIVE_STATE);
     
     if (wheel1) wheel1->enable();
     if (wheel2) wheel2->enable();
@@ -139,10 +139,10 @@ void Holonomic_Basis::enable_motors() {
 }
 
 void Holonomic_Basis::disable_motors() {
-    
-    digitalWrite(wheel1_enable_pin, HIGH);
-    digitalWrite(wheel2_enable_pin, HIGH);
-    digitalWrite(wheel3_enable_pin, HIGH);
+    // Inverse de ENABLE_ACTIVE_STATE
+    digitalWrite(wheel1_enable_pin, !ENABLE_ACTIVE_STATE);
+    digitalWrite(wheel2_enable_pin, !ENABLE_ACTIVE_STATE);
+    digitalWrite(wheel3_enable_pin, !ENABLE_ACTIVE_STATE);
     
     if (wheel1) wheel1->disable();
     if (wheel2) wheel2->disable();
@@ -669,11 +669,13 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     double yerr = target_position.y - this->Y;
     double theta_error = normalizeAngle(target_position.theta - this->THETA);
 
+    #ifdef WEBOTS_SIMULATION
     static uint32_t debug_err = 0;
     if (++debug_err > 100) {  // ~1 seconde à 100Hz
-        //printf(" Erreurs: ΔX=%.1f ΔY=%.1f Δθ=%.2f\n", xerr, yerr, theta_error);
+        Serial.printf("DEBUG: Erreurs: ΔX=%.1f ΔY=%.1f Δθ=%.2f\n", xerr, yerr, theta_error);
         debug_err = 0;
     }
+    #endif
     // 2. Calcul des vitesses cibles via PID (référentiel Monde)
     double vx_world, vy_world, omega;
     if (!this->use_pid_control) {
@@ -716,6 +718,7 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
         filtered_wheel1_speed = 0.0;
         filtered_wheel2_speed = 0.0;
         filtered_wheel3_speed = 0.0;
+        return;  // Sortie anticipée
     }
     
 
