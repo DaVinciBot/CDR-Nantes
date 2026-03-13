@@ -27,9 +27,9 @@ class Holonomic_Basis {
     double THETA = 0.0;
 
     bool use_encoders = false;       
-    bool use_optical_flow = true; 
-    bool use_imu = true;            
-    bool use_pid_control = true;    
+    bool use_optical_flow = false; 
+    bool use_imu = false;            
+    bool use_pid_control = false;    
 
 
     const double OPTICAL_SCALE = 1.0; // 1.0 Pour webots sinon 0.0423 ( a redefinir) pour réel
