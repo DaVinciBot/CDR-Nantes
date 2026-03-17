@@ -1,20 +1,17 @@
 // External libraries used: Arduino
 #include <Arduino.h>      // Arduino framework
-#include <holonomic_basis.h>  // Holonomic Basis with KaribouMotion
+#include <holonomic_basis.h>  // Holonomic Basis with MKS RS485
 #include <config.h>           // Configuration file
 
 // PID Controllers
-PID x_pid(KP_X, KI_X, KD_X, -MAX_SPEED, MAX_SPEED, 5.0);
-PID y_pid(KP_Y, KI_Y, KD_Y, -MAX_SPEED, MAX_SPEED, 5.0);
-PID theta_pid(KP_THETA, KI_THETA, KD_THETA, -MAX_SPEED, MAX_SPEED, 2.0);
+PID x_pid(KP_X, KI_X, KD_X, -MAX_SPEED_RPM, MAX_SPEED_RPM, 5.0);
+PID y_pid(KP_Y, KI_Y, KD_Y, -MAX_SPEED_RPM, MAX_SPEED_RPM, 5.0);
+PID theta_pid(KP_THETA, KI_THETA, KD_THETA, -MAX_SPEED_RPM, MAX_SPEED_RPM, 2.0);
 
 Holonomic_Basis* holonomic_basis_ptr = new Holonomic_Basis(
     ROBOT_RADIUS,
     WHEEL_DIAMETER,
-    MAX_SPEED,
-    MAX_ACCELERATION,
-    STEPS_PER_REVOLUTION,
-    MICROSTEPS,
+    MAX_SPEED_RPM,
     x_pid,
     y_pid,
     theta_pid
@@ -25,7 +22,6 @@ Point target_position(START_X, START_Y, START_THETA);
 
 // Timers Hardware (Teensy 4.1 possède 4 IntervalTimers)
 IntervalTimer timer_compute; // Pour l'asservissement (Lent - 100Hz)
-IntervalTimer timer_step;    // Pour les moteurs (Rapide - 25kHz)
 
 void set_target_position(byte* msg, byte size) {
     msg_set_target_position* target_msg = (msg_set_target_position*)msg;
@@ -83,29 +79,18 @@ void interruption_compute() {
     // 2. Calcul du PID et mise à jour de l'odométrie
     holonomic_basis_ptr->handle(target_position, com);
     
-    // 3. Conversion des vitesses PID en commandes de pas (Relatif)
+    // 3. Envoi des vitesses RPM aux MKS
     holonomic_basis_ptr->execute_movement();
-    
-    // 4. Mise à jour du profil de vitesse trapézoïdal des steppers
-    holonomic_basis_ptr->compute_steppers();
-}
-
-// [TIMER RAPIDE] - 25 kHz (40µs)
-// Gère la physique : Génération des signaux STEP pour les drivers
-// Plus ce timer est rapide, plus la vitesse max est élevée et le mouvement fluide.
-// Teensy 4.1 peut encaisser 50kHz ou 100kHz sans problème si le code est optimisé.
-void interruption_step() {
-    holonomic_basis_ptr->step_steppers();
 }
 
 void setup() {
     // Initialisation communication
     com = new Com(&Serial, BAUDRATE);
 
-    // Configuration des Pins Moteurs
-    holonomic_basis_ptr->define_wheel1(W1_STEP_PIN, W1_DIR_PIN, W1_ENABLE_PIN);
-    holonomic_basis_ptr->define_wheel2(W2_STEP_PIN, W2_DIR_PIN, W2_ENABLE_PIN);
-    holonomic_basis_ptr->define_wheel3(W3_STEP_PIN, W3_DIR_PIN, W3_ENABLE_PIN);
+    // Configuration des moteurs RS485
+    holonomic_basis_ptr->define_wheel1(W1_SERIAL, W1_DE_PIN, W1_ADDR);
+    holonomic_basis_ptr->define_wheel2(W2_SERIAL, W2_DE_PIN, W2_ADDR);
+    holonomic_basis_ptr->define_wheel3(W3_SERIAL, W3_DE_PIN, W3_ADDR);
     
     // Initialisation moteurs et base holonome
     holonomic_basis_ptr->init_motors();
@@ -117,7 +102,6 @@ void setup() {
 
     // Démarrage des Timers
     timer_compute.begin(interruption_compute, ASSERVISSEMENT_FREQUENCY); 
-    timer_step.begin(interruption_step, 40);
 
     // Initialisation des callbacks
     initialize_callback_functions();

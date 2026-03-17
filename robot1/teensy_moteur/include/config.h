@@ -1,7 +1,7 @@
 /*
  * This file is dedicated to the configuration of the robot: all the constants
  * and the pinout are defined here.
- * ADAPTED FOR HOLONOMIC 3-WHEEL BASE WITH NEMA 23 STEPPER MOTORS + INTEGRATED ENCODERS
+ * ADAPTED FOR HOLONOMIC 3-WHEEL BASE WITH MKS SERVO57D OVER RS485
  */
 
 // Default position  
@@ -9,25 +9,26 @@
 #define START_Y 0.0
 #define START_THETA 0.0
 
-// ========== DRIVER CONFIGURATION ==========
-// Certains drivers (TB6600, TB6560, DM542) ont ENABLE actif à HIGH
-// D'autres (A4988, DRV8825) ont ENABLE actif à LOW
-#define ENABLE_ACTIVE_STATE LOW  // Changez en HIGH si vos drivers ne répondent pas
+// ========== MOTEUR W1 — Serial1 (Haut Droite 120°) ==========
+#define W1_SERIAL       Serial1
+#define W1_TX_PIN       1
+#define W1_RX_PIN       0
+#define W1_DE_PIN       2
+#define W1_ADDR         0x01
 
-// ========== STEPPER MOTOR 1 (Haut Droite - 120°) ==========
-#define W1_STEP_PIN 2
-#define W1_DIR_PIN 3
-#define W1_ENABLE_PIN 4
+// ========== MOTEUR W2 — Serial2 (Haut Gauche 240°) ==========
+#define W2_SERIAL       Serial2
+#define W2_TX_PIN       8
+#define W2_RX_PIN       7
+#define W2_DE_PIN       6
+#define W2_ADDR         0x02
 
-// ========== STEPPER MOTOR 2 (Haut Gauche - 240°) ==========
-#define W2_STEP_PIN 5
-#define W2_DIR_PIN 6
-#define W2_ENABLE_PIN 7
-
-// ========== STEPPER MOTOR 3 (Arrière - 0°) ==========
-#define W3_STEP_PIN 8
-#define W3_DIR_PIN 9
-#define W3_ENABLE_PIN 11  // Modifié (était 10, conflit avec CS_PIN capteur optique)
+// ========== MOTEUR W3 — Serial3 (Arrière 0°) ==========
+#define W3_SERIAL       Serial3
+#define W3_TX_PIN       14
+#define W3_RX_PIN       15
+#define W3_DE_PIN       16
+#define W3_ADDR         0x03
 
 // ========== SENSORS PINS ==========
 // IMU BNO085 (I2C)
@@ -42,41 +43,17 @@
 #define HAUTEUR_MM 25.0   // Hauteur du capteur par rapport au sol (mm)
 #define SEUIL_BRUIT 2     // Seuil de bruit pour filtrage capteur optique
 
-// ========== ENCODEURS INTEGRES (NEMA 23) - RS485 ==========
-// Les encodeurs communiquent via RS485 (mode données)
-// Chaque encodeur utilise un port série matériel + pin DE (Driver Enable)
+// ========== MKS CONFIGURATION ==========
+#define MKS_BAUDRATE 115200
+#define MKS_MSTEP 32
+#define MKS_MAX_RPM 3000.0
+#define MKS_ACC 5
+#define MKS_COUNTS_PER_REV 16384.0
 
-// Encoder 1 (Motor 1 - Haut Droite 120°) - Serial3
-#define ENCODER1_SERIAL Serial3
-#define ENCODER1_TX_PIN 14        // TX3
-#define ENCODER1_RX_PIN 15        // RX3
-#define ENCODER1_DE_PIN 22        // Driver Enable (contrôle direction RS485)
+#define COUNTS_TO_MM ((WHEEL_DIAMETER * PI) / MKS_COUNTS_PER_REV)
 
-// Encoder 2 (Motor 2 - Haut Gauche 240°) - Serial4
-#define ENCODER2_SERIAL Serial4
-#define ENCODER2_TX_PIN 17        // TX4
-#define ENCODER2_RX_PIN 16        // RX4
-#define ENCODER2_DE_PIN 23        // Driver Enable (contrôle direction RS485)
-
-// Encoder 3 (Motor 3 - Arrière 0°) - Serial5
-#define ENCODER3_SERIAL Serial5
-#define ENCODER3_TX_PIN 20        // TX5
-#define ENCODER3_RX_PIN 21        // RX5
-#define ENCODER3_DE_PIN 24        // Driver Enable (contrôle direction RS485)
-
-// RS485 Configuration
-#define ENCODER_BAUDRATE 115200   // Vitesse de communication avec les encodeurs
-
-
-// ========== STEPPER MOTORS CONFIGURATION ==========
-// Stepper motor specifications
-#define STEPS_PER_REVOLUTION 200      // 200 steps = 1.8° per step (standard NEMA 17)
-#define MICROSTEPS 16                  // Microstepping (1, 2, 4, 8, 16, 32) - RÉDUIT POUR TEST
-#define TOTAL_STEPS_PER_REV (STEPS_PER_REVOLUTION * MICROSTEPS)
-
-// Speed and acceleration limits
-#define MAX_SPEED 20              // steps/second - Réduit pour éviter glissement
-#define MAX_ACCELERATION 10        // steps/second² - Réduit pour accélération douce
+// Vitesse max utile en RPM (consigne logicielle)
+#define MAX_SPEED_RPM 1500.0
 
 // ========== ROBOT GEOMETRY ==========
 #define ROBOT_RADIUS 156.9  // mm - Distance du centre aux roues

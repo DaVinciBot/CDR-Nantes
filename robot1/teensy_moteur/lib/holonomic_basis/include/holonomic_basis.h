@@ -1,7 +1,8 @@
 #pragma once
 #include <Arduino.h>
 #include <config.h>
-#include "../../KaribouMotion/stepper.h" //Librairie Maison KaribouMotion
+#include "../../MKSServo/mks_servo.h"
+#include "../../MKSServo/mks_group.h"
 
 #include <pid.h>
 #include "structures.h"
@@ -45,14 +46,10 @@ class Holonomic_Basis {
     // Robot geometry parameters
     inline double wheel_circumference() { return this->wheel_diameter * PI; };
 
-    // Stepper motors (KaribouMotion)
-    // On utilise nos propres classes Stepper maintenant
-    Stepper* wheel1;  // Front-Rigth wheel (120°)
-    Stepper* wheel2;  // Front-left wheel (240°)
-    Stepper* wheel3;  // Back wheel (0°)
-    
-    // Le groupe de synchronisation KaribouMotion
-    StepperGroup* stepperGroup;
+    MKSServo* wheel1;  // Front-right wheel (120°)
+    MKSServo* wheel2;  // Front-left wheel (240°)
+    MKSServo* wheel3;  // Back wheel (0°)
+    MKSGroup* mksGroup;
     // Capteurs
     #ifdef WEBOTS_SIMULATION
         PAA5100* pmw3901 = nullptr; // On garde le Mock en simu
@@ -66,38 +63,32 @@ class Holonomic_Basis {
     // Robot parameters
     double robot_radius;      // Distance from center to wheels (mm)
     double wheel_diameter;    // Wheel diameter (mm)
-    double max_speed;         // Maximum speed (steps/sec)
-    double max_acceleration;  // Maximum acceleration (steps/sec²)
-    unsigned short steps_per_revolution;
-    unsigned short microsteps;
+    double max_speed_rpm;     // Maximum wheel speed (RPM)
 
     // Variables pour stocker les vitesses calculées par le PID
-    double last_wheel1_speed = 0.0;
-    double last_wheel2_speed = 0.0;
-    double last_wheel3_speed = 0.0;
+    double last_wheel1_rpm = 0.0;
+    double last_wheel2_rpm = 0.0;
+    double last_wheel3_rpm = 0.0;
 
     // Variables pour le filtre passe-bas (lissage des commandes)
-    double filtered_wheel1_speed = 0.0;
-    double filtered_wheel2_speed = 0.0;
-    double filtered_wheel3_speed = 0.0;
+    double filtered_wheel1_rpm = 0.0;
+    double filtered_wheel2_rpm = 0.0;
+    double filtered_wheel3_rpm = 0.0;
     double speed_filter_alpha = 0.3;  // Coefficient de filtrage (0 = pas de filtre, 1 = pas de lissage)
 
     // Constructor
     Holonomic_Basis(double robot_radius,
                     double wheel_diameter,
-                    double max_speed,
-                    double max_acceleration,
-                    unsigned short steps_per_revolution,
-                    unsigned short microsteps,
+                    double max_speed_rpm,
                     const PID& x_pid,
                     const PID& y_pid,
                     const PID& theta_pid);
     ~Holonomic_Basis();
 
     // Initialization functions
-    void define_wheel1(byte step_pin, byte dir_pin, byte enable_pin);
-    void define_wheel2(byte step_pin, byte dir_pin, byte enable_pin);
-    void define_wheel3(byte step_pin, byte dir_pin, byte enable_pin);
+    void define_wheel1(HardwareSerial& serial, uint8_t de_pin, uint8_t addr);
+    void define_wheel2(HardwareSerial& serial, uint8_t de_pin, uint8_t addr);
+    void define_wheel3(HardwareSerial& serial, uint8_t de_pin, uint8_t addr);
 
     void init_motors();
     void init_holonomic_basis(double x, double y, double theta);
@@ -114,22 +105,16 @@ class Holonomic_Basis {
 
     // Mouvement
     void run_motors();        // Obsolète (gardé pour compatibilité)
-    void execute_movement();  // Convertit vitesse -> pas relatifs
-    void compute_steppers();  // Calcul des profils (Timer Lent)
-    void step_steppers();     // Génération des pas (Timer Rapide)
+    void execute_movement();
     Point get_current_position();
     void emergency_stop();
 
    private:
-    byte wheel1_enable_pin;
-    byte wheel2_enable_pin;
-    byte wheel3_enable_pin;
-
     struct OdometryData {
         // Dernières positions des encodeurs
-        int32_t last_pos1 = 0;
-        int32_t last_pos2 = 0;
-        int32_t last_pos3 = 0;
+        int64_t last_enc1 = 0;
+        int64_t last_enc2 = 0;
+        int64_t last_enc3 = 0;
         
         // Calibration IMU
         double imu_yaw_offset = 0.0;

@@ -1,6 +1,5 @@
 /**
- * Implementation of Holonomic Basis for STEPPER MOTORS (KARIBOU MOTION VERSION)
- * Remplaçant TeensyStep4 pour un contrôle total via interruptions
+ * Implementation of Holonomic Basis for MKS SERVO57D over RS485.
  */
 
 #include <Arduino.h>
@@ -21,10 +20,7 @@ double normalizeAngle(double theta) {
 // Constructor
 Holonomic_Basis::Holonomic_Basis(double robot_radius,
                                  double wheel_diameter,
-                                 double max_speed,
-                                 double max_acceleration,
-                                 unsigned short steps_per_revolution,
-                                 unsigned short microsteps,
+                                 double max_speed_rpm,
                                  const PID& x_pid,
                                  const PID& y_pid,
                                  const PID& theta_pid)
@@ -33,10 +29,7 @@ Holonomic_Basis::Holonomic_Basis(double robot_radius,
       theta_pid(theta_pid),
       robot_radius(robot_radius),
       wheel_diameter(wheel_diameter),
-      max_speed(max_speed),
-      max_acceleration(max_acceleration),
-      steps_per_revolution(steps_per_revolution),
-      microsteps(microsteps) {
+    max_speed_rpm(max_speed_rpm) {
     
     // Initialisation du filtre de lissage
     #ifdef SPEED_FILTER_ALPHA
@@ -49,14 +42,13 @@ Holonomic_Basis::Holonomic_Basis(double robot_radius,
     wheel1 = nullptr;
     wheel2 = nullptr;
     wheel3 = nullptr;
-    stepperGroup = nullptr;
+    mksGroup = nullptr;
     pmw3901 = nullptr;
     bno085 = nullptr;  
 
-
-    if (wheel1) odo_data.last_pos1 = wheel1->getPosition();
-    if (wheel2) odo_data.last_pos2 = wheel2->getPosition();
-    if (wheel3) odo_data.last_pos3 = wheel3->getPosition();
+    odo_data.last_enc1 = 0;
+    odo_data.last_enc2 = 0;
+    odo_data.last_enc3 = 0;
 
     odo_data.optical_x_acc = 0.0;
     odo_data.optical_y_acc = 0.0;
@@ -68,49 +60,31 @@ Holonomic_Basis::~Holonomic_Basis() {
     delete wheel1;
     delete wheel2;
     delete wheel3;
-    delete stepperGroup;
+    delete mksGroup;
     delete pmw3901;
-    delete bno085;
+    // Adafruit_BNO08x expose une classe polymorphique sans destructeur virtuel.
+    // Eviter delete ici pour ne pas déclencher -Wdelete-non-virtual-dtor.
+    bno085 = nullptr;
 }
 
 // === DÉFINITION DES MOTEURS ===
 
-void Holonomic_Basis::define_wheel1(byte step_pin, byte dir_pin, byte enable_pin) {
-    // Création d'un Stepper KaribouMotion
-    wheel1 = new Stepper(step_pin, dir_pin);
-    wheel1_enable_pin = enable_pin;
-    pinMode(enable_pin, OUTPUT);
+void Holonomic_Basis::define_wheel1(HardwareSerial& serial, uint8_t de_pin, uint8_t addr) {
+    wheel1 = new MKSServo(serial, de_pin, addr, MKS_MSTEP);
+    wheel1->begin(MKS_BAUDRATE);
 }
-void Holonomic_Basis::define_wheel2(byte step_pin, byte dir_pin, byte enable_pin) {
-    wheel2 = new Stepper(step_pin, dir_pin);
-    wheel2_enable_pin = enable_pin;
-    pinMode(enable_pin, OUTPUT);
+void Holonomic_Basis::define_wheel2(HardwareSerial& serial, uint8_t de_pin, uint8_t addr) {
+    wheel2 = new MKSServo(serial, de_pin, addr, MKS_MSTEP);
+    wheel2->begin(MKS_BAUDRATE);
 }
-void Holonomic_Basis::define_wheel3(byte step_pin, byte dir_pin, byte enable_pin) {
-    wheel3 = new Stepper(step_pin, dir_pin);
-    wheel3_enable_pin = enable_pin;
-    pinMode(enable_pin, OUTPUT);
+void Holonomic_Basis::define_wheel3(HardwareSerial& serial, uint8_t de_pin, uint8_t addr) {
+    wheel3 = new MKSServo(serial, de_pin, addr, MKS_MSTEP);
+    wheel3->begin(MKS_BAUDRATE);
 }
 
 // === INITIALISATION ===
 void Holonomic_Basis::init_motors() {
-    // Configuration des paramètres physiques des moteurs
-    if (wheel1) {
-        wheel1->setMaxSpeed(max_speed);
-        wheel1->setAcceleration(max_acceleration);
-    }
-    if (wheel2) {
-        wheel2->setMaxSpeed(max_speed);
-        wheel2->setAcceleration(max_acceleration);
-    }
-    if (wheel3) {
-        wheel3->setMaxSpeed(max_speed);
-        wheel3->setAcceleration(max_acceleration);
-    }
-
-    // IMPORTANT : Création du groupe de synchronisation KaribouMotion
-    // C'est ici qu'on lie les 3 moteurs pour qu'ils bougent ensemble
-    stepperGroup = new StepperGroup(wheel1, wheel2, wheel3);
+    mksGroup = new MKSGroup(wheel1, wheel2, wheel3);
 }
 void Holonomic_Basis::init_holonomic_basis(double x, double y, double theta) {
     this->X = x;
@@ -128,22 +102,12 @@ void Holonomic_Basis::init_holonomic_basis(double x, double y, double theta) {
 // === GESTION ÉTAT MOTEURS ===
 
 void Holonomic_Basis::enable_motors() {
-    // Utilise ENABLE_ACTIVE_STATE du config.h (LOW pour A4988/DRV8825, HIGH pour TB6600/DM542)
-    digitalWrite(wheel1_enable_pin, ENABLE_ACTIVE_STATE);
-    digitalWrite(wheel2_enable_pin, ENABLE_ACTIVE_STATE);
-    digitalWrite(wheel3_enable_pin, ENABLE_ACTIVE_STATE);
-    
     if (wheel1) wheel1->enable();
     if (wheel2) wheel2->enable();
     if (wheel3) wheel3->enable();
 }
 
 void Holonomic_Basis::disable_motors() {
-    // Inverse de ENABLE_ACTIVE_STATE
-    digitalWrite(wheel1_enable_pin, !ENABLE_ACTIVE_STATE);
-    digitalWrite(wheel2_enable_pin, !ENABLE_ACTIVE_STATE);
-    digitalWrite(wheel3_enable_pin, !ENABLE_ACTIVE_STATE);
-    
     if (wheel1) wheel1->disable();
     if (wheel2) wheel2->disable();
     if (wheel3) wheel3->disable();
@@ -306,9 +270,9 @@ void Holonomic_Basis::update_optical_odometry(double dtheta_robot) {
     // 4. Filtrage anti-bruit UNIQUEMENT au repos (simulation Webots)
     #ifdef WEBOTS_SIMULATION
         // Détection repos : vitesses des roues nulles ET encodeurs immobiles
-        bool robot_at_rest = (abs(this->last_wheel1_speed) < 1.0 && 
-                             abs(this->last_wheel2_speed) < 1.0 && 
-                             abs(this->last_wheel3_speed) < 1.0);
+        bool robot_at_rest = (abs(this->last_wheel1_rpm) < 1.0 && 
+                             abs(this->last_wheel2_rpm) < 1.0 && 
+                             abs(this->last_wheel3_rpm) < 1.0);
         
         if (robot_at_rest) {
             // Robot immobile : IGNORER le GPS (bruit 2-3mm par cycle)
@@ -356,28 +320,28 @@ void Holonomic_Basis::update_optical_odometry(double dtheta_robot) {
 }
 
 void Holonomic_Basis::update_odometry() {
-    // Récupérer positions actuelles
-    int32_t pos1 = wheel1 ? wheel1->getPosition() : 0;
-    int32_t pos2 = wheel2 ? wheel2->getPosition() : 0;
-    int32_t pos3 = wheel3 ? wheel3->getPosition() : 0;
+    int64_t enc1 = 0;
+    int64_t enc2 = 0;
+    int64_t enc3 = 0;
+    if (mksGroup) {
+        mksGroup->readAllEncoders(enc1, enc2, enc3);
+    }
     
     static bool is_first_run = true;
     static double last_theta_enc =0.0;
     if (is_first_run) {
-        // On synchronise juste les "last_pos" avec la réalité
-        odo_data.last_pos1 = pos1;
-        odo_data.last_pos2 = pos2;
-        odo_data.last_pos3 = pos3;
+        odo_data.last_enc1 = enc1;
+        odo_data.last_enc2 = enc2;
+        odo_data.last_enc3 = enc3;
 
         is_first_run = false;
         return; // On sort ! Pas de calcul de mouvement au démarrage.
     }
 
-    // Calculer deltas
-    double d1 = double(pos1 - odo_data.last_pos1);
-    double d2 = double(pos2 - odo_data.last_pos2);
-    double d3 = double(pos3 - odo_data.last_pos3);
-    const double ENCODER_NOISE_THRESHOLD = 5.0; // steps (ajuster selon tests)
+    double d1 = double(enc1 - odo_data.last_enc1);
+    double d2 = double(enc2 - odo_data.last_enc2);
+    double d3 = double(enc3 - odo_data.last_enc3);
+    const double ENCODER_NOISE_THRESHOLD = 5.0; // counts
     if (abs(d1) < ENCODER_NOISE_THRESHOLD) d1 = 0.0;
     if (abs(d2) < ENCODER_NOISE_THRESHOLD) d2 = 0.0;
     if (abs(d3) < ENCODER_NOISE_THRESHOLD) d3 = 0.0;
@@ -393,11 +357,9 @@ void Holonomic_Basis::update_odometry() {
         // omega_enc provisoire = 0 si encodeurs immobiles
         double omega_temp = 0.0;
         if (d1 != 0.0 || d2 != 0.0 || d3 != 0.0) {
-            // Conversion steps -> mm temporaire pour calcul omega
-            const double STEPS_TO_MM = (wheel_diameter * M_PI) / (steps_per_revolution * microsteps);
-            double w1_mm = d1 * STEPS_TO_MM;
-            double w2_mm = d2 * STEPS_TO_MM;
-            double w3_mm = d3 * STEPS_TO_MM;
+            double w1_mm = d1 * COUNTS_TO_MM;
+            double w2_mm = d2 * COUNTS_TO_MM;
+            double w3_mm = d3 * COUNTS_TO_MM;
             omega_temp = (w1_mm + w2_mm + w3_mm) / (3.0 * robot_radius);
         }
         
@@ -408,7 +370,9 @@ void Holonomic_Basis::update_odometry() {
         
         // Détection rotation pure : pattern encodeurs (3 roues même sens/vitesse)
         // Rotation pure si d1 ≈ d2 ≈ d3 (toutes tournent ensemble)
+        #ifdef WEBOTS_SIMULATION
         bool is_pure_rotation = false;
+        #endif
         if (abs(omega_temp) > 0.005) { // Rotation détectée (> 0.005 rad = 0.3°)
             // Vérifier si les 3 roues tournent dans le même sens
             double d1_abs = abs(d1);
@@ -420,14 +384,16 @@ void Holonomic_Basis::update_odometry() {
             
             // Vérifier vitesses similaires (tolérance 20% pour imprécisions)
             double d_avg = (d1_abs + d2_abs + d3_abs) / 3.0;
-            if (d_avg > 50.0) { // Mouvement significatif (>50 steps)
+            if (d_avg > 50.0) { // Mouvement significatif (>50 counts)
                 double d1_diff = abs(d1_abs - d_avg) / d_avg;
                 double d2_diff = abs(d2_abs - d_avg) / d_avg;
                 double d3_diff = abs(d3_abs - d_avg) / d_avg;
                 
                 // Rotation pure = même signe ET vitesses similaires (<20% écart)
                 if (same_sign && d1_diff < 0.2 && d2_diff < 0.2 && d3_diff < 0.2) {
+                    #ifdef WEBOTS_SIMULATION
                     is_pure_rotation = true;
+                    #endif
                 }
             }
         }
@@ -469,13 +435,11 @@ void Holonomic_Basis::update_odometry() {
     // Ne pas skipper même au repos : permet le logging optique continu
     // (Au repos: encodeurs=0, optique filtré, mais logs debug utiles)
 
-    // Conversion steps -> mm
-    const double STEPS_TO_MM = (wheel_diameter * M_PI) / 
-                               (steps_per_revolution * microsteps);
-    
-    double w1_mm = d1 * STEPS_TO_MM;
-    double w2_mm = d2 * STEPS_TO_MM;
-    double w3_mm = d3 * STEPS_TO_MM;
+    const double CTM = COUNTS_TO_MM;
+
+    double w1_mm = d1 * CTM;
+    double w2_mm = d2 * CTM;
+    double w3_mm = d3 * CTM;
     
     // ============= CINÉMATIQUE DIRECTE (INVERSE MATHÉMATIQUE DE L'INVERSE) =============
     // Configuration physique confirmée : Roue1=Haut-Droite, Roue2=Haut-Gauche, Roue3=Arrière
@@ -639,16 +603,13 @@ void Holonomic_Basis::update_odometry() {
     }
     last_theta_enc = this->THETA;
     // Sauvegarder pour prochaine itération
-    odo_data.last_pos1 = pos1;
-    odo_data.last_pos2 = pos2;
-    odo_data.last_pos3 = pos3;
+    odo_data.last_enc1 = enc1;
+    odo_data.last_enc2 = enc2;
+    odo_data.last_enc3 = enc3;
     
     // =========================================
     // DEBUG PÉRIODIQUE
     // =========================================
-    double dx_optical = odo_data.optical_x_acc;
-    double dy_optical = odo_data.optical_y_acc;
-    
     if (++odo_data.debug_counter >= 200) {  // 200 * 10ms = 2s
         odo_data.debug_counter = 0;
         
@@ -710,14 +671,14 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
         vy_world = 0.0;
         omega = 0.0;
 
-        last_wheel1_speed = 0.0;
-        last_wheel2_speed = 0.0;
-        last_wheel3_speed = 0.0;
+        last_wheel1_rpm = 0.0;
+        last_wheel2_rpm = 0.0;
+        last_wheel3_rpm = 0.0;
         
         // Réinitialiser aussi les vitesses filtrées pour un arrêt propre
-        filtered_wheel1_speed = 0.0;
-        filtered_wheel2_speed = 0.0;
-        filtered_wheel3_speed = 0.0;
+        filtered_wheel1_rpm = 0.0;
+        filtered_wheel2_rpm = 0.0;
+        filtered_wheel3_rpm = 0.0;
         return;  // Sortie anticipée
     }
     
@@ -730,52 +691,51 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     double vx_robot = cos_theta * vx_world + sin_theta * vy_world;
     double vy_robot = -sin_theta * vx_world + cos_theta * vy_world;
     
-    // 5. Cinématique Inverse : Vitesse Robot -> Vitesse Roues (steps/s)
-    // steps_per_m = (steps_per_rev * microsteps) / (iameter * PI)d
-    double speed_factor = (steps_per_revolution * microsteps) / wheel_circumference();
-    
-    double vx_steps = vx_robot * speed_factor;
-    double vy_steps = vy_robot * speed_factor;
-    double omega_steps = omega * robot_radius * speed_factor;
+    // 5. Cinématique Inverse : Vitesse Robot -> Vitesse Roues (RPM)
+    double speed_factor = 60.0 / wheel_circumference();
+
+    double vx_rpm = vx_robot * speed_factor;
+    double vy_rpm = vy_robot * speed_factor;
+    double omega_rpm = omega * robot_radius * speed_factor;
     
     //Equation de mouvements
     // Roue 1 avec axe à 120° : cos(120°) = -0.5, sin(120°) = +0.866
-    double w1 = -(0.5 * vx_steps - sqrt(3.0)/2.0 * vy_steps - omega_steps);
+    double w1 = -(0.5 * vx_rpm - sqrt(3.0)/2.0 * vy_rpm - omega_rpm);
     // Roue 2 avec axe à 240° : cos(240°) = -0.5, sin(240°) = -0.866
-    double w2 = -(0.5 * vx_steps +sqrt(3.0)/2.0 * vy_steps -omega_steps);
+    double w2 = -(0.5 * vx_rpm +sqrt(3.0)/2.0 * vy_rpm -omega_rpm);
     // Roue 3 avec axe à 0° : cos(0°) = +1.0, sin(0°) = 0
-    double w3 = 1.0*vx_steps + omega_steps;
+    double w3 = 1.0*vx_rpm + omega_rpm;
 
     // DEBUG: Affichage des vitesses calculées
     
     // Normalisation proportionnelle pour préserver la direction du mouvement
-    // Si une roue dépasse MAX_SPEED, on réduit toutes les roues du même ratio
+    // Si une roue dépasse max_speed_rpm, on réduit toutes les roues du même ratio
     double max_wheel_speed = fmax(fmax(fabs(w1), fabs(w2)), fabs(w3));
-    if (max_wheel_speed > max_speed) {
-        double scale = max_speed / max_wheel_speed;
-        last_wheel1_speed = w1 * scale;
-        last_wheel2_speed = w2 * scale;
-        last_wheel3_speed = w3 * scale;
+    if (max_wheel_speed > max_speed_rpm) {
+        double scale = max_speed_rpm / max_wheel_speed;
+        last_wheel1_rpm = w1 * scale;
+        last_wheel2_rpm = w2 * scale;
+        last_wheel3_rpm = w3 * scale;
     } else {
-        last_wheel1_speed = w1;
-        last_wheel2_speed = w2;
-        last_wheel3_speed = w3;
+        last_wheel1_rpm = w1;
+        last_wheel2_rpm = w2;
+        last_wheel3_rpm = w3;
     }
 
     // Application du filtre passe-bas pour lisser les changements de vitesse
     // Formule : filtered = alpha * new_value + (1 - alpha) * old_value
-    filtered_wheel1_speed = speed_filter_alpha * last_wheel1_speed + (1.0 - speed_filter_alpha) * filtered_wheel1_speed;
-    filtered_wheel2_speed = speed_filter_alpha * last_wheel2_speed + (1.0 - speed_filter_alpha) * filtered_wheel2_speed;
-    filtered_wheel3_speed = speed_filter_alpha * last_wheel3_speed + (1.0 - speed_filter_alpha) * filtered_wheel3_speed;
+    filtered_wheel1_rpm = speed_filter_alpha * last_wheel1_rpm + (1.0 - speed_filter_alpha) * filtered_wheel1_rpm;
+    filtered_wheel2_rpm = speed_filter_alpha * last_wheel2_rpm + (1.0 - speed_filter_alpha) * filtered_wheel2_rpm;
+    filtered_wheel3_rpm = speed_filter_alpha * last_wheel3_rpm + (1.0 - speed_filter_alpha) * filtered_wheel3_rpm;
     
     // Normalisation proportionnelle APRÈS filtrage pour garantir le respect des limites
     // Cela préserve la direction du mouvement même après le lissage
-    double max_filtered_speed = fmax(fmax(fabs(filtered_wheel1_speed), fabs(filtered_wheel2_speed)), fabs(filtered_wheel3_speed));
-    if (max_filtered_speed > max_speed) {
-        double scale_filtered = max_speed / max_filtered_speed;
-        filtered_wheel1_speed *= scale_filtered;
-        filtered_wheel2_speed *= scale_filtered;
-        filtered_wheel3_speed *= scale_filtered;
+    double max_filtered_speed = fmax(fmax(fabs(filtered_wheel1_rpm), fabs(filtered_wheel2_rpm)), fabs(filtered_wheel3_rpm));
+    if (max_filtered_speed > max_speed_rpm) {
+        double scale_filtered = max_speed_rpm / max_filtered_speed;
+        filtered_wheel1_rpm *= scale_filtered;
+        filtered_wheel2_rpm *= scale_filtered;
+        filtered_wheel3_rpm *= scale_filtered;
     }
 
     static int i = 0;
@@ -784,8 +744,8 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
         //       target_position.x, target_position.y, target_position.theta,
         //       this->X, this->Y, this->THETA,
         //       xerr, yerr, theta_error);
-        //printf(" Cmds: Vx=%.1f Vy=%.1f ω=%.2f -> W1=%.0f W2=%.0f W3=%.0f steps/s (filtered)\n",
-         //      vx_world, vy_world, omega, filtered_wheel1_speed, filtered_wheel2_speed, filtered_wheel3_speed);
+        //printf(" Cmds: Vx=%.1f Vy=%.1f ω=%.2f -> W1=%.0f W2=%.0f W3=%.0f RPM (filtered)\n",
+         //      vx_world, vy_world, omega, filtered_wheel1_rpm, filtered_wheel2_rpm, filtered_wheel3_rpm);
         i = 0;
     }
 
@@ -797,53 +757,19 @@ void Holonomic_Basis::run_motors() {
     // Obsolète avec KaribouMotion géré par interruption, mais gardé pour compatibilité API
 }
 
-// Convertit les vitesses calculées (PID) en commandes de pas pour le StepperGroup
+// Envoie les vitesses roues directement aux MKS en RPM
 void Holonomic_Basis::execute_movement() {
-
-    #ifdef WEBOTS_SIMULATION
-        // Utilisation des vitesses filtrées pour un mouvement plus fluide
-        if (wheel1) wheel1->setMaxSpeed(filtered_wheel1_speed);
-        if (wheel2) wheel2->setMaxSpeed(filtered_wheel2_speed);
-        if (wheel3) wheel3->setMaxSpeed(filtered_wheel3_speed);
-    #else
-        // HARDWARE : Mouvement relatif par delta T
-        float dt = 0.01f; // 100Hz = 10ms
-        
-        // Utilisation des vitesses filtrées pour un mouvement plus fluide
-        int32_t steps1 = (int32_t)(filtered_wheel1_speed * dt);
-        int32_t steps2 = (int32_t)(filtered_wheel2_speed * dt);
-        int32_t steps3 = (int32_t)(filtered_wheel3_speed * dt);
-        
-        if (stepperGroup) {
-            stepperGroup->setTargetsRel(steps1, steps2, steps3);
-            stepperGroup->startMove();
-        }
-    #endif
-}
-
-// === INTERFACE TIMERS (INTERRUPTIONS) ===
-
-// À appeler par le Timer Lent (ex: 100Hz)
-// Calcule les profils de vitesse trapézoïdaux
-void Holonomic_Basis::compute_steppers() {
-    if (stepperGroup) {
-        stepperGroup->compute();
-    }
-}
-
-// À appeler par le Timer Rapide (ex: 20kHz - 50µs)
-// Génère les impulsions STEP physiques
-void Holonomic_Basis::step_steppers() {
-    if (stepperGroup) {
-        stepperGroup->step();
+    if (mksGroup) {
+        mksGroup->setSpeedsSynced(filtered_wheel1_rpm,
+                                  filtered_wheel2_rpm,
+                                  filtered_wheel3_rpm,
+                                  MKS_ACC);
     }
 }
 
 // Arrêt d'urgence
 void Holonomic_Basis::emergency_stop() {
-    if (stepperGroup) {
-        stepperGroup->emergencyStop();
+    if (mksGroup) {
+        mksGroup->emergencyStopAll();
     }
-    // Désactivation physique par sécurité
-    disable_motors();
 }
