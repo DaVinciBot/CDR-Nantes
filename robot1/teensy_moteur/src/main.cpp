@@ -88,9 +88,9 @@ void setup() {
     com = new Com(&Serial, BAUDRATE);
 
     // Configuration des moteurs RS485
-    holonomic_basis_ptr->define_wheel1(W1_SERIAL, W1_DE_PIN, W1_ADDR);
-    holonomic_basis_ptr->define_wheel2(W2_SERIAL, W2_DE_PIN, W2_ADDR);
-    holonomic_basis_ptr->define_wheel3(W3_SERIAL, W3_DE_PIN, W3_ADDR);
+    holonomic_basis_ptr->define_wheel1(W1_SERIAL, W1_ADDR);
+    holonomic_basis_ptr->define_wheel2(W2_SERIAL, W2_ADDR);
+    holonomic_basis_ptr->define_wheel3(W3_SERIAL, W3_ADDR);
     
     // Initialisation moteurs et base holonome
     holonomic_basis_ptr->init_motors();

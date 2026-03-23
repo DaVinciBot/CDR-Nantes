@@ -27,7 +27,7 @@ class Holonomic_Basis {
     double Y = 0.0;
     double THETA = 0.0;
 
-    bool use_encoders = false;       
+    bool use_encoders = true;       
     bool use_optical_flow = false; 
     bool use_imu = false;            
     bool use_pid_control = false;    
@@ -86,9 +86,9 @@ class Holonomic_Basis {
     ~Holonomic_Basis();
 
     // Initialization functions
-    void define_wheel1(HardwareSerial& serial, uint8_t de_pin, uint8_t addr);
-    void define_wheel2(HardwareSerial& serial, uint8_t de_pin, uint8_t addr);
-    void define_wheel3(HardwareSerial& serial, uint8_t de_pin, uint8_t addr);
+    void define_wheel1(HardwareSerial& serial, uint8_t addr);
+    void define_wheel2(HardwareSerial& serial, uint8_t addr);
+    void define_wheel3(HardwareSerial& serial, uint8_t addr);
 
     void init_motors();
     void init_holonomic_basis(double x, double y, double theta);

@@ -7,13 +7,12 @@ constexpr uint8_t kDownlinkHead = 0xFA;
 constexpr uint8_t kUplinkHead = 0xFB;
 }
 
-MKSServo::MKSServo(HardwareSerial& serial, uint8_t dePin, uint8_t addr, uint8_t mstep)
-    : serial(serial), dePin(dePin), addr(addr), mstep(mstep) {}
+MKSServo::MKSServo(HardwareSerial& serial, uint8_t addr, uint8_t mstep)
+    : serial(serial), addr(addr), mstep(mstep) {}
 
 void MKSServo::begin(uint32_t baudrate) {
-    pinMode(dePin, OUTPUT);
-    digitalWrite(dePin, LOW);
     serial.begin(baudrate);
+    delay(10);
 }
 
 uint8_t MKSServo::computeCRC(const uint8_t* data, size_t len) const {
@@ -44,10 +43,12 @@ bool MKSServo::sendPacket(uint8_t cmd, const uint8_t* payload, size_t payloadLen
         (void)serial.read();
     }
 
-    digitalWrite(dePin, HIGH);
     serial.write(frame, frameLen);
     serial.flush();
-    digitalWrite(dePin, LOW);
+    delay(2);
+    while (serial.available() > 0) {
+        (void)serial.read();
+    }
     return true;
 }
 
@@ -113,36 +114,6 @@ bool MKSServo::readResponse(uint8_t expectedCmd,
     return false;
 }
 
-uint16_t MKSServo::rpmToMKSSpeed(double rpm) const {
-    const double absRpm = fabs(rpm);
-    const double scaled = (absRpm * (mstep * 200.0)) / 6000.0;
-    double clamped = scaled;
-    if (clamped < 0.0) {
-        clamped = 0.0;
-    }
-    if (clamped > 1600.0) {
-        clamped = 1600.0;
-    }
-    return static_cast<uint16_t>(clamped);
-}
-
-bool MKSServo::sendSimpleCommand(uint8_t cmd, bool waitAck, uint8_t expectedStatus) {
-    if (!sendPacket(cmd, nullptr, 0)) {
-        return false;
-    }
-    if (!waitAck) {
-        return true;
-    }
-
-    uint8_t payload[8];
-    size_t payloadLen = 0;
-    if (!readResponse(cmd, payload, sizeof(payload), payloadLen, 30)) {
-        // UartRSP may be disabled on the motor, so do not hard fail.
-        return true;
-    }
-    return (payloadLen >= 1) ? (payload[0] == expectedStatus) : true;
-}
-
 bool MKSServo::enable() {
     const uint8_t payload[1] = {0x01};
     if (!sendPacket(0xF3, payload, sizeof(payload))) {
@@ -151,7 +122,7 @@ bool MKSServo::enable() {
 
     uint8_t rsp[4];
     size_t rspLen = 0;
-    if (!readResponse(0xF3, rsp, sizeof(rsp), rspLen, 30)) {
+    if (!readResponse(0xF3, rsp, sizeof(rsp), rspLen, 50)) {
         return true;
     }
     return (rspLen >= 1) ? (rsp[0] == 1) : true;
@@ -165,7 +136,7 @@ bool MKSServo::disable() {
 
     uint8_t rsp[4];
     size_t rspLen = 0;
-    if (!readResponse(0xF3, rsp, sizeof(rsp), rspLen, 30)) {
+    if (!readResponse(0xF3, rsp, sizeof(rsp), rspLen, 50)) {
         return true;
     }
     return (rspLen >= 1) ? (rsp[0] == 1) : true;
@@ -173,7 +144,7 @@ bool MKSServo::disable() {
 
 bool MKSServo::setSpeed(double rpm, uint8_t acc) {
     const bool ccw = rpm < 0.0;
-    const uint16_t speed = rpmToMKSSpeed(rpm);
+    const uint16_t speed = static_cast<uint16_t>(fabs(rpm));
 
     // F6 format: byte4 = dir bit(7) + speed high nibble(3..0), byte5 = speed low byte.
     uint8_t payload[3];
@@ -187,7 +158,7 @@ bool MKSServo::setSpeed(double rpm, uint8_t acc) {
 
     uint8_t rsp[4];
     size_t rspLen = 0;
-    if (!readResponse(0xF6, rsp, sizeof(rsp), rspLen, 30)) {
+    if (!readResponse(0xF6, rsp, sizeof(rsp), rspLen, 50)) {
         return true;
     }
     return (rspLen >= 1) ? (rsp[0] == 1 || rsp[0] == 2) : true;
@@ -209,7 +180,7 @@ bool MKSServo::readEncoder(int64_t& encoderCount) {
 
     uint8_t payload[8];
     size_t payloadLen = 0;
-    if (!readResponse(0x31, payload, sizeof(payload), payloadLen, 30)) {
+    if (!readResponse(0x31, payload, sizeof(payload), payloadLen, 50)) {
         return false;
     }
 

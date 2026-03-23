@@ -9,28 +9,25 @@
 #define START_Y 0.0
 #define START_THETA 0.0
 
-// ========== MOTEUR W1 — Serial1 (Haut Droite 120°) ==========
+//  MOTEUR W1 — Serial1 (Haut Droite 120°) 
 #define W1_SERIAL       Serial1
 #define W1_TX_PIN       1
 #define W1_RX_PIN       0
-#define W1_DE_PIN       2
-#define W1_ADDR         0x01
+#define W1_ADDR         0x01   // Adresse fixe — 1 moteur par port
 
-// ========== MOTEUR W2 — Serial2 (Haut Gauche 240°) ==========
+// MOTEUR W2 — Serial2 (Haut Gauche 240°) 
 #define W2_SERIAL       Serial2
 #define W2_TX_PIN       8
 #define W2_RX_PIN       7
-#define W2_DE_PIN       6
-#define W2_ADDR         0x02
+#define W2_ADDR         0x01
 
-// ========== MOTEUR W3 — Serial3 (Arrière 0°) ==========
+//MOTEUR W3 — Serial3 (Arrière 0°)
 #define W3_SERIAL       Serial3
 #define W3_TX_PIN       14
 #define W3_RX_PIN       15
-#define W3_DE_PIN       16
-#define W3_ADDR         0x03
+#define W3_ADDR         0x01
 
-// ========== SENSORS PINS ==========
+//  SENSORS PINS 
 // IMU BNO085 (I2C)
 #define PIN_SDA 18
 #define PIN_SCL 19
@@ -43,8 +40,8 @@
 #define HAUTEUR_MM 25.0   // Hauteur du capteur par rapport au sol (mm)
 #define SEUIL_BRUIT 2     // Seuil de bruit pour filtrage capteur optique
 
-// ========== MKS CONFIGURATION ==========
-#define MKS_BAUDRATE 115200
+// MKS CONFIGURATION 
+#define MKS_BAUDRATE 9600
 #define MKS_MSTEP 32
 #define MKS_MAX_RPM 3000.0
 #define MKS_ACC 5
@@ -55,11 +52,11 @@
 // Vitesse max utile en RPM (consigne logicielle)
 #define MAX_SPEED_RPM 1500.0
 
-// ========== ROBOT GEOMETRY ==========
+//  ROBOT GEOMETRY 
 #define ROBOT_RADIUS 156.9  // mm - Distance du centre aux roues
 #define WHEEL_DIAMETER  60.0 // mm - Diameter effectif (28mm main + 2mm rouleaux)
 
-// ========== PID CONTROLLERS ==========
+//  PID CONTROLLERS 
 // PID X (déplacement horizontal) - Augmenté pour corriger les dérives
 #define KP_X 6.0
 #define KI_X 0.0  
@@ -80,18 +77,13 @@
 #define Y_PID_ID 1
 #define THETA_PID_ID 2
 
-// ========== CONTROL LOOP ==========
+//  CONTROL LOOP 
 // Asservissement échantillonnage fréquence (en microsecondes)
 #define ASSERVISSEMENT_FREQUENCY 10000  // 10ms = 100Hz
 
 // Fréquence d'exécution des mouvements moteurs (en microsecondes)
 #define MOVEMENT_FREQUENCY 5000         // 5ms = 200Hz
 
-// ========== COMMUNICATION ==========
+//  COMMUNICATION 
 // Com baudrate
 #define BAUDRATE 115200
-
-
-// ========== PWM (non utilisé pour steppers, mais gardé pour compatibilité) ==========
-#define PWM_FREQUENCY 40000
-#define MAX_PWM 240

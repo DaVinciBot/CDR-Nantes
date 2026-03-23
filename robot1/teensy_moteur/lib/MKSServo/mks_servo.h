@@ -4,7 +4,7 @@
 
 class MKSServo {
    public:
-    MKSServo(HardwareSerial& serial, uint8_t dePin, uint8_t addr, uint8_t mstep);
+    MKSServo(HardwareSerial& serial, uint8_t addr, uint8_t mstep);
 
     void begin(uint32_t baudrate);
     bool enable();
@@ -17,7 +17,6 @@ class MKSServo {
 
    private:
     HardwareSerial& serial;
-    uint8_t dePin;
     uint8_t addr;
     uint8_t mstep;
 
@@ -27,8 +26,6 @@ class MKSServo {
                       uint8_t* payload,
                       size_t payloadCapacity,
                       size_t& payloadLen,
-                      uint32_t timeoutMs = 20);
-    uint16_t rpmToMKSSpeed(double rpm) const;
+                      uint32_t timeoutMs = 50);
 
-    bool sendSimpleCommand(uint8_t cmd, bool waitAck, uint8_t expectedStatus = 1);
 };

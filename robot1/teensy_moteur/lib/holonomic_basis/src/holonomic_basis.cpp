@@ -69,16 +69,16 @@ Holonomic_Basis::~Holonomic_Basis() {
 
 // === DÉFINITION DES MOTEURS ===
 
-void Holonomic_Basis::define_wheel1(HardwareSerial& serial, uint8_t de_pin, uint8_t addr) {
-    wheel1 = new MKSServo(serial, de_pin, addr, MKS_MSTEP);
+void Holonomic_Basis::define_wheel1(HardwareSerial& serial, uint8_t addr) {
+    wheel1 = new MKSServo(serial, addr, MKS_MSTEP);
     wheel1->begin(MKS_BAUDRATE);
 }
-void Holonomic_Basis::define_wheel2(HardwareSerial& serial, uint8_t de_pin, uint8_t addr) {
-    wheel2 = new MKSServo(serial, de_pin, addr, MKS_MSTEP);
+void Holonomic_Basis::define_wheel2(HardwareSerial& serial, uint8_t addr) {
+    wheel2 = new MKSServo(serial, addr, MKS_MSTEP);
     wheel2->begin(MKS_BAUDRATE);
 }
-void Holonomic_Basis::define_wheel3(HardwareSerial& serial, uint8_t de_pin, uint8_t addr) {
-    wheel3 = new MKSServo(serial, de_pin, addr, MKS_MSTEP);
+void Holonomic_Basis::define_wheel3(HardwareSerial& serial, uint8_t addr) {
+    wheel3 = new MKSServo(serial, addr, MKS_MSTEP);
     wheel3->begin(MKS_BAUDRATE);
 }
 
@@ -578,28 +578,16 @@ void Holonomic_Basis::update_odometry() {
     //Intégration position X,Y
     static uint32_t fusion_debug = 0;
     if (optical_active) {
-        // 🔀 FUSION ADAPTATIVE (blending encodeurs + optique pondéré)
         this->X += dx_final_world;
         this->Y += dy_final_world;
-        
-        if (++fusion_debug >= 200) {
-            fusion_debug = 0;
-            //printf(" FUSION ACTIVE: dx_final=%.3fmm dy_final=%.3fmm\n", 
-            //       dx_final_world, dy_final_world);
-        }
     } else if (use_encoders) {
-        // 🥈 Encodeurs en fallback uniquement
+        //  Encodeurs en fallback uniquement
         double cos_theta = cos(theta_moyen);     
         double sin_theta = sin(theta_moyen);     
         
         this->X += dx_enc * cos_theta - dy_enc * sin_theta;
         this->Y += dx_enc * sin_theta + dy_enc * cos_theta;
         
-        if (++fusion_debug >= 200) {
-            fusion_debug = 0;
-            //printf(" FUSION: Fallback encodeurs (dx=%.3f dy=%.3f) | Optique inactif\n", 
-            //       dx_enc, dy_enc);
-        }
     }
     last_theta_enc = this->THETA;
     // Sauvegarder pour prochaine itération
@@ -607,20 +595,6 @@ void Holonomic_Basis::update_odometry() {
     odo_data.last_enc2 = enc2;
     odo_data.last_enc3 = enc3;
     
-    // =========================================
-    // DEBUG PÉRIODIQUE
-    // =========================================
-    if (++odo_data.debug_counter >= 200) {  // 200 * 10ms = 2s
-        odo_data.debug_counter = 0;
-        
-        #ifdef WEBOTS_SIMULATION
-        //printf(" [WEBOTS] Odo: X=%.1f Y=%.1f θ=%.3f | ENC:[%.1f,%.1f,%.1f] GPS:[%.2f,%.2f]\n",
-        //       this->X, this->Y, this->THETA,w1_mm, w2_mm, w3_mm,dx_optical, dy_optical);
-        #else
-        //printf(" Odo: X=%.1f Y=%.1f θ=%.3f | ENC:[%.1f,%.1f,%.1f] PAA:[%.2f,%.2f]\n",
-        //       this->X, this->Y, this->THETA,w1_mm, w2_mm, w3_mm,dx_optical, dy_optical);
-        #endif
-    }
 }
 
 // Calcul de la boucle d'asservissement (PID + Cinématique Inverse)
