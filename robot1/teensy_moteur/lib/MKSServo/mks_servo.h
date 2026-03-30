@@ -26,6 +26,6 @@ class MKSServo {
                       uint8_t* payload,
                       size_t payloadCapacity,
                       size_t& payloadLen,
-                      uint32_t timeoutMs = 50);
+                      uint32_t timeoutMs = 300);
 
 };

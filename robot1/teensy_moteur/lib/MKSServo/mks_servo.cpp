@@ -45,10 +45,6 @@ bool MKSServo::sendPacket(uint8_t cmd, const uint8_t* payload, size_t payloadLen
 
     serial.write(frame, frameLen);
     serial.flush();
-    delay(2);
-    while (serial.available() > 0) {
-        (void)serial.read();
-    }
     return true;
 }
 
@@ -122,7 +118,7 @@ bool MKSServo::enable() {
 
     uint8_t rsp[4];
     size_t rspLen = 0;
-    if (!readResponse(0xF3, rsp, sizeof(rsp), rspLen, 50)) {
+    if (!readResponse(0xF3, rsp, sizeof(rsp), rspLen, 300)) {
         return true;
     }
     return (rspLen >= 1) ? (rsp[0] == 1) : true;
@@ -136,7 +132,7 @@ bool MKSServo::disable() {
 
     uint8_t rsp[4];
     size_t rspLen = 0;
-    if (!readResponse(0xF3, rsp, sizeof(rsp), rspLen, 50)) {
+    if (!readResponse(0xF3, rsp, sizeof(rsp), rspLen, 300)) {
         return true;
     }
     return (rspLen >= 1) ? (rsp[0] == 1) : true;
@@ -158,7 +154,7 @@ bool MKSServo::setSpeed(double rpm, uint8_t acc) {
 
     uint8_t rsp[4];
     size_t rspLen = 0;
-    if (!readResponse(0xF6, rsp, sizeof(rsp), rspLen, 50)) {
+    if (!readResponse(0xF6, rsp, sizeof(rsp), rspLen, 300)) {
         return true;
     }
     return (rspLen >= 1) ? (rsp[0] == 1 || rsp[0] == 2) : true;
@@ -180,7 +176,7 @@ bool MKSServo::readEncoder(int64_t& encoderCount) {
 
     uint8_t payload[8];
     size_t payloadLen = 0;
-    if (!readResponse(0x31, payload, sizeof(payload), payloadLen, 50)) {
+    if (!readResponse(0x31, payload, sizeof(payload), payloadLen, 300)) {
         return false;
     }
 
