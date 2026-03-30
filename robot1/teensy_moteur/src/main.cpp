@@ -95,24 +95,32 @@ void setup() {
     // Initialisation moteurs et base holonome
     holonomic_basis_ptr->init_motors();
     holonomic_basis_ptr->init_holonomic_basis(START_X, START_Y, START_THETA);
-    holonomic_basis_ptr->enable_motors();
+    // NOTE: DO NOT call enable_motors() here - it can block with RS485 timeouts
+    // Motors will be enabled in loop context after sensors init
 
-    // Initialisation des capteurs (PMW3901, BNO085)
+    // Initialisation des capteurs (PMW3901, BNO085) - non-blocking on timeout
     holonomic_basis_ptr->init_sensors();
 
-    // Démarrage des Timers
-    timer_compute.begin(interruption_compute, ASSERVISSEMENT_FREQUENCY); 
-
-    // Initialisation des callbacks
+    // Initialisation des callbacks BEFORE starting timer
     initialize_callback_functions();
+
+    // Démarrage des Timers (AFTER callbacks are set)
+    timer_compute.begin(interruption_compute, ASSERVISSEMENT_FREQUENCY); 
     
     delay(100);
 }
 
 
 uint_fast32_t counter = 0;
+static bool motors_enabled = false;
 
 void loop() {
+    // Non-blocking motor enable on first pass (deferred from setup to avoid RS485 timeout freeze)
+    if (!motors_enabled) {
+        holonomic_basis_ptr->enable_motors();
+        motors_enabled = true;
+    }
+
     // Gestion des messages entrants (USB)
     com->handle_callback(callback_functions);
 

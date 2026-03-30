@@ -115,38 +115,31 @@ void Holonomic_Basis::disable_motors() {
 
 // === ODOMÉTRIE & PID ===
 void Holonomic_Basis::init_sensors() {
-    //printf(" Initialisation des capteurs d'odométrie...\n"); 
     // === CAPTEUR OPTIQUE PAA5100JE ===
     #ifdef WEBOTS_SIMULATION
         pmw3901 = new PAA5100();
+        if (pmw3901) {
+            pmw3901->begin();
+        }
     #else
+        // ROBOT RÉEL - Bitcraze PMW3901
         pmw3901 = new Bitcraze_PMW3901(PAA5100_CS_PIN);
-
-        if (pmw3901->begin()){
-            //printf(" PMW3901 : Capteur optique initialisé\n");
-        } else {
-            //printf(" PMW3901 : Échec initialisation\n"); //Si ca marche a supprimer
+        if (pmw3901) {
+            // Timeout short: if sensor doesn't respond in 100ms, move on
+            uint32_t sensorStart = millis();
+            while (!pmw3901->begin() && (millis() - sensorStart) < 100) {
+                delay(10);
+            }
         }
     #endif
-    
-        if (pmw3901 && pmw3901->begin()) {
-            //printf(" PAA5100 : Capteur optique initialisé\n"); //Si ca marche a supprimer
-        } else {
-            //printf(" PAA5100 : Échec initialisation\n"); //Si ca marche a supprimer
-        }
 
-      // === IMU BNO085 ===
+    // === IMU BNO085 ===
     #ifdef WEBOTS_SIMULATION
         bno085 = new Adafruit_BNO08x();
         if (bno085 && bno085->begin_I2C()) {
-            //printf("✅ BNO08x : IMU Mock initialisée\n");
-            
             bno085->enableReport(SH2_GAME_ROTATION_VECTOR, 10000); // 100Hz
-            
             odo_data.imu_calibrated = true;
-            odo_data.imu_yaw_offset = 0.0; // Géré par le Mock
-        } else {
-            //printf("BNO08x Mock : Échec\n");
+            odo_data.imu_yaw_offset = 0.0;
         }
     #else
         // ROBOT RÉEL
@@ -154,36 +147,34 @@ void Holonomic_Basis::init_sensors() {
         
         if (bno085 && bno085->begin_I2C()) {
             Wire.setClock(400000); // I2C Fast Mode
-            
             bno085->enableReport(SH2_GAME_ROTATION_VECTOR, 10000); // 100Hz
             
-            //printf("BNO08x : IMU réelle initialisée\n");
-            
-            delay(100); // Attendre stabilisation
-            
+            // Brief calibration attempt with timeout (don't block forever)
+            uint32_t calibStart = millis();
             sh2_SensorValue_t sv;
-            if (bno085->getSensorEvent(&sv) && sv.sensorId == SH2_GAME_ROTATION_VECTOR) {
-                float r = sv.un.gameRotationVector.real;
-                float i = sv.un.gameRotationVector.i;
-                float j = sv.un.gameRotationVector.j;
-                float k = sv.un.gameRotationVector.k;
-                
-                // Calculer yaw initial (normalement proche de 0 avec Game RV)
-                odo_data.imu_yaw_offset = atan2(2.0f*(r*k + i*j), 1.0f-2.0f*(j*j + k*k));
-                odo_data.imu_calibrated = true;
-                
-                //printf(" IMU calibrée : yaw_offset = %.3f rad\n", odo_data.imu_yaw_offset);
-            } else {
-                //printf("  IMU : Calibration impossible, utilisation directe\n");
-                odo_data.imu_yaw_offset = 0.0;
-                odo_data.imu_calibrated = true;
+            
+            while ((millis() - calibStart) < 500) {  // 500ms max timeout
+                if (bno085->getSensorEvent(&sv)) {
+                    if (sv.sensorId == SH2_GAME_ROTATION_VECTOR) {
+                        float r = sv.un.gameRotationVector.real;
+                        float i = sv.un.gameRotationVector.i;
+                        float j = sv.un.gameRotationVector.j;
+                        float k = sv.un.gameRotationVector.k;
+                        
+                        odo_data.imu_yaw_offset = atan2(2.0f*(r*k + i*j), 1.0f-2.0f*(j*j + k*k));
+                        break;
+                    }
+                }
+                delay(10);
             }
+            
+            odo_data.imu_calibrated = true;  // Mark calibrated regardless (use 0 offset as default)
         } else {
-            printf(" BNO08x : Échec initialisation I2C\n");
+            // I2C begin failed - IMU not available
+            odo_data.imu_calibrated = false;
         }
     #endif
-}     
-
+}
 
 Point Holonomic_Basis::get_current_position() {
     Point position;
@@ -576,7 +567,6 @@ void Holonomic_Basis::update_odometry() {
     while (this->THETA < -M_PI) this->THETA += 2.0 * M_PI;
     double theta_moyen = (last_theta_enc + this->THETA) / 2.0;
     //Intégration position X,Y
-    static uint32_t fusion_debug = 0;
     if (optical_active) {
         this->X += dx_final_world;
         this->Y += dy_final_world;
