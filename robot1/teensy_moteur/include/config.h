@@ -41,7 +41,7 @@
 #define SEUIL_BRUIT 2     // Seuil de bruit pour filtrage capteur optique
 
 // MKS CONFIGURATION 
-#define MKS_BAUDRATE 9600
+#define MKS_BAUDRATE 115200
 #define MKS_MSTEP 32
 #define MKS_MAX_RPM 3000.0
 #define MKS_ACC 5
