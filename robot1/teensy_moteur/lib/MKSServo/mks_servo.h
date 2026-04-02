@@ -10,8 +10,8 @@ class MKSServo {
     bool enable();
     bool disable();
     bool setSpeed(double rpm, uint8_t acc);
-    bool stop();
-    bool emergencyStop();
+    bool stop();           // décélération douce acc=5
+    bool emergencyStop();  // coupure immédiate acc=0
     bool readEncoder(int64_t& encoderCount);
     bool calibrate(uint32_t timeoutMs = 15000);
 
@@ -22,10 +22,14 @@ class MKSServo {
 
     uint8_t computeCRC(const uint8_t* data, size_t len) const;
     bool sendPacket(uint8_t cmd, const uint8_t* payload, size_t payloadLen);
+
+    // Timeouts :
+    //   F3 enable/disable → 10ms (réponse 4 bytes ≈ 350µs + latence)
+    //   F6 setSpeed       → 10ms (idem)
+    //   0x31 readEncoder  → 50ms (réponse 9 bytes, lecture critique)
     bool readResponse(uint8_t expectedCmd,
                       uint8_t* payload,
                       size_t payloadCapacity,
                       size_t& payloadLen,
-                      uint32_t timeoutMs = 300);
-
+                      uint32_t timeoutMs = 10);
 };

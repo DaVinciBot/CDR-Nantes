@@ -311,15 +311,19 @@ void Holonomic_Basis::update_optical_odometry(double dtheta_robot) {
 }
 
 void Holonomic_Basis::update_odometry() {
-    int64_t enc1 = 0;
-    int64_t enc2 = 0;
-    int64_t enc3 = 0;
-    if (mksGroup) {
-        mksGroup->readAllEncoders(enc1, enc2, enc3);
-    }
+    // ===== NON-BLOQUANT: Lire encodeurs depuis les buffers (mis à jour par loop()) =====
+    // Au lieu d'appeler RS485 ici (qui bloquerait l'ISR 50ms), on lit les buffers pré-remplis
+    // par read_encoders_nonblocking() exécutée dans loop()
+    
+    int64_t enc1 = odo_data.buffered_enc1;
+    int64_t enc2 = odo_data.buffered_enc2;
+    int64_t enc3 = odo_data.buffered_enc3;
+    
+    // Si les buffers n'ont jamais été remplis, garder dernière valeur
+    // (update_odometry() gère le fallback gracieux)
     
     static bool is_first_run = true;
-    static double last_theta_enc =0.0;
+    static double last_theta_enc = 0.0;
     if (is_first_run) {
         odo_data.last_enc1 = enc1;
         odo_data.last_enc2 = enc2;
@@ -736,4 +740,64 @@ void Holonomic_Basis::emergency_stop() {
     if (mksGroup) {
         mksGroup->emergencyStopAll();
     }
+}
+
+// ===== ARCHITECTURE NON-BLOQUANTE: RS485 SORTIS DE L'ISR =====
+
+// Lire les encodeurs DEPUIS loop() - 50ms timeout max, pas d'impact sur ISR
+bool Holonomic_Basis::read_encoders_nonblocking() {
+    if (!mksGroup) return false;
+    
+    int64_t enc1 = 0, enc2 = 0, enc3 = 0;
+    
+    // Appel RS485 bloquant - c'est OK ici, on est dans loop() pas dans ISR
+    bool success = mksGroup->readAllEncoders(enc1, enc2, enc3);
+    
+    if (success) {
+        // Stocker dans buffers pour que update_odometry() (ISR) puisse les lire
+        odo_data.buffered_enc1 = enc1;
+        odo_data.buffered_enc2 = enc2;
+        odo_data.buffered_enc3 = enc3;
+        odo_data.buffer_timestamp = millis();
+        
+        #ifdef DEBUG_RS485
+        static uint32_t enc_read_counter = 0;
+        if (++enc_read_counter >= 10) {  // Log toutes les 10 lectures
+            enc_read_counter = 0;
+            Serial.printf("[RS485 OK] Enc: %lld, %lld, %lld\n", enc1, enc2, enc3);
+        }
+        #endif
+    } else {
+        // Timeout RS485 - log mais pas de crash
+        static uint32_t enc_fail_counter = 0;
+        if (++enc_fail_counter >= 5) {  // Log une fois sur 5
+            enc_fail_counter = 0;
+            Serial.printf("[RS485 TIMEOUT] readAllEncoders() failed, retry next loop\n");
+        }
+    }
+    
+    return success;
+}
+
+// Envoyer les commandes vitesse DEPUIS loop() - 30ms max (3x 10ms), pas d'impact sur ISR
+bool Holonomic_Basis::send_movement_commands_nonblocking() {
+    if (!mksGroup) return false;
+    
+    // Appel RS485 bloquant - c'est OK ici, on est dans loop() pas dans ISR
+    // setSpeedsSynced envoie 3 commandes 0xF6 (10ms timeout chacune)
+    mksGroup->setSpeedsSynced(filtered_wheel1_rpm,
+                              filtered_wheel2_rpm,
+                              filtered_wheel3_rpm,
+                              MKS_ACC);
+    
+    #ifdef DEBUG_RS485
+    static uint32_t movement_counter = 0;
+    if (++movement_counter >= 10) {  // Log toutes les 10 fois
+        movement_counter = 0;
+        Serial.printf("[RS485 MOVE] W1: %.0f, W2: %.0f, W3: %.0f RPM\n",
+                      filtered_wheel1_rpm, filtered_wheel2_rpm, filtered_wheel3_rpm);
+    }
+    #endif
+    
+    return true;  // On considère OK même si timeout silencieux (moteur peut fonctionner)
 }

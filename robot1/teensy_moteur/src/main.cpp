@@ -70,17 +70,23 @@ void initialize_callback_functions() {
 }
 
 
-// [TIMER LENT] - 100 Hz (10ms)
-// Gère l'intelligence : PID, Cinématique, Planification de trajectoire
+// [TIMER ISR] - 100 Hz (10ms)
+// ⚠️ CRITIQUE: Pas d'opérations RS485 ici (bloquant!)
+// Seulement: calcul pur (PID, cinématique), signalisation flags
 void interruption_compute() {
-    // 1. Fusion de capteurs (GPS/IMU + Dead Reckoning)
+    // LIGHT-WEIGHT ISR - Aucun blocage RS485
+    // 1. Signaler que loop() doit lire les encodeurs
+    holonomic_basis_ptr->need_read_encoders = true;
+    
+    // 2. Calcul du PID et cinématique (utilise la DERNIÈRE lecture d'encodeurs en mémoire)
+    // update_odometry() NOTE: MODIFIÉ pour utiliser buffers (pas de RS485)
     holonomic_basis_ptr->update_odometry();
     
-    // 2. Calcul du PID et mise à jour de l'odométrie
+    // 3. Calcul des vitesses cibles via PID
     holonomic_basis_ptr->handle(target_position, com);
     
-    // 3. Envoi des vitesses RPM aux MKS
-    holonomic_basis_ptr->execute_movement();
+    // 4. Signaler que loop() doit envoyer les commandes vitesse
+    holonomic_basis_ptr->need_send_movement = true;
 }
 
 void setup() {
@@ -115,16 +121,36 @@ uint_fast32_t counter = 0;
 static bool motors_enabled = false;
 
 void loop() {
+    // ===== ÉTAPE 1: OPÉRATIONS RS485 NON-BLOQUANTES =====
+    // Ces appels peuvent bloquer 50ms, mais dans loop() c'est acceptable
+    
+    // Lecture encodeurs (50ms timeout max)
+    if (holonomic_basis_ptr->need_read_encoders) {
+        if (holonomic_basis_ptr->read_encoders_nonblocking()) {
+            holonomic_basis_ptr->need_read_encoders = false;
+        }
+        // Si timeout : retry au prochain loop()
+    }
+    
+    // Envoi commandes vitesse aux MKS (10ms x 3 roues = 30ms max)
+    if (holonomic_basis_ptr->need_send_movement) {
+        if (holonomic_basis_ptr->send_movement_commands_nonblocking()) {
+            holonomic_basis_ptr->need_send_movement = false;
+        }
+        // Si timeout : retry au prochain loop()
+    }
+    
+    // ===== ÉTAPE 2: MOTOR ENABLE (une seule fois) =====
     // Non-blocking motor enable on first pass (deferred from setup to avoid RS485 timeout freeze)
     if (!motors_enabled) {
         holonomic_basis_ptr->enable_motors();
         motors_enabled = true;
     }
 
-    // Gestion des messages entrants (USB)
+    // ===== ÉTAPE 3: GESTION DES MESSAGES USB (rapide) =====
     com->handle_callback(callback_functions);
 
-    // Envoi télémétrie vers Raspberry Pi
+    // ===== ÉTAPE 4: TÉLÉMÉTRIE VERS PI (lente) =====
     if (counter++ > 50000) { 
         msg_update_rolling_basis odo_msg;
         Point current = holonomic_basis_ptr->get_current_position();

@@ -109,12 +109,33 @@ class Holonomic_Basis {
     Point get_current_position();
     void emergency_stop();
 
+    // ===== ARCHITECTURE NON-BLOQUANTE : RS485 HORS ISR =====
+    // Ces méthodes doivent être appelées depuis loop(), pas depuis ISR
+    
+    // Lecture encodeurs (RS485 bloquant 50ms) - À APPELER DEPUIS loop()
+    bool read_encoders_nonblocking();
+    
+    // Envoi vitesses vers MKS (RS485 bloquant 10ms x3) - À APPELER DEPUIS loop()
+    bool send_movement_commands_nonblocking();
+    
+    // Flag pour que loop() sache quand il faut lire/envoyer
+    bool need_read_encoders = false;
+    bool need_send_movement = false;
+
    private:
     struct OdometryData {
         // Dernières positions des encodeurs
         int64_t last_enc1 = 0;
         int64_t last_enc2 = 0;
         int64_t last_enc3 = 0;
+        
+        // ===== BUFFERS NON-BLOQUANTS =====
+        // Ces valeurs sont mises à jour par read_encoders_nonblocking() depuis loop()
+        // update_odometry() (ISR) lit ces buffers au lieu d'appeler RS485
+        int64_t buffered_enc1 = 0;
+        int64_t buffered_enc2 = 0;
+        int64_t buffered_enc3 = 0;
+        uint32_t buffer_timestamp = 0;  // Pour tracking validité du buffer
         
         // Calibration IMU
         double imu_yaw_offset = 0.0;
