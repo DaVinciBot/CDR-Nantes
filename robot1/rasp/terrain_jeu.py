@@ -61,11 +61,13 @@ class BeaconLayout:
     Positions fixes des balises de localisation (calibré pour le terrain réel 3000x2000)
     Référentiel BLEU - symétrie appliquée automatiquement en JAUNE
     """
-    # Positions balises en mm (x, y)
+    BEACON_SIZE_MM = 100.0  # Taille des balises (10x10 cm)
+
+    # Positions centre des balises en mm (x, y) pour l'équipe BLEUE (origine = 0,0 en bas à gauche)
     BEACONS = {
-        1: (570.0, 400.0),      # Balise 1 - bas gauche
-        2: (2430.0, 400.0),     # Balise 2 - bas droite  
-        3: (1500.0, 1970.0)     # Balise 3 - haut centre
+        1: (3050.0, 1950.0),    # Balise 1 - haut droite (côté départ)
+        2: (3050.0, 50.0),      # Balise 2 - bas droite (côté départ)
+        3: (-50.0, 1000.0)      # Balise 3 - milieu de l'autre segment
     }
     
     @classmethod

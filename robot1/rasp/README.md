@@ -9,7 +9,7 @@ robot1/rasp/
 ├── utils/              # Utilitaires (robot_context, webots_com)
 ├── simu/               # Tests et outils simulation Webots
 ├── test/               # Tests hardware réel
-├── test_lidar.py       # Test LIDAR rapide (accès direct)
+├── lidar/              # Module LIDAR (GUI + logique + bridge navigation)
 ├── switch_mode.py      # CLI: Bascule simulation/hardware
 ├── loader.py           # Chargement dynamique modules
 └── config.json         # Configuration active
@@ -21,7 +21,7 @@ robot1/rasp/
 
 ```bash
 cd robot1/rasp
-python test_lidar.py
+python -m lidar.main
 ```
 
 Récupère les 360 points LIDAR en tuples (angle, distance).

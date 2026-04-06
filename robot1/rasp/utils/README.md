@@ -9,6 +9,7 @@ robot1/rasp/
 │   ├── robot_context.py   # Détection auto simulation/hardware
 │   ├── webots_com.py      # Communication Webots
 │   └── README.md
+├── lidar/                  # Module LIDAR (GUI + logique + bridge navigation)
 ├── simu/                   # Tests simulation
 │   ├── lidar_manager.py
 │   ├── test_lidar_simple.py
@@ -17,7 +18,6 @@ robot1/rasp/
 │   └── ...
 ├── switch_mode.py          # Bascule simulation/hardware (standalone)
 ├── loader.py               # Chargement dynamique modules
-├── test_lidar.py           # ⭐ Test LIDAR (accès direct)
 ├── config.json             # Configuration
 ├── robot_context.py        # ⚠️  OBSOLÈTE - Voir utils/robot_context.py
 └── webots_com.py           # ⚠️  OBSOLÈTE - Voir utils/webots_com.py
@@ -47,7 +47,7 @@ from robot_context import create_com
 
 ```bash
 # Depuis robot1/rasp/
-python test_lidar.py
+python -m lidar.main
 ```
 
 ## Fichiers dans utils/

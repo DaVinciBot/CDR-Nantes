@@ -103,9 +103,9 @@ class LidarApp:
                 proc.DISTANCE_MIN_MM = POSE_MIN_DIST_MM
                 proc.DISTANCE_MAX_MM = POSE_MAX_DIST_MM
                 proc.OBSTACLE_MAX_DIST_MM = POSE_MAX_DIST_MM
-                proc.CLUSTER_GAP_MM = int(CLUSTER_GAP_MM)
+                proc.CLUSTER_GAP_MM = 90
                 proc.CLUSTER_MIN_POINTS = 2
-                proc.BEACON_MAX_RADIUS_MM = int(BEACON_HALF_DEPTH_MM + 40.0)
+                proc.BEACON_MAX_RADIUS_MM = 90
                 proc.BEACON_MAX_RESIDUAL_RAD = 0.24
                 proc.BEACON_MAX_RESIDUAL_NO_INTENSITY_RAD = 0.36
 
@@ -306,11 +306,7 @@ class LidarApp:
     def _style_map(self):
         ax = self.ax_map
         ax.set_facecolor(BG)
-        ax.set_title(
-            f"Plateau {MAP_W_MM / 1000.0:.2f} x {MAP_H_MM / 1000.0:.2f} m (suivi + localisation)",
-            color=TEXT_COL,
-            fontsize=10,
-        )
+        ax.set_title("Plateau 112 x 63 cm (suivi + localisation)", color=TEXT_COL, fontsize=10)
         ax.set_xlim(-MAP_VIEW_MARGIN_MM, MAP_W_MM + MAP_VIEW_MARGIN_MM)
         ax.set_ylim(-MAP_VIEW_MARGIN_MM, MAP_H_MM + MAP_VIEW_MARGIN_MM)
         ax.set_aspect('equal', adjustable='box')
@@ -327,8 +323,8 @@ class LidarApp:
         )
         ax.add_patch(plateau_border)
 
-        beacon_w = max(24.0, float(BEACON_HALF_DEPTH_MM) * 2.0)
-        beacon_h = beacon_w
+        beacon_w = 34.0
+        beacon_h = 22.0
         for bid, (bx, by) in BEACONS_TEST.items():
             rect = plt.Rectangle(
                 (bx - beacon_w / 2.0, by - beacon_h / 2.0),
@@ -337,7 +333,7 @@ class LidarApp:
                 linewidth=0.8, alpha=0.30, zorder=7
             )
             ax.add_patch(rect)
-            ax.text(bx + beacon_w * 0.18, by + beacon_h * 0.15, bid, color='#00ff88', fontsize=8,
+            ax.text(bx + 12, by + 10, bid, color='#00ff88', fontsize=8,
                     fontweight='bold', zorder=7)
 
         self.robot_marker = ax.scatter([self.robot_x], [self.robot_y], marker='o', s=70,

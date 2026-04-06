@@ -1,8 +1,5 @@
-import importlib
 import itertools
 import math
-import os
-import sys
 import threading
 import time
 from collections import deque
@@ -11,40 +8,6 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 from rplidar import RPLidar
-
-# Source unique: dimensions du terrain + layout des balises via loader.
-try:
-    from ..loader import loader
-except ImportError:
-    ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    if ROOT_DIR not in sys.path:
-        sys.path.insert(0, ROOT_DIR)
-    from loader import loader
-
-try:
-    BeaconLayout = loader.load_class('terrain', 'BeaconLayout')
-    _terrain_module = importlib.import_module(BeaconLayout.__module__)
-except Exception:
-    # Fallback de compatibilite si la cle "terrain" n'est pas configuree.
-    ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    if ROOT_DIR not in sys.path:
-        sys.path.insert(0, ROOT_DIR)
-    import terrain_jeu as _terrain_module
-    BeaconLayout = _terrain_module.BeaconLayout
-
-FIELD_WIDTH_MM = float(getattr(_terrain_module, 'FIELD_WIDTH_MM', 3000.0))
-FIELD_HEIGHT_MM = float(getattr(_terrain_module, 'FIELD_HEIGHT_MM', 2000.0))
-
-
-def _build_display_beacons(beacons_by_id: Dict[int, Tuple[float, float]]) -> Dict[str, Tuple[float, float]]:
-    """Construit un mapping A/B/C... pour l'UI et la couche fusion."""
-    labels = ("A", "B", "C", "D", "E")
-    mapping: Dict[str, Tuple[float, float]] = {}
-    for idx, beacon_id in enumerate(sorted(beacons_by_id)):
-        label = labels[idx] if idx < len(labels) else f"B{beacon_id}"
-        bx, by = beacons_by_id[beacon_id]
-        mapping[label] = (float(bx), float(by))
-    return mapping
 
 # ── CONFIG RUNTIME LIDAR ──────────────────────────────────────────────────────
 PORT = 'COM5'
@@ -62,72 +25,49 @@ SCAN_HISTORY_LEN = 2
 MERGE_ANGLE_BIN_DEG = 0.5
 MAX_MERGED_POINTS = 1200
 
-# Plateau reel: dimensions centralisees dans terrain_jeu.py
-MAP_W_MM = int(FIELD_WIDTH_MM)
-MAP_H_MM = int(FIELD_HEIGHT_MM)
-
-# Balises: source unique depuis BeaconLayout
-BEACON_SIZE_MM = float(getattr(BeaconLayout, 'BEACON_SIZE_MM', 100.0))
-BEACONS_BY_ID = {
-    int(bid): (float(pos[0]), float(pos[1]))
-    for bid, pos in getattr(BeaconLayout, 'BEACONS', {}).items()
-}
-if not BEACONS_BY_ID:
-    BEACONS_BY_ID = {
-        1: (3050.0, 1950.0),
-        2: (3050.0, 50.0),
-        3: (-50.0, 1000.0),
-    }
-
-_beacon_xs = [bx for bx, _ in BEACONS_BY_ID.values()]
-_beacon_ys = [by for _, by in BEACONS_BY_ID.values()]
-
-BEACON_OUTSIDE_LEFT_MM = max(0.0, -min(_beacon_xs))
-BEACON_OUTSIDE_RIGHT_MM = max(0.0, max(_beacon_xs) - float(MAP_W_MM))
-BEACON_OUTSIDE_BOTTOM_MM = max(0.0, -min(_beacon_ys))
-BEACON_OUTSIDE_TOP_MM = max(0.0, max(_beacon_ys) - float(MAP_H_MM))
-
-OFFSET_BALISE_MM = max(
-    BEACON_OUTSIDE_LEFT_MM,
-    BEACON_OUTSIDE_RIGHT_MM,
-    BEACON_OUTSIDE_BOTTOM_MM,
-    BEACON_OUTSIDE_TOP_MM,
-)
-MAP_VIEW_MARGIN_MM = max(150.0, OFFSET_BALISE_MM + (BEACON_SIZE_MM * 0.5) + 20.0)
+# Plateau simule: 112 cm x 63 cm
+MAP_W_MM = 1120
+MAP_H_MM = 630
+OFFSET_BALISE_MM = 100.0
+MAP_VIEW_MARGIN_MM = 150.0
 
 # Fenetre dediee a la localisation: on ignore les retours tres lointains
 # tout en couvrant les balises placees hors du plateau.
 POSE_MIN_DIST_MM = 120
 POSE_MAX_DIST_MM = int(
     math.hypot(
-        MAP_W_MM + BEACON_OUTSIDE_LEFT_MM + BEACON_OUTSIDE_RIGHT_MM,
-        MAP_H_MM + BEACON_OUTSIDE_BOTTOM_MM + BEACON_OUTSIDE_TOP_MM,
+        MAP_W_MM + 2.0 * OFFSET_BALISE_MM,
+        MAP_H_MM + 2.0 * OFFSET_BALISE_MM,
     ) + 200.0
-)
+) #175 cm 
 
 # Clustering / suivi objets sur le plateau
-CLUSTER_GAP_MM = max(120.0, 1.2 * BEACON_SIZE_MM)
+CLUSTER_GAP_MM = 120
 CLUSTER_MIN_POINTS = 4
 TRACK_MATCH_MM = 220
 TRACK_MAX_MISSED = 8
 TRACK_HISTORY_LEN = 20
 
-# Balises de reference pour la localisation et l'affichage (A/B/C...)
-BEACONS_TEST = _build_display_beacons(BEACONS_BY_ID)
+# Balises de reference pour la localisation (deportees hors plateau)
+BEACONS_TEST = {
+    'A': (-OFFSET_BALISE_MM, float(MAP_H_MM) + OFFSET_BALISE_MM),
+    'B': (float(MAP_W_MM) / 2.0, -OFFSET_BALISE_MM),
+    'C': (float(MAP_W_MM) + OFFSET_BALISE_MM, float(MAP_H_MM) + OFFSET_BALISE_MM),
+}  # Normalement A Haut gauche vers (0,730), B Bas centre (560,-100), C Haut droite (1220,730)
 
 # Localisation auto a partir de 2 ou 3 balises detectees.
 AUTO_BEACON_LOCALIZATION = True
 BEACON_QUAL_MIN = 2
 BEACON_ANG_GAP_RAD = math.radians(2.5)
-BEACON_DIST_GAP_MM = max(40.0, 0.90 * BEACON_SIZE_MM)
+BEACON_DIST_GAP_MM = 90.0          # était 140 — cohérent avec face 100 mm max
 BEACON_MIN_RETURNS_PER_CLUSTER = 2
 BEACON_MAX_CANDIDATES = 3          # était 6 — exactement 3 balises sur le plateau
 BEACON_FIT_MAX_RMS_MM = 80.0       # était 140 — plus strict
 BEACON_GEOM_TOL_MM = 70.0          # était 180 — géométrie connue et fixe
 BEACON_EDGE_DROP_POINTS = 1
-BEACON_HALF_DEPTH_MM = 0.5 * BEACON_SIZE_MM
-BEACON_FACE_MIN_LEN_MM = max(25.0, 0.65 * BEACON_SIZE_MM)
-BEACON_FACE_MAX_LEN_MM = 1.05 * BEACON_SIZE_MM
+BEACON_HALF_DEPTH_MM = 50.0
+BEACON_FACE_MIN_LEN_MM = 65.0      # était 45 — face 100 mm, min à angle rasant ~65 mm
+BEACON_FACE_MAX_LEN_MM = 105.0     # était 130 — balise 100 mm + marge 5 mm
 AUTO_POSE_MIN_CONFIDENCE = 0.20
 TWO_BEACON_BASE_CONFIDENCE = 0.50
 POSE_CONTINUITY_RMS_TOL_MM = 28.0
@@ -144,7 +84,7 @@ FUSION_MIN_CONFIDENCE = 0.14
 # Detection robot adverse (coordonnees absolues sur le plateau)
 ROBOT_MIN_RADIUS_MM = 60.0
 ROBOT_MAX_RADIUS_MM = 220.0
-OPPONENT_BEACON_EXCLUSION_MM = max(150.0, BEACON_SIZE_MM + 50.0)
+OPPONENT_BEACON_EXCLUSION_MM = 150.0
 OPPONENT_MAX_MISSED = 12
 
 __all__ = [
@@ -152,7 +92,6 @@ __all__ = [
     'SCAN_MAX_BUF_MEAS', 'SCAN_MIN_LEN', 'SCAN_HISTORY_LEN',
     'MERGE_ANGLE_BIN_DEG', 'MAX_MERGED_POINTS',
     'MAP_W_MM', 'MAP_H_MM', 'OFFSET_BALISE_MM', 'MAP_VIEW_MARGIN_MM',
-    'BEACON_SIZE_MM', 'BEACONS_BY_ID',
     'POSE_MIN_DIST_MM', 'POSE_MAX_DIST_MM',
     'CLUSTER_GAP_MM', 'CLUSTER_MIN_POINTS', 'TRACK_MATCH_MM',
     'TRACK_MAX_MISSED', 'TRACK_HISTORY_LEN',
@@ -261,8 +200,10 @@ class PoseEngine:
         Returns:
             Dict {beacon_id: array of (x, y) points}
         """
+        from .terrain_jeu import BeaconLayout
+        
         clusters = {}
-        beacons_ref = BEACONS_BY_ID
+        beacons_ref = BeaconLayout.BEACONS
         
         # Convertir points (angle, distance) → (x, y)
         points_xy = []
@@ -293,11 +234,13 @@ class PoseEngine:
     def _estimate_from_three_beacons(self, clusters: Dict[int, np.ndarray], 
                                     quality_scores: Dict) -> Optional[PoseState]:
         """Trilatération 3 balises via SVD."""
+        from .terrain_jeu import BeaconLayout
+        
         beacon_ids = list(clusters.keys())[:3]
         if len(beacon_ids) < 3:
             return None
         
-        beacons_ref = BEACONS_BY_ID
+        beacons_ref = BeaconLayout.BEACONS
         
         try:
             # Centroïde de chaque cluster
@@ -368,11 +311,13 @@ class PoseEngine:
     def _estimate_from_two_beacons(self, clusters: Dict[int, np.ndarray],
                                    quality_scores: Dict) -> Optional[PoseState]:
         """Trilatération restreinte 2 balises (confiance réduite)."""
+        from .terrain_jeu import BeaconLayout
+        
         beacon_ids = list(clusters.keys())[:2]
         if len(beacon_ids) < 2:
             return None
         
-        beacons_ref = BEACONS_BY_ID
+        beacons_ref = BeaconLayout.BEACONS
         
         try:
             # Centroïdes
@@ -490,7 +435,7 @@ lidar_obj = None
 
 # ── ETAT PARTAGE BALISES PRE-FILTREES ────────────────────────────────────────
 # Contient uniquement les points candidats-balises (haute intensite, bonne distance)
-# extraits a chaque scan, prets pour le clustering dans lidar_gui.py.
+# extraits a chaque scan, prets pour le clustering dans test_lidar.py.
 beacon_candidates_buf = []
 beacon_lock = threading.Lock()
 
@@ -504,7 +449,7 @@ def _extract_beacon_candidates_fast(points):
     Criteres appliques dans l'ordre (du plus rapide au plus selectif) :
       1. Fenetre de distance utile [POSE_MIN_DIST_MM, POSE_MAX_DIST_MM]
          → elimine le bruit tres proche et les retours hors plateau.
-            2. Qualite >= BEACON_QUAL_MIN (= 2)
+      2. Qualite >= BEACON_QUAL_MIN (= 8)
          → elimine la grande majorite des points mysterieux (bruit, multi-path,
            retours de faible reflexion). C'est le filtre le plus discriminant.
       3. Tri angulaire + clustering angulaire/distance
@@ -777,7 +722,7 @@ def get_latest_beacon_candidates():
 
     Ces candidats ont deja passe :
       - filtre distance [POSE_MIN_DIST_MM, POSE_MAX_DIST_MM]
-            - filtre qualite >= BEACON_QUAL_MIN (2)
+      - filtre qualite >= BEACON_QUAL_MIN (8)
       - clustering angulaire coherent
       - validation taille de face
 

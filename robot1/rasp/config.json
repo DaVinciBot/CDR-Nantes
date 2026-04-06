@@ -14,6 +14,12 @@
             "GPIOTeensy": "gpio_teensy.GPIOTeensy"
         }
     },
+    "terrain": {
+        "module_path": ".",
+        "classes": {
+            "BeaconLayout": "terrain_jeu.BeaconLayout"
+        }
+    },
     "serial_config": {
         "port": "COM1",
         "serial_number": null,
