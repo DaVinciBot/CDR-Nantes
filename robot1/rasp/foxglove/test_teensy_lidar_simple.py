@@ -18,11 +18,13 @@ import sys
 import time
 import logging
 from pathlib import Path
-from loader import loader
 
+# Configurer les chemins AVANT les imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 
+# Maintenant importer loader
+from loader import loader
 from utils import init_robot
 from foxglove_bridge_advanced import FoxgloveBridgeAdvanced
 
