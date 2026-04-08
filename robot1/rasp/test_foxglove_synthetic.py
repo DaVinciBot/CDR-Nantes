@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Test Foxglove avec données synthétiques - Pour vérifier visualisation 4 points."""
+"""Test Foxglove avec données REELLES Teensy + Lidar."""
 
 import struct
 import time
 import logging
-import math
 import sys
 from pathlib import Path
 from loader import loader
@@ -19,59 +18,72 @@ sys.path.insert(0, str(Path(__file__).parent))
 from utils import init_robot
 from foxglove.foxglove_bridge import FoxgloveBridge
 
+# Import Lidar
+try:
+    from lidar.lidar_logic import get_latest_pose, start_lidar_thread, stop_lidar_runtime
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).parent / "lidar"))
+    from lidar_logic import get_latest_pose, start_lidar_thread, stop_lidar_runtime
+
 com, mode = init_robot(logger)
 logger.info("Mode actif: %s", mode)
 
-# Démarre Foxglove 3D sur le même process COM.
+# Démarre Foxglove 3D
 bridge = FoxgloveBridge(com, port=8765, auto_subscribe=False).start()
 
 logger.info("Bridge Foxglove démarré sur ws://localhost:8765")
-logger.info("Lancez Foxglove et connectez-vous")
+logger.info("Démarrage Lidar...")
 time.sleep(2)
 
-# Boucle de test: positions synthétiques tournantes
-logger.info("Démarrage boucle de visualisation...")
+# Démarrer Lidar
+def lidar_console_cb(msg: str):
+    logger.info(f"[LIDAR] {msg}")
+
+def lidar_status_cb(status: str):
+    logger.info(f"[LIDAR STATUS] {status}")
 
 try:
-    t = 0
+    lidar_thread = start_lidar_thread(lidar_console_cb, lidar_status_cb)
+    time.sleep(2)
+except Exception as exc:
+    logger.error(f"❌ Erreur Lidar: {exc}")
+
+# Données actuelles
+teensy_pos = {"x": 0.0, "y": 0.0, "theta": 0.0}
+lidar_pos = {"x": 0.0, "y": 0.0, "theta": 0.0}
+
+def handle_teensy(data: bytes) -> None:
+    """Callback Teensy."""
+    global teensy_pos
+    if len(data) >= 24:
+        x, y, theta = struct.unpack('<ddd', data[:24])
+        teensy_pos = {"x": x, "y": y, "theta": theta}
+        logger.info(f"Teensy: X={x:.0f}, Y={y:.0f}")
+
+com.add_callback(handle_teensy, Messages.UPDATE_ROLLING_BASIS.value)
+
+logger.info("Écoute Teensy + Lidar...")
+logger.info("  🔴 ROBOT (ROUGE) = Teensy")
+logger.info("  🟢 TARGET (VERT) = Lidar")
+
+try:
     while True:
-        # Génération synthétique: cercle tournant
-        angle = (t % 360) * math.pi / 180.0
-        radius = 500  # 500mm
+        # Récupérer Lidar
+        pose = get_latest_pose()
+        if pose:
+            lidar_pos = {"x": pose.x, "y": pose.y, "theta": pose.theta}
+            logger.info(f"Lidar: X={pose.x:.0f}, Y={pose.y:.0f}, conf={pose.confidence:.2f}")
         
-        # Position odométrie: cercle
-        odom_x = 1500 + radius * math.cos(angle)
-        odom_y = 1000 + radius * math.sin(angle)
-        
-        # Position Lidar: décalée légèrement
-        lidar_x = odom_x + 20
-        lidar_y = odom_y - 10
-        
-        # Position fusionnée: moyenne simple
-        fused_x = (odom_x + lidar_x) / 2
-        fused_y = (odom_y + lidar_y) / 2
-        theta = angle
-        
-        # Position cible: coin opposé
-        target_x = 3000 - radius * math.cos(angle)
-        target_y = 2000 - radius * math.sin(angle)
-        
-        # Publier la position fusionnée au bridge (x, y, theta)
-        bridge.publish(fused_x, fused_y, theta)
-        
-        logger.info(
-            f"[{t:3d}°] Odom({odom_x:.0f},{odom_y:.0f}) → "
-            f"Lidar({lidar_x:.0f},{lidar_y:.0f}) → "
-            f"Fused({fused_x:.0f},{fused_y:.0f})"
-        )
+        # Publier Teensy (utilise angle Teensy pour l'instant)
+        bridge.publish(teensy_pos["x"], teensy_pos["y"], teensy_pos["theta"])
         
         time.sleep(0.1)
-        t += 1
         
 except KeyboardInterrupt:
-    logger.info("\nArrêt demandé")
+    logger.info("\nArrêt")
 finally:
+    stop_lidar_runtime()
     bridge.stop()
     if hasattr(com, "close"):
         com.close()
-    logger.info("Bridge fermé")
+    logger.info("Fermé")
