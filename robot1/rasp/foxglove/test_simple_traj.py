@@ -17,7 +17,7 @@ Messages = loader.load_class('usb_com', 'Messages')
 # Initialisation automatique (simulation ou hardware)
 sys.path.insert(0, str(Path(__file__).parent))
 from utils import init_robot
-from robot1.rasp.foxglove.foxglove_bridge import FoxgloveBridge
+from robot1.rasp.Foxglove.foxglove_bridge import FoxgloveBridge
 
 com, mode = init_robot(logger)
 logger.info("Mode actif: %s", mode)

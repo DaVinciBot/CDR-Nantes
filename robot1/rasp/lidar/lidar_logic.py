@@ -47,7 +47,7 @@ def _build_display_beacons(beacons_by_id: Dict[int, Tuple[float, float]]) -> Dic
     return mapping
 
 # ── CONFIG RUNTIME LIDAR ──────────────────────────────────────────────────────
-PORT = 'COM5'
+PORT = '/dev/ttyUSB0'
 BAUDRATE = 256000
 TIMEOUT = 3
 MIN_DIST = 50
