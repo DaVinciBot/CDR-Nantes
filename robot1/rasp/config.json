@@ -21,14 +21,14 @@
         }
     },
     "foxglove": {
-        "module_path": "./foxglove",
+        "module_path": "foxglove",
         "classes": {
             "FoxgloveBridge": "foxglove_bridge.FoxgloveBridge",
             "FoxgloveBridgeAdvanced": "foxglove_bridge_advanced.FoxgloveBridgeAdvanced"
         }
     },
     "utils": {
-        "module_path": "./utils",
+        "module_path": "utils",
         "classes": {
             "RobotContext": "robot_context.RobotContext"
         }

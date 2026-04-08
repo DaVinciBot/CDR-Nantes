@@ -15,11 +15,11 @@ from loader import loader
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Charger les classes via loader
+# Charger Foxglove via loader
 FoxgloveBridge = loader.load_class("foxglove", "FoxgloveBridge")
 
-# Charger les fonctions via importlib
-utils_module = importlib.import_module("utils.robot_context")
+# Charger init_robot depuis utils
+utils_module = importlib.import_module("robot_context")
 init_robot = utils_module.init_robot
 
 def main():
