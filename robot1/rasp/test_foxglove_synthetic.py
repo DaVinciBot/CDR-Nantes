@@ -56,14 +56,8 @@ try:
         target_x = 3000 - radius * math.cos(angle)
         target_y = 2000 - radius * math.sin(angle)
         
-        # Construire les 4 positions
-        p_target = {"x": target_x, "y": target_y, "theta": theta}
-        p_odom = {"x": odom_x, "y": odom_y, "theta": theta}
-        p_lidar = {"x": lidar_x, "y": lidar_y, "theta": theta + 0.05}
-        p_fused = {"x": fused_x, "y": fused_y, "theta": theta}
-        
-        # Publier
-        bridge.publish(p_target, p_odom, p_lidar, p_fused)
+        # Publier la position fusionnée au bridge (x, y, theta)
+        bridge.publish(fused_x, fused_y, theta)
         
         logger.info(
             f"[{t:3d}°] Odom({odom_x:.0f},{odom_y:.0f}) → "
