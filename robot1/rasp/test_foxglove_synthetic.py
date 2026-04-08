@@ -5,15 +5,22 @@ import sys
 import time
 import logging
 import math
+import importlib
 from pathlib import Path
 
-# Setup path
+# Setup loader
 sys.path.insert(0, str(Path(__file__).parent))
-from robot1.rasp.Foxglove.foxglove_bridge import FoxgloveBridge
-from utils import init_robot
+from loader import loader
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Charger les classes via loader
+FoxgloveBridge = loader.load_class("foxglove", "FoxgloveBridge")
+
+# Charger les fonctions via importlib
+utils_module = importlib.import_module("utils.robot_context")
+init_robot = utils_module.init_robot
 
 def main():
     """Test simple avec positions synthétiques tournantes."""
