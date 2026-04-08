@@ -18,11 +18,11 @@ import sys
 import time
 import logging
 from pathlib import Path
+from loader import loader
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent))
 
-from loader import loader
 from utils import init_robot
 from foxglove_bridge_advanced import FoxgloveBridgeAdvanced
 
@@ -30,6 +30,7 @@ from foxglove_bridge_advanced import FoxgloveBridgeAdvanced
 try:
     from lidar.lidar_logic import get_latest_pose, start_lidar_thread, stop_lidar_runtime
 except ImportError:
+    sys.path.insert(0, str(Path(__file__).parent.parent / "lidar"))
     from lidar_logic import get_latest_pose, start_lidar_thread, stop_lidar_runtime
 
 logging.basicConfig(
