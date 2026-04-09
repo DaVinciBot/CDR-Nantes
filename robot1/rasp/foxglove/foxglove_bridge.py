@@ -44,7 +44,7 @@ MAP_FRAME_ID        = "world"
 MAP_IMAGE_FRAME_ID  = "map_camera"
 MAP_LENGTH_M        = 3.0
 MAP_WIDTH_M         = 2.0
-MAP_CAMERA_HEIGHT_M = 2.0
+MAP_CAMERA_HEIGHT_M = 0.001  # Collé au sol pour projection plane exacte
  
  
 # ─────────────────────────────────────────────
@@ -241,14 +241,14 @@ def _map_camera_info_msg(width_px: int, height_px: int) -> bytes:
 
 def _map_camera_tf_msg() -> bytes:
     ns = _now_ns()
-    # Rotation -90° autour de Y : caméra regarde vers le bas (z négatif) avec x à droite, y vers le haut
-    # Quaternion([0, -sin(45°), 0, cos(45°)]) = [0, -0.7071, 0, 0.7071]
+    # Rotation +90° autour de X : caméra pointe vers le bas (axe Z négatif)
+    # Quaternion: [sin(45°), 0, 0, cos(45°)] = [0.7071068, 0, 0, 0.7071068]
     return json.dumps({
         "timestamp": {"sec": ns // 1_000_000_000, "nsec": ns % 1_000_000_000},
         "parent_frame_id": MAP_FRAME_ID,
         "child_frame_id": MAP_IMAGE_FRAME_ID,
         "translation": {"x": 0.0, "y": 0.0, "z": MAP_CAMERA_HEIGHT_M},
-        "rotation": {"x": 0.0, "y": 0.7071068, "z": 0.0, "w": 0.7071068},
+        "rotation": {"x": 0.7071068, "y": 0.0, "z": 0.0, "w": 0.7071068},
     }).encode()
 
 
