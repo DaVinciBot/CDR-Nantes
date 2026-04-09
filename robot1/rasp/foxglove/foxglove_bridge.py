@@ -241,13 +241,14 @@ def _map_camera_info_msg(width_px: int, height_px: int) -> bytes:
 
 def _map_camera_tf_msg() -> bytes:
     ns = _now_ns()
+    # Rotation -90° autour de Y : caméra regarde vers le bas (z négatif) avec x à droite, y vers le haut
+    # Quaternion([0, -sin(45°), 0, cos(45°)]) = [0, -0.7071, 0, 0.7071]
     return json.dumps({
         "timestamp": {"sec": ns // 1_000_000_000, "nsec": ns % 1_000_000_000},
         "parent_frame_id": MAP_FRAME_ID,
         "child_frame_id": MAP_IMAGE_FRAME_ID,
         "translation": {"x": 0.0, "y": 0.0, "z": MAP_CAMERA_HEIGHT_M},
-        # Rotation de 180 deg autour de X pour une frame optique regardant vers le plan z=0.
-        "rotation": {"x": 1.0, "y": 0.0, "z": 0.0, "w": 0.0},
+        "rotation": {"x": 0.0, "y": 0.7071068, "z": 0.0, "w": 0.7071068},
     }).encode()
 
 
