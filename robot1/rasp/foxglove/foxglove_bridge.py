@@ -41,6 +41,7 @@ MAP_IMAGE_PATH      = Path(__file__).parent / "map_assets" / "eurobot2026" / "te
 MAP_IMAGE_WIDTH_PX  = 3000
 MAP_IMAGE_HEIGHT_PX = 2000
 MAP_FRAME_ID        = "world"
+MAP_IMAGE_FRAME_ID  = "map_camera"
 MAP_LENGTH_M        = 3.0
 MAP_WIDTH_M         = 2.0
 MAP_CAMERA_HEIGHT_M = 2.0
@@ -211,7 +212,7 @@ def _map_image_msg(image_b64: str, image_format: str) -> bytes:
     ns = _now_ns()
     return json.dumps({
         "timestamp": {"sec": ns // 1_000_000_000, "nsec": ns % 1_000_000_000},
-        "frame_id": MAP_FRAME_ID,
+        "frame_id": MAP_IMAGE_FRAME_ID,
         "format": image_format,
         "data": image_b64,
     }).encode()
@@ -226,7 +227,7 @@ def _map_camera_info_msg(width_px: int, height_px: int) -> bytes:
 
     msg = {
         "timestamp": {"sec": ns // 1_000_000_000, "nsec": ns % 1_000_000_000},
-        "frame_id": MAP_FRAME_ID,
+        "frame_id": MAP_IMAGE_FRAME_ID,
         "width": width_px,
         "height": height_px,
         "distortion_model": "plumb_bob",
@@ -236,6 +237,18 @@ def _map_camera_info_msg(width_px: int, height_px: int) -> bytes:
         "P": [fx, 0.0, cx, 0.0, 0.0, fy, cy, 0.0, 0.0, 0.0, 1.0, 0.0],
     }
     return json.dumps(msg).encode()
+
+
+def _map_camera_tf_msg() -> bytes:
+    ns = _now_ns()
+    return json.dumps({
+        "timestamp": {"sec": ns // 1_000_000_000, "nsec": ns % 1_000_000_000},
+        "parent_frame_id": MAP_FRAME_ID,
+        "child_frame_id": MAP_IMAGE_FRAME_ID,
+        "translation": {"x": 0.0, "y": 0.0, "z": MAP_CAMERA_HEIGHT_M},
+        # Rotation de 180 deg autour de X pour une frame optique regardant vers le plan z=0.
+        "rotation": {"x": 1.0, "y": 0.0, "z": 0.0, "w": 0.0},
+    }).encode()
 
 
 def _fallback_map_scene_msg() -> bytes:
@@ -439,6 +452,7 @@ class FoxgloveBridge:
                 tick = 0
                 while not self._stop_event.is_set():
                     await _send(self._server, self._ch_map, map_payload)
+                    await _send(self._server, self._ch_tf, _map_camera_tf_msg())
 
                     # Republier periodiquement l'image + calibration pour les reconnexions client.
                     if map_image_b64 and map_image_format and tick % 10 == 0:
