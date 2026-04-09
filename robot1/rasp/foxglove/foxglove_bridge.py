@@ -2,6 +2,7 @@ from __future__ import annotations
  
 import asyncio
 import base64
+import importlib
 import inspect
 import json
 import logging
@@ -321,12 +322,26 @@ class FoxgloveBridge:
             else:
                 logger.warning("Image map introuvable: %s", MAP_IMAGE_PATH)
 
-            try:
-                from robot1.rasp.foxglove.foxglove_3d_bridge import build_map_scene_msg
+            map_payload = None
+            last_map_error: Optional[Exception] = None
+            map_scene_modules = (
+                "foxglove.foxglove_3d_bridge",
+                "robot1.rasp.foxglove.foxglove_3d_bridge",
+                "foxglove_3d_bridge",
+            )
 
-                map_payload = build_map_scene_msg()
-            except Exception as exc:
-                logger.warning("Map détaillée indisponible (%s), fallback simple", exc)
+            for module_name in map_scene_modules:
+                try:
+                    module = importlib.import_module(module_name)
+                    build_map_scene_msg = getattr(module, "build_map_scene_msg")
+                    map_payload = build_map_scene_msg()
+                    logger.info("Map détaillée chargée via %s", module_name)
+                    break
+                except Exception as exc:
+                    last_map_error = exc
+
+            if map_payload is None:
+                logger.warning("Map détaillée indisponible (%s), fallback simple", last_map_error)
                 map_payload = _fallback_map_scene_msg()
 
             async def _map_publisher() -> None:

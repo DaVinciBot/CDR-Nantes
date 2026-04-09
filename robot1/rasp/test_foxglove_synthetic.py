@@ -46,7 +46,7 @@ try:
     lidar_thread = start_lidar_thread(lidar_console_cb, lidar_status_cb)
     time.sleep(2)
 except Exception as exc:
-    logger.error(f"❌ Erreur Lidar: {exc}")
+    logger.error(f"Erreur Lidar: {exc}")
 
 # Données actuelles
 teensy_pos = {"x": 0.0, "y": 0.0, "theta": 0.0}
@@ -63,8 +63,8 @@ def handle_teensy(data: bytes) -> None:
 com.add_callback(handle_teensy, Messages.UPDATE_ROLLING_BASIS.value)
 
 logger.info("Écoute Teensy + Lidar...")
-logger.info("  🔴 ROBOT (ROUGE) = Teensy")
-logger.info("  🟢 TARGET (VERT) = Lidar")
+logger.info("   ROBOT (ROUGE) = Teensy")
+logger.info("   TARGET (VERT) = Lidar")
 
 try:
     while True:
@@ -77,7 +77,7 @@ try:
         # Publier Teensy (utilise angle Teensy pour l'instant)
         bridge.publish(teensy_pos["x"], teensy_pos["y"], teensy_pos["theta"])
         
-        time.sleep(0.1)
+        time.sleep(0.5)  # 2 Hz - suffisant pour le monitoring
         
 except KeyboardInterrupt:
     logger.info("\nArrêt")
