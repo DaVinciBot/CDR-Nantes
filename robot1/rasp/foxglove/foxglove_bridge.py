@@ -79,6 +79,78 @@ def _image_format_from_path(path: Path) -> Optional[str]:
     if suffix == ".avif":
         return "avif"
     return None
+
+
+def _image_format_from_bytes(data: bytes) -> Optional[str]:
+    if data.startswith(b"\xFF\xD8\xFF"):
+        return "jpeg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if data.startswith(b"RIFF") and len(data) >= 12 and data[8:12] == b"WEBP":
+        return "webp"
+    if len(data) >= 12 and data[4:12] in {b"ftypavif", b"ftypavis"}:
+        return "avif"
+    return None
+
+
+def _image_size_from_bytes(data: bytes, image_format: Optional[str]) -> Optional[tuple[int, int]]:
+    fmt = image_format or _image_format_from_bytes(data)
+
+    if fmt == "png":
+        if len(data) >= 24 and data.startswith(b"\x89PNG\r\n\x1a\n"):
+            width = int.from_bytes(data[16:20], "big")
+            height = int.from_bytes(data[20:24], "big")
+            if width > 0 and height > 0:
+                return width, height
+        return None
+
+    if fmt == "jpeg":
+        if not data.startswith(b"\xFF\xD8"):
+            return None
+
+        sof_markers = {
+            0xC0, 0xC1, 0xC2, 0xC3,
+            0xC5, 0xC6, 0xC7,
+            0xC9, 0xCA, 0xCB,
+            0xCD, 0xCE, 0xCF,
+        }
+        i = 2
+        data_len = len(data)
+
+        while i + 1 < data_len:
+            if data[i] != 0xFF:
+                i += 1
+                continue
+
+            while i < data_len and data[i] == 0xFF:
+                i += 1
+            if i >= data_len:
+                break
+
+            marker = data[i]
+            i += 1
+
+            if marker in {0xD8, 0xD9, 0x01} or 0xD0 <= marker <= 0xD7:
+                continue
+
+            if i + 1 >= data_len:
+                break
+
+            segment_len = int.from_bytes(data[i:i + 2], "big")
+            i += 2
+            if segment_len < 2 or i + segment_len - 2 > data_len:
+                break
+
+            if marker in sof_markers and segment_len >= 7:
+                height = int.from_bytes(data[i + 1:i + 3], "big")
+                width = int.from_bytes(data[i + 3:i + 5], "big")
+                if width > 0 and height > 0:
+                    return width, height
+                return None
+
+            i += segment_len - 2
+
+    return None
  
 # ─────────────────────────────────────────────
 # Builders de messages
@@ -145,18 +217,18 @@ def _map_image_msg(image_b64: str, image_format: str) -> bytes:
     }).encode()
 
 
-def _map_camera_info_msg() -> bytes:
+def _map_camera_info_msg(width_px: int, height_px: int) -> bytes:
     ns = _now_ns()
-    fx = (MAP_IMAGE_WIDTH_PX * MAP_CAMERA_HEIGHT_M) / MAP_LENGTH_M
-    fy = (MAP_IMAGE_HEIGHT_PX * MAP_CAMERA_HEIGHT_M) / MAP_WIDTH_M
-    cx = MAP_IMAGE_WIDTH_PX / 2.0
-    cy = MAP_IMAGE_HEIGHT_PX / 2.0
+    fx = (width_px * MAP_CAMERA_HEIGHT_M) / MAP_LENGTH_M
+    fy = (height_px * MAP_CAMERA_HEIGHT_M) / MAP_WIDTH_M
+    cx = width_px / 2.0
+    cy = height_px / 2.0
 
     msg = {
         "timestamp": {"sec": ns // 1_000_000_000, "nsec": ns % 1_000_000_000},
         "frame_id": MAP_FRAME_ID,
-        "width": MAP_IMAGE_WIDTH_PX,
-        "height": MAP_IMAGE_HEIGHT_PX,
+        "width": width_px,
+        "height": height_px,
         "distortion_model": "plumb_bob",
         "D": [],
         "K": [fx, 0.0, cx, 0.0, fy, cy, 0.0, 0.0, 1.0],
@@ -312,13 +384,32 @@ class FoxgloveBridge:
 
             map_image_b64: Optional[str] = None
             map_image_format: Optional[str] = None
+            map_image_width_px = MAP_IMAGE_WIDTH_PX
+            map_image_height_px = MAP_IMAGE_HEIGHT_PX
             if MAP_IMAGE_PATH.exists():
-                map_image_format = _image_format_from_path(MAP_IMAGE_PATH)
+                image_data = MAP_IMAGE_PATH.read_bytes()
+                map_image_format = _image_format_from_bytes(image_data) or _image_format_from_path(MAP_IMAGE_PATH)
                 if map_image_format is None:
                     logger.warning("Format image map non supporte: %s", MAP_IMAGE_PATH)
                 else:
-                    map_image_b64 = base64.b64encode(MAP_IMAGE_PATH.read_bytes()).decode("ascii")
-                    logger.info("Map image chargee: %s", MAP_IMAGE_PATH)
+                    image_size = _image_size_from_bytes(image_data, map_image_format)
+                    if image_size:
+                        map_image_width_px, map_image_height_px = image_size
+                    else:
+                        logger.warning(
+                            "Dimensions image non detectees, fallback calibration: %dx%d",
+                            map_image_width_px,
+                            map_image_height_px,
+                        )
+
+                    map_image_b64 = base64.b64encode(image_data).decode("ascii")
+                    logger.info(
+                        "Map image chargee: %s (%dx%d, %s)",
+                        MAP_IMAGE_PATH,
+                        map_image_width_px,
+                        map_image_height_px,
+                        map_image_format,
+                    )
             else:
                 logger.warning("Image map introuvable: %s", MAP_IMAGE_PATH)
 
@@ -352,7 +443,11 @@ class FoxgloveBridge:
                     # Republier periodiquement l'image + calibration pour les reconnexions client.
                     if map_image_b64 and map_image_format and tick % 10 == 0:
                         await _send(self._server, self._ch_map_img, _map_image_msg(map_image_b64, map_image_format))
-                        await _send(self._server, self._ch_map_cam, _map_camera_info_msg())
+                        await _send(
+                            self._server,
+                            self._ch_map_cam,
+                            _map_camera_info_msg(map_image_width_px, map_image_height_px),
+                        )
 
                     tick += 1
                     await asyncio.sleep(1.0)
@@ -473,7 +568,8 @@ class FoxgloveBridge:
                 "timestamp": {"type": "object"},
                 "frame_id": {"type": "string"},
                 "format": {"type": "string"},
-                "data": {"type": "string"},
+                # In JSON encoding, Foxglove bytes fields must be base64 strings.
+                "data": {"type": "string", "contentEncoding": "base64"},
             },
             "required": ["timestamp", "frame_id", "format", "data"],
             "additionalProperties": True,
