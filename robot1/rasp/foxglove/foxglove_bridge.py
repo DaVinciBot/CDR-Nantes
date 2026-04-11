@@ -428,26 +428,60 @@ class FoxgloveBridge:
                 logger.warning("Image map introuvable: %s", MAP_IMAGE_PATH)
 
             map_payload = None
-            last_map_error: Optional[Exception] = None
-            map_scene_modules = (
-                "foxglove.foxglove_3d_bridge",
-                "robot1.rasp.foxglove.foxglove_3d_bridge",
-                "foxglove_3d_bridge",
-            )
-
-            for module_name in map_scene_modules:
-                try:
-                    module = importlib.import_module(module_name)
-                    build_map_scene_msg = getattr(module, "build_map_scene_msg")
-                    map_payload = build_map_scene_msg()
-                    logger.info("Map détaillée chargée via %s", module_name)
-                    break
-                except Exception as exc:
-                    last_map_error = exc
-
+            
+            # ── Charger le terrain GLB en priorité ────────────────────────
+            try:
+                from terrain_glb_loader import load_terrain_glb
+                glb_model = load_terrain_glb(Path(__file__).parent)
+                if glb_model:
+                    # Construire une entité minimale avec le GLB
+                    ns = time.time_ns()
+                    ts = {"sec": ns // 1_000_000_000, "nsec": ns % 1_000_000_000}
+                    map_payload = json.dumps({
+                        "deletions": [],
+                        "entities": [{
+                            "timestamp": ts,
+                            "frame_id": "world",
+                            "id": "terrain_map",
+                            "frame_locked": False,
+                            "metadata": [],
+                            "models": [glb_model],
+                            "cubes": [],
+                            "cylinders": [],
+                            "arrows": [],
+                            "points": [],
+                            "texts": [],
+                            "lines": [],
+                            "triangles": [],
+                            "spheres": [],
+                        }]
+                    }).encode()
+                    logger.info("✅ Terrain GLB intégré")
+            except Exception as exc:
+                logger.debug("Terrain GLB non disponible: %s", exc)
+            
+            # ── Fallback: essayer build_map_scene_msg() de foxglove_3d_bridge ────────────────────────
             if map_payload is None:
-                logger.warning("Map détaillée indisponible (%s), fallback simple", last_map_error)
-                map_payload = _fallback_map_scene_msg()
+                last_map_error: Optional[Exception] = None
+                map_scene_modules = (
+                    "foxglove.foxglove_3d_bridge",
+                    "robot1.rasp.foxglove.foxglove_3d_bridge",
+                    "foxglove_3d_bridge",
+                )
+
+                for module_name in map_scene_modules:
+                    try:
+                        module = importlib.import_module(module_name)
+                        build_map_scene_msg = getattr(module, "build_map_scene_msg")
+                        map_payload = build_map_scene_msg()
+                        logger.info("Map détaillée chargée via %s", module_name)
+                        break
+                    except Exception as exc:
+                        last_map_error = exc
+
+                if map_payload is None:
+                    logger.warning("Map détaillée indisponible (%s), fallback simple", last_map_error)
+                    map_payload = _fallback_map_scene_msg()
 
             async def _map_publisher() -> None:
                 tick = 0

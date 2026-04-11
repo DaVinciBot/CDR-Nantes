@@ -14,25 +14,6 @@
             "GPIOTeensy": "gpio_teensy.GPIOTeensy"
         }
     },
-    "terrain": {
-        "module_path": ".",
-        "classes": {
-            "BeaconLayout": "terrain_jeu.BeaconLayout"
-        }
-    },
-    "foxglove": {
-        "module_path": "foxglove",
-        "classes": {
-            "FoxgloveBridge": "foxglove_bridge.FoxgloveBridge",
-            "FoxgloveBridgeAdvanced": "foxglove_bridge_advanced.FoxgloveBridgeAdvanced"
-        }
-    },
-    "utils": {
-        "module_path": "utils",
-        "classes": {
-            "RobotContext": "robot_context.RobotContext"
-        }
-    },
     "serial_config": {
         "port": "COM1",
         "serial_number": null,

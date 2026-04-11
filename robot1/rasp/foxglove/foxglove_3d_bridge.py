@@ -13,6 +13,14 @@ Compatible simulation Webots et hardware réel via init_robot().
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+# Ajouter les chemins AVANT les imports
+sys.path.insert(0, str(Path(__file__).parent))                 # foxglove/
+sys.path.insert(0, str(Path(__file__).parent.parent))          # rasp/
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))   # robot1/
+
 import asyncio
 import inspect
 import json
@@ -21,15 +29,17 @@ import math
 import signal
 import struct
 import time
+import base64
 from typing import Any
 
 from loader import loader
 from foxglove_websocket.server import FoxgloveServer
-
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent))
 from utils import init_robot
+
+try:
+    from terrain_glb_loader import load_terrain_glb
+except ImportError:
+    load_terrain_glb = None
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,6 +48,21 @@ logging.basicConfig(
 logger = logging.getLogger("foxglove_3d_bridge")
 
 Messages = loader.load_class("usb_com", "Messages")
+
+# ─────────────────────────────────────────────
+# Charger le GLB UNE FOIS au démarrage
+# ─────────────────────────────────────────────
+GLB_DATA_B64 = ""
+GLB_PATH = Path(__file__).parent / "map_assets" / "terrain.glb"
+if GLB_PATH.exists():
+    try:
+        import base64
+        GLB_DATA_B64 = base64.b64encode(GLB_PATH.read_bytes()).decode("ascii")
+        logger.info("✅ GLB chargé au démarrage: %d bytes", GLB_PATH.stat().st_size)
+    except Exception as e:
+        logger.error("❌ Erreur chargement GLB: %s", e)
+else:
+    logger.warning("⚠️  GLB non trouvé: %s", GLB_PATH)
 
 # ─────────────────────────────────────────────
 # Paramètres visuels du robot (en mètres)
@@ -204,8 +229,69 @@ SCENE_SCHEMA = json.dumps({
             "items": {
                 "type": "object",
                 "additionalProperties": True,
+                "properties": {
+                    "models": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "data": {
+                                    "type": "string",
+                                    "contentEncoding": "base64"
+                                }
+                            },
+                            "additionalProperties": True
+                        }
+                    }
+                }
             },
         },
+    },
+    "additionalProperties": True,
+})
+
+
+# ─────────────────────────────────────────────
+# Schémas pour image plane
+# ─────────────────────────────────────────────
+
+COMPRESSED_IMAGE_SCHEMA = json.dumps({
+    "type": "object",
+    "properties": {
+        "timestamp": {
+            "type": "object",
+            "properties": {
+                "sec": {"type": "integer"},
+                "nsec": {"type": "integer"},
+            },
+        },
+        "frame_id": {"type": "string"},
+        "format": {"type": "string"},
+        "data": {
+            "type": "string",
+            "contentEncoding": "base64",
+        },
+    },
+    "additionalProperties": True,
+})
+
+CAMERA_INFO_SCHEMA = json.dumps({
+    "type": "object",
+    "properties": {
+        "timestamp": {
+            "type": "object",
+            "properties": {
+                "sec": {"type": "integer"},
+                "nsec": {"type": "integer"},
+            },
+        },
+        "frame_id": {"type": "string"},
+        "height": {"type": "integer"},
+        "width": {"type": "integer"},
+        "distortion_model": {"type": "string"},
+        "D": {"type": "array", "items": {"type": "number"}},
+        "K": {"type": "array", "items": {"type": "number"}},
+        "P": {"type": "array", "items": {"type": "number"}},
     },
     "additionalProperties": True,
 })
@@ -371,7 +457,10 @@ def build_stack_cubes() -> list[dict]:
 
 
 def build_map_scene_msg() -> bytes:
-    """Carte CDR statique basée sur Eurobot2026.proto dans le repère world."""
+    """Carte CDR statique basée sur Eurobot2026.proto dans le repère world.
+    
+    Intègre un modèle GLB du terrain pour meilleure performance et vision 3D.
+    """
     ns = now_ns()
     ts = {"sec": ns // 1_000_000_000, "nsec": ns % 1_000_000_000}
 
@@ -481,21 +570,111 @@ def build_map_scene_msg() -> bytes:
         }
     ]
 
-    entities = [
+    entities = []
+
+    # ────────────────────────────────────────────────────────────────────
+    # Ajouter le terrain GLB si disponible (couche de base)
+    # ────────────────────────────────────────────────────────────────────
+    if GLB_DATA_B64:
+        glb_model = {
+            "pose": {
+                "position": {"x": 0.0, "y": 0.0, "z": -0.001},
+                "orientation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0},
+            },
+            "scale": {"x": 1.0, "y": 1.0, "z": 1.0},
+            "color": {"r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0},
+            "override_color": False,
+            "media_type": "model/gltf-binary",
+            "url": "",
+            "data": GLB_DATA_B64,
+        }
+        terrain_entity = build_entity("terrain_map", ts)
+        terrain_entity["models"] = [glb_model]
+        entities.append(terrain_entity)
+
+    # ────────────────────────────────────────────────────────────────────
+    # Autres entités (table, zones, supports, caisses, balises, axe)
+    # ────────────────────────────────────────────────────────────────────
+    entities.extend([
         build_entity("cdr_table", ts, cubes=table_cubes),
         build_entity("cdr_calc_zones", ts, cubes=calc_zone_cubes),
         build_entity("cdr_beacon_supports", ts, cubes=support_cubes),
         build_entity("cdr_fixed_beacons", ts, cylinders=beacon_cylinders),
         build_entity("cdr_stacks", ts, cubes=build_stack_cubes()),
         build_entity("cdr_world_axis", ts, arrows=world_axis),
-    ]
+    ])
 
-    return json.dumps({"deletions": [], "entities": entities}).encode()
+    return json.dumps({
+        "frame_id": "world",
+        "deletions": [],
+        "entities": entities
+    }).encode()
+
+
+def build_compressed_image_msg(image_data_b64: str) -> bytes:
+    """Construire un message CompressedImage pour Foxglove (projection plane)."""
+    ns = now_ns()
+    msg = {
+        "timestamp": {
+            "sec": ns // 1_000_000_000,
+            "nsec": ns % 1_000_000_000,
+        },
+        "frame_id": "world",
+        "format": "jpeg",
+        "data": image_data_b64,
+    }
+    return json.dumps(msg).encode()
+
+
+def build_camera_info_msg(height: int, width: int) -> bytes:
+    """Construire un message CameraInfo pour Foxglove (infos de caméra orthographique)."""
+    ns = now_ns()
+    # Matrice de calibration simple pour projection orthographique
+    # Téléobjectif avec focal très grande pour approximer orthographique
+    focal_length = 10000.0
+    K = [focal_length, 0, width / 2.0, 0, focal_length, height / 2.0, 0, 0, 1]
+    P = [focal_length, 0, width / 2.0, 0, 0, focal_length, height / 2.0, 0, 0, 0, 1, 0]
+    R = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+    
+    msg = {
+        "timestamp": {
+            "sec": ns // 1_000_000_000,
+            "nsec": ns % 1_000_000_000,
+        },
+        "frame_id": "world",
+        "height": height,
+        "width": width,
+        "distortion_model": "plumb_bob",
+        "D": [0, 0, 0, 0, 0],
+        "K": K,
+        "P": P,
+        "R": R,
+    }
+    return json.dumps(msg).encode()
 
 
 # ─────────────────────────────────────────────
 # Bridge principal
 # ─────────────────────────────────────────────
+
+# Charger l'image du playmat une seule fois
+PLAYMAT_IMAGE_B64 = ""
+PLAYMAT_WIDTH = 3000  # pixels
+PLAYMAT_HEIGHT = 2000  # pixels
+
+PLAYMAT_PATH = Path(__file__).parent / "map_assets" / "eurobot2026" / "textures" / "playmat_2026.jpg"
+if PLAYMAT_PATH.exists():
+    try:
+        playmat_data = PLAYMAT_PATH.read_bytes()
+        PLAYMAT_IMAGE_B64 = base64.b64encode(playmat_data).decode("ascii")
+        # Essayer d'extraire les vraies dimensions de l'image JPEG si possible
+        from PIL import Image
+        img = Image.open(PLAYMAT_PATH)
+        PLAYMAT_WIDTH, PLAYMAT_HEIGHT = img.size
+        logger.info(f"📸 Image playmat chargée : {PLAYMAT_WIDTH}x{PLAYMAT_HEIGHT}px ({len(playmat_data)/1024:.1f} KB)")
+    except Exception as e:
+        logger.warning(f"⚠️  Impossible de charger playmat_2026.jpg : {e}")
+
 
 async def run_bridge() -> None:
     stop_event = asyncio.Event()
@@ -539,7 +718,23 @@ async def run_bridge() -> None:
             "schema":         SCENE_SCHEMA,
         }))
 
-        logger.info("Channels créés : robot/pose | robot/tf | robot/scene | robot/map_scene")
+        ch_map_image = await maybe_await(server.add_channel({
+            "topic":          "robot/map_image/compressed",
+            "encoding":       "json",
+            "schemaName":     "sensor_msgs.CompressedImage",
+            "schemaEncoding": "jsonschema",
+            "schema":         COMPRESSED_IMAGE_SCHEMA,
+        }))
+
+        ch_camera_info = await maybe_await(server.add_channel({
+            "topic":          "robot/map_image/camera_info",
+            "encoding":       "json",
+            "schemaName":     "sensor_msgs.CameraInfo",
+            "schemaEncoding": "jsonschema",
+            "schema":         CAMERA_INFO_SCHEMA,
+        }))
+
+        logger.info("Channels créés : robot/pose | robot/tf | robot/scene | robot/map_scene | robot/map_image")
         logger.info("Foxglove sur ws://localhost:8765")
 
         # Republie la carte statique pour les clients qui se reconnectent.
@@ -550,6 +745,27 @@ async def run_bridge() -> None:
                 await asyncio.sleep(1.0)
 
         map_task = asyncio.create_task(map_publisher_task())
+
+        # ──── Publication de l'image du playmat pour projection plane ────────
+        async def image_publisher_task() -> None:
+            if not PLAYMAT_IMAGE_B64:
+                logger.warning("⚠️  Image playmat non disponible, publication ignorée")
+                return
+            while not stop_event.is_set():
+                img_payload = build_compressed_image_msg(PLAYMAT_IMAGE_B64)
+                await send_msg(server, ch_map_image, img_payload)
+                await asyncio.sleep(1.0)
+
+        async def camera_info_publisher_task() -> None:
+            if not PLAYMAT_IMAGE_B64:
+                return
+            while not stop_event.is_set():
+                cam_payload = build_camera_info_msg(PLAYMAT_HEIGHT, PLAYMAT_WIDTH)
+                await send_msg(server, ch_camera_info, cam_payload)
+                await asyncio.sleep(1.0)
+
+        image_task = asyncio.create_task(image_publisher_task())
+        camera_task = asyncio.create_task(camera_info_publisher_task())
 
         def on_rolling_basis(data: bytes) -> None:
             if len(data) < 24:

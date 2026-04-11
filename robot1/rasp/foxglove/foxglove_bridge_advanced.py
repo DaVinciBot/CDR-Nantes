@@ -498,9 +498,55 @@ class FoxgloveBridgeAdvanced:
                 "schema": SCENE_SCHEMA,
             }))
             
-            logger.info("Channels créés: robot/pose | robot/tf | robot/scene")
+            ch_map_scene = await maybe_await(server.add_channel({
+                "topic": "robot/map_scene",
+                "encoding": "json",
+                "schemaName": "foxglove.SceneUpdate",
+                "schemaEncoding": "jsonschema",
+                "schema": SCENE_SCHEMA,
+            }))
+            
+            logger.info("Channels créés: robot/pose | robot/tf | robot/scene | robot/map_scene")
             
             self._ready.set()
+            
+            # ──────────────────────────────────────────────────────────────────────────
+            # Publier la scène statique (terrain GLB) en boucle pour les reconnexions
+            # ──────────────────────────────────────────────────────────────────────────
+            async def map_publisher_task():
+                try:
+                    from terrain_glb_loader import load_terrain_glb
+                    glb_model = load_terrain_glb(Path(__file__).parent)
+                    if glb_model:
+                        ns = now_ns()
+                        ts = {"sec": ns // 1_000_000_000, "nsec": ns % 1_000_000_000}
+                        map_payload = json.dumps({
+                            "deletions": [],
+                            "entities": [{
+                                "timestamp": ts,
+                                "frame_id": "world",
+                                "id": "terrain_map",
+                                "frame_locked": False,
+                                "metadata": [],
+                                "models": [glb_model],
+                                "cubes": [],
+                                "cylinders": [],
+                                "arrows": [],
+                                "points": [],
+                                "texts": [],
+                                "lines": [],
+                                "triangles": [],
+                                "spheres": [],
+                            }]
+                        }).encode()
+                        
+                        while not self._stop_event.is_set():
+                            await send_msg(server, ch_map_scene, map_payload)
+                            await asyncio.sleep(1.0)
+                except Exception as e:
+                    logger.warning(f"Terrain GLB non disponible: {e}")
+            
+            map_task = asyncio.create_task(map_publisher_task())
             
             async def send_loop() -> None:
                 while not self._stop_event.is_set():
@@ -549,7 +595,8 @@ class FoxgloveBridgeAdvanced:
                 await self._stop_event.wait()
             finally:
                 send_task.cancel()
-                await asyncio.gather(send_task, return_exceptions=True)
+                map_task.cancel()
+                await asyncio.gather(send_task, map_task, return_exceptions=True)
                 logger.info("Bridge arrêté")
     
     def _schedule_send(self) -> None:
