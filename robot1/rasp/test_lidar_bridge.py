@@ -33,7 +33,17 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 logger = logging.getLogger("test_lidar_bridge")
 
 # Importer depuis le bridge les fonctions réutilisables
-import rerun_bridge
+from rerun_bridge import (
+    _st,                       # État partagé
+    update_lidar_cloud,        # Mise à jour données Lidar
+    update_lidar_beacons,
+    update_lidar_pose,
+    update_odom,               # Mise à jour odométrie
+    update_fused,              # Mise à jour fusion
+    _publish,                  # Publication Rerun
+    create_blueprint,          # Blueprint UI
+    log_static_map,            # Carte statique
+)
 from lidar_logic import (
     get_latest_scan_data,
     get_latest_beacon_candidates,
@@ -60,7 +70,7 @@ C_ROBOT = [51, 153, 255, 220]       # Bleu — position robot
 # État partagé du bridge
 # ─────────────────────────────────────────────────────────────────────────────
 
-_state = rerun_bridge._st  # Réutiliser l'état du bridge
+_state = _st  # Réutiliser l'état du bridge
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -72,15 +82,15 @@ def poll_lidar():
     try:
         cloud = get_latest_scan_data()
         if cloud:
-            rerun_bridge.update_lidar_cloud(cloud)
+            update_lidar_cloud(cloud)
         
         beacons = get_latest_beacon_candidates()
         if beacons:
-            rerun_bridge.update_lidar_beacons(beacons)
+            update_lidar_beacons(beacons)
         
         pose = get_latest_pose()
         if pose:
-            rerun_bridge.update_lidar_pose(
+            update_lidar_pose(
                 pose.x, pose.y, pose.theta, pose.confidence, pose.is_localized
             )
     except Exception as e:
@@ -97,16 +107,16 @@ def robot_sim_loop():
     
     while True:
         # Position fixe au centre du terrain
-        rerun_bridge.update_odom(CX, CY, 0.0)
+        update_odom(CX, CY, 0.0)
         
         # Fusion simple : Lidar si ok, sinon position Teensy
         s = _state.snap()
         if s.lidar_ok:
             fused_x = 0.5 * CX + 0.5 * s.lidar_x
             fused_y = 0.5 * CY + 0.5 * s.lidar_y
-            rerun_bridge.update_fused(fused_x, fused_y, 0.0)
+            update_fused(fused_x, fused_y, 0.0)
         else:
-            rerun_bridge.update_fused(CX, CY, 0.0)
+            update_fused(CX, CY, 0.0)
         
         time.sleep(0.05)
 
@@ -126,7 +136,7 @@ def publish_loop_with_lidar(hz: float = 20.0):
         
         # Utiliser la fonction de publication du bridge
         s = _state.snap()
-        rerun_bridge._publish(s)
+        _publish(s)
         
         # Logs périodiques
         if frame_count % (hz * 5) == 0:
@@ -188,11 +198,11 @@ Exemples:
     
     # Utiliser le blueprint du bridge (pas dupliquer)
     logger.info(" Applying blueprint...")
-    rr.send_blueprint(rerun_bridge.create_blueprint())
+    rr.send_blueprint(create_blueprint())
     
     # Utiliser la carte statique du bridge
     logger.info("  Publishing static map...")
-    rerun_bridge.log_static_map()
+    log_static_map()
     
     # Démarrer simulation robot
     logger.info(" Démarrage simulation robot...")
