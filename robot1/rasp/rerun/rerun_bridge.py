@@ -751,10 +751,18 @@ def main() -> None:
         except ImportError:
             logger.warning("⚠ lidar_logic indisponible")
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # Initialiser source d'odométrie (Teensy hardware OU simulation)
+    # ─────────────────────────────────────────────────────────────────────────
+    
     if args.sim:
-        logger.info("▶ Mode simulation activé (robot en cercle)")
+        logger.info("=" * 70)
+        logger.info("🎮 MODE SIMULATION activé (robot en cercle)")
+        logger.info("=" * 70)
         threading.Thread(target=simulation_loop, daemon=True).start()
     else:
+        logger.info("=" * 70)
+        logger.info("🔌 Initialisation hardware Teensy...")
         try:
             import sys
             sys.path.insert(0, str(_DIR.parent))
@@ -763,11 +771,29 @@ def main() -> None:
             Messages = loader.load_class("usb_com", "Messages")
             com, mode = init_robot(logger)
             com.add_callback(make_odom_callback(), Messages.UPDATE_ROLLING_BASIS.value)
-            logger.info("✓ Callback Teensy enregistré (mode %s)", mode)
+            logger.info("✅ Teensy connecté —— Odométrie affichée en direct")
+            logger.info(f"   Mode: {mode}")
+            logger.info("=" * 70)
         except Exception as e:
-            logger.warning("⚠ Teensy indisponible : %s — lance avec --sim", e)
+            if args.with_lidar:
+                logger.warning("⚠️  Teensy non détecté — Mode Lidar seul activé")
+                logger.info(f"   ({e})")
+                logger.info("=" * 70)
+                # Poster une position par défaut au centre du terrain
+                update_odom(1500.0, 1000.0, 0.0)
+            else:
+                logger.error("❌ Teensy indisponible : %s", e)
+                logger.error("   Options:")
+                logger.error("   • Branchez le Teensy en USB")
+                logger.error("   • Ou lancez avec --sim pour simulation")
+                logger.error("   • Ou lancez avec --with-lidar pour Lidar seul")
+                logger.info("=" * 70)
+                sys.exit(1)
 
-    logger.info("▶ Boucle de publication à 20 Hz")
+    logger.info("▶ Publication Rerun à 20 Hz")
+    logger.info(f"   Position Teensy: world/robot/odom (cylindre bleu)")
+    logger.info(f"   Nuage Lidar: world/lidar/cloud{' ✓' if lidar_poll else ''}")
+    logger.info("=" * 70)
     publish_loop(hz=20.0, lidar_poll=lidar_poll)
 
 

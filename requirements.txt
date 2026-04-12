@@ -8,9 +8,7 @@ pyusb==1.2.1
 numpy>=1.26
 matplotlib>=3.8
 rplidar-roboticia==0.9.5
-
-# Foxglove bridge
-foxglove-websocket>=1.7.0
+rerun-sdk>=0.31.0
 
 # GLB generation (terrain model)
 pygltflib>=0.7.0

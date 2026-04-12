@@ -1,249 +1,297 @@
 #!/usr/bin/env python3
 """
-Test en direct : affiche les callbacks Teensy + fusion Lidar dans Rerun.
+Test Live Hardware — Réutilise l'infrastructure complète du bridge Rerun.
 
-Objectif: Visualiser les données brutes sans envoyer de commands de mouvement.
-  • Affiche l'odométrie Teensy
-  • Affiche la pose Lidar (fusion trilatération)
-  • Logs temps réel (pas d'envois, juste réception)
+Objectif: Visualiser TOUT le télémétrie hardware sans envoyer de commands:
+  • Carte statique complète (balises, caisses, murs, grenier, etc.)
+  • Odométrie Teensy (robot bleu)
+  • Nuage Lidar brut (points + vue polaire radar)
+  • Balises détectées par Lidar (diamants orange)
+  • Position calculée Lidar via trilatération (robot rouge)
+  • Position fusionnée estimée (robot vert)
+  • Trajectoire de test (si fournie)
+  • Courbes temporelles de tous les capteurs
 
 Lancement:
     # Mode local (Rerun viewer sur Rasp)
     python test_live_hardware.py --mode local
     
-    # Mode serveur (accès HTTP depuis PC)
+    # Mode serveur WebSocket (accès HTTP depuis PC portable)
     python test_live_hardware.py --mode serve --port 9876
     
-    # Avec Lidar réel (trilatération active)
+    # Avec Lidar réel (trilatération active + détection balises)
     python test_live_hardware.py --mode serve --with-lidar --port 9876
+    
+    # Mode gRPC (connexion à Rerun Viewer distant)
+    python test_live_hardware.py --mode connect --host localhost --port 10000
 """
 
+import argparse
+import math
 import struct
 import sys
+import threading
 import time
 import logging
-import math
-import subprocess
+from dataclasses import dataclass, field
 from pathlib import Path
-from threading import Thread
+from typing import Optional
 
 import numpy as np
 import rerun as rr
 import rerun.blueprint as rrb
 
-# Configurer les chemins
-sys.path.insert(0, str(Path(__file__).parent))
+# ─────────────────────────────────────────────────────────────────────────────
+# Setup paths & imports
+# ─────────────────────────────────────────────────────────────────────────────
 
+_DIR = Path(__file__).parent
+sys.path.insert(0, str(_DIR))
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+logger = logging.getLogger("test_live_hardware")
+
+# Importer depuis le bridge pour réutiliser toute l'infra
+from rerun import rerun_bridge
 from loader import loader
 from utils import init_robot
 
-# Import Lidar functions (optionnel)
+Messages = loader.load_class("usb_com", "Messages")
+
+# Lidar optionnel
 try:
-    from lidar.lidar_logic import get_latest_pose, start_lidar_thread, stop_lidar_runtime
+    from lidar.lidar_logic import (
+        get_latest_scan_data, get_latest_beacon_candidates, get_latest_pose,
+    )
     HAS_LIDAR = True
 except ImportError:
     HAS_LIDAR = False
-    logger_info = logging.getLogger("test_live_hardware")
-    logger_info.warning("⚠ Lidar module not found, skipping lidar fusion")
+    logger.warning("⚠ Lidar module not found")
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(name)s | %(message)s"
-)
-logger = logging.getLogger("test_live_hardware")
-
-Messages = loader.load_class("usb_com", "Messages")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Constantes — repère terrain (coin bas-gauche = origine)
+# Réutiliser l'état du bridge
 # ─────────────────────────────────────────────────────────────────────────────
 
-W  = 3000.0
-H  = 2000.0
-CX = W / 2
+_state = rerun_bridge._st  # État partagé du bridge
 
-# Couleurs RGBA uint8
-C_ROBOT   = [51, 153, 255, 220]      # Bleu — Teensy odom
-C_LIDAR_P = [80, 255,120, 255]       # Vert — Lidar pose (fusion)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Utilitaires Rerun
+# Callbacks basés sur le bridge
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _log_robot(entity_path: str, x: float, y: float, theta: float, color: list) -> None:
-    """Publie un robot (cylindre + flèche de direction) à la position donnée."""
-    ct, st = math.cos(theta), math.sin(theta)
-    
-    # Cylindre robot (rayon 150mm, hauteur 100mm)
-    rr.log(f"{entity_path}/body", rr.Cylinders3D(
-        centers=[[x, y, 50]],
-        radii=[150],
-        half_lengths=[50],
-        rotations=[rr.Quaternion(xyzw=[0, 0, math.sin(theta/2), math.cos(theta/2)])],
-        colors=[color],
-    ))
-    
-    # Flèche de direction (200mm vers l'avant)
-    arrow_tip = [x + 200*ct, y + 200*st, 50]
-    rr.log(f"{entity_path}/arrow", rr.LineStrips3D(
-        strips=[[[x, y, 50], arrow_tip]],
-        colors=[color], radii=[8.0],
-    ))
+def make_teensy_callback():
+    """Callback Teensy utilisant rerun_bridge.update_odom()"""
+    def cb(data: bytes):
+        if len(data) >= 24:
+            x, y, t = struct.unpack("<ddd", data[:24])
+            rerun_bridge.update_odom(x, y, t)
+            logger.debug(f"↓ Teensy odom: x={x:.1f} y={y:.1f} θ={math.degrees(t):.1f}°")
+    return cb
 
 
-class LiveHardwareDisplay:
-    """Reçoit Teensy + Lidar et affiche dans Rerun (sans envois de commands)."""
+def make_lidar_poller():
+    """Poller Lidar utilisant les fonctions du bridge"""
+    if not HAS_LIDAR:
+        return None
     
-    def __init__(self, with_lidar: bool = False):
-        self.odom = {"x": 0.0, "y": 0.0, "theta": 0.0}
-        self.lidar_pose = {"x": 0.0, "y": 0.0, "theta": 0.0, "confidence": 0.0}
-        self.count = 0
-        self.with_lidar = with_lidar and HAS_LIDAR
-        
-        if self.with_lidar:
-            logger.info("🚀 Démarrage du thread Lidar...")
-            start_lidar_thread()
-            time.sleep(1)  # Laisser le temps au Lidar de démarrer
-    
-    def on_teensy_odom(self, data: bytes) -> None:
-        """Callback Teensy odométrie — juste afficher, pas d'envoi."""
-        if len(data) < 24:
-            logger.warning(f"❌ Payload Teensy trop court: {len(data)} bytes")
-            return
-        
-        x, y, theta = struct.unpack("<ddd", data[:24])
-        self.odom = {"x": x, "y": y, "theta": theta}
-        
-        self.count += 1
-        
-        # Afficher dans Rerun
-        self._publish()
-        
-        # Logs tous les 20 appels
-        if self.count % 20 == 0:
-            logger.info(
-                f"📊 Teensy: X={x:.1f}mm, Y={y:.1f}mm, θ={theta:.4f}rad "
-                f"({math.degrees(theta):.1f}°) [count={self.count}]"
-            )
-    
-    def poll_lidar(self) -> None:
-        """Interroge la pose Lidar calculée par le PoseEngine (si activé)."""
-        if not self.with_lidar:
-            return
-        
+    def poll():
         try:
+            # Nuage Lidar
+            cloud = get_latest_scan_data()
+            if cloud:
+                rerun_bridge.update_lidar_cloud(cloud)
+            
+            # Balises détectées
+            beacons = get_latest_beacon_candidates()
+            if beacons:
+                rerun_bridge.update_lidar_beacons(beacons)
+            
+            # Pose calculée via trilatération
             pose = get_latest_pose()
             if pose:
-                self.lidar_pose = {
-                    "x": pose.x,
-                    "y": pose.y,
-                    "theta": pose.theta,
-                    "confidence": pose.confidence,
-                    "is_localized": pose.is_localized
-                }
-                if self.count % 20 == 0:
-                    logger.info(
-                        f"🎯 Lidar Fusion: X={pose.x:.1f}mm, Y={pose.y:.1f}mm, "
-                        f"θ={pose.theta:.4f}rad, conf={pose.confidence:.2f}, "
-                        f"localized={pose.is_localized}"
-                    )
-        except Exception as exc:
-            pass  # Silencieusement ignorer les erreurs de pose
+                rerun_bridge.update_lidar_pose(
+                    pose.x, pose.y, pose.theta, pose.confidence, pose.is_localized
+                )
+        except Exception as e:
+            logger.debug(f"Lidar poll error: {e}")
     
-    def _publish(self) -> None:
-        """Envoie les données à Rerun."""
-        # Position Teensy brute (toujours affichée)
-        _log_robot("world/robot/odom", 
-                   self.odom["x"], self.odom["y"], self.odom["theta"], C_ROBOT)
-        
-        # Récupérer et publier la pose Lidar (si activé)
-        self.poll_lidar()
-        if self.with_lidar and (self.lidar_pose["x"] != 0.0 or self.lidar_pose["y"] != 0.0):
-            _log_robot("world/lidar/pose",
-                       self.lidar_pose["x"], self.lidar_pose["y"], 
-                       self.lidar_pose["theta"], C_LIDAR_P)
-        
-        # Publier les scalaires temporels (moins fréquent)
-        if self.count % 5 == 0:
-            rr.log("data/teensy/x_mm", rr.Scalars(self.odom["x"]))
-            rr.log("data/teensy/y_mm", rr.Scalars(self.odom["y"]))
-            rr.log("data/teensy/theta_deg", rr.Scalars(math.degrees(self.odom["theta"])))
-            
-            if self.with_lidar and self.lidar_pose["confidence"] > 0:
-                rr.log("data/lidar/confidence", rr.Scalars(self.lidar_pose["confidence"]))
-                rr.log("data/lidar/x_mm", rr.Scalars(self.lidar_pose["x"]))
-                rr.log("data/lidar/y_mm", rr.Scalars(self.lidar_pose["y"]))
+    return poll
 
 
-def create_blueprint():
-    """Crée le layout Rerun pour visualisation."""
+# ─────────────────────────────────────────────────────────────────────────────
+# Boucle de publication personnalisée (contrôle de fréquence + logs)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def publish_loop(hz: float = 20.0, lidar_poller: Optional[callable] = None) -> None:
+    """Publie l'état du bridge à fréquence fixe."""
+    dt = 1.0 / hz
+    frame_count = 0
+    
+    while True:
+        # Poll Lidar si activé
+        if lidar_poller:
+            try:
+                lidar_poller()
+            except Exception as e:
+                logger.debug(f"Lidar poller: {e}")
+        
+        # Publier l'état actuel
+        s = _state.snap()
+        rerun_bridge._publish(s)
+        
+        # Logs périodiques
+        if frame_count % (hz * 5) == 0:  # Tous les 5 sec
+            logger.info(
+                f"📊 Frame {frame_count} | "
+                f"Teensy: ({s.odom_x:.0f}, {s.odom_y:.0f}) rad={s.odom_theta:.3f} | "
+                f"Lidar: conf={s.lidar_conf:.2f} pts={len(s.lidar_cloud)} beacons={len(s.lidar_beacons)}"
+            )
+        
+        frame_count += 1
+        time.sleep(dt)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Blueprint complet (reproduit celui du bridge)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def create_blueprint() -> rrb.Blueprint:
+    """Layout de visualisation complet avec carte 3D + polaire + courbes."""
     return rrb.Blueprint(
-        rrb.Horizontal(
-            rrb.Spatial3DView(origin="world", name="Terrain 3D"),
-            rrb.TimeSeriesView(name="Données en temps réel"),
-        )
+        rrb.Vertical(
+            rrb.Horizontal(
+                rrb.Spatial3DView(name="Terrain Eurobot 2026", origin="world"),
+                rrb.Spatial2DView(name="Lidar Polaire (Radar)", origin="sensors/lidar"),
+                column_shares=[1, 1],
+            ),
+            rrb.Horizontal(
+                rrb.TimeSeriesView(name="Position Teensy (mm)", origin="data/teensy"),
+                rrb.TimeSeriesView(name="Lidar",                origin="data/lidar"),
+                rrb.TimeSeriesView(name="Fusionné",             origin="data/fused"),
+                rrb.TimeSeriesView(name="Écart odom↔lidar",    origin="data/fusion"),
+                column_shares=[3, 2, 2, 2],
+            ),
+            row_shares=[1, 1],
+        ),
     )
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Main
+# ─────────────────────────────────────────────────────────────────────────────
+
 def main():
-    import argparse
-    
-    p = argparse.ArgumentParser(description="Test Live — Teensy + Lidar dans Rerun")
-    p.add_argument("--mode", choices=["local", "serve", "connect"], default="local",
-                   help="Mode Rerun viewer")
+    p = argparse.ArgumentParser(
+        description="Test Live Hardware — Visualisation complète Rerun",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Exemples:
+  # Local (viewer sur Rasp) — test rapide
+  python test_live_hardware.py --mode local
+  
+  # Serveur WebSocket — accès depuis PC portable
+  python test_live_hardware.py --mode serve --port 9876
+  
+  # Avec Lidar réel
+  python test_live_hardware.py --mode serve --with-lidar --port 9876
+  
+  # Connexion gRPC à un viewer distant
+  python test_live_hardware.py --mode connect --host 192.168.1.50 --port 10000
+        """
+    )
+    p.add_argument("--mode", choices=["local","serve","connect"], default="local",
+                   help="Mode visualisation Rerun")
     p.add_argument("--host", default="0.0.0.0",
-                   help="Host pour mode serve")
+                   help="Host pour serveur (0.0.0.0 = accès de partout)")
     p.add_argument("--port", type=int, default=9876,
-                   help="Port pour mode serve")
+                   help="Port WebSocket ou gRPC")
     p.add_argument("--with-lidar", action="store_true",
-                   help="Active la fusion Lidar (trilatération)")
+                   help="Active Lidar hardware polling (trilatération + détection balises)")
     
     args = p.parse_args()
     
+    # ─────────────────────────────────────────────────────────────────────────
     # Initialiser Rerun
-    rr.init(
-        "test_live_hardware",
-        spawn=args.mode == "local"
-    )
+    # ─────────────────────────────────────────────────────────────────────────
+    
+    rr.init("test_live_hardware", spawn=(args.mode == "local"))
     
     if args.mode == "serve":
-        rr.serve(open_browser=False, host=args.host, port=args.port)
-        logger.info(f"🌐 Serveur Rerun actif: http://{args.host}:{args.port}")
+        logger.info("🌐 Mode SERVE activé")
+        logger.info(f"   Serveur WebSocket sur {args.host}:{args.port}")
+        logger.info(f"   Accédez depuis navigateur: http://[RaspIP]:{args.port}")
+        rr.serve_web(open_browser=False, web_port=args.port)
     elif args.mode == "connect":
-        rr.connect()
+        logger.info(f"🔗 Connexion gRPC à {args.host}:{args.port}")
+        rr.connect_grpc(f"{args.host}:{args.port}")
     
-    # Appliquer le blueprint
+    # Appliquer le blueprint complet
+    logger.info("📐 Applying blueprint...")
     rr.send_blueprint(create_blueprint())
     
-    # Initialiser le robot
+    # ─────────────────────────────────────────────────────────────────────────
+    # Publier la carte statique (du bridge)
+    # ─────────────────────────────────────────────────────────────────────────
+    
+    logger.info("🗺️  Publishing static map...")
+    rerun_bridge.log_static_map()
+    
+    # ─────────────────────────────────────────────────────────────────────────
+    # Initialiser hardware Teensy
+    # ─────────────────────────────────────────────────────────────────────────
+    
     logger.info("=" * 70)
-    com, mode = init_robot(logger)
-    logger.info(f"Mode détecté: {mode}")
-    logger.info("=" * 70)
-    
-    # Créer le data logger
-    logger.info(f"✅ Initialisation complète (avec_lidar={args.with_lidar})")
-    logger.info("⏳ En attente de données Teensy...")
-    logger.info("=" * 70)
-    
-    display = LiveHardwareDisplay(with_lidar=args.with_lidar)
-    
-    # Ajouter le callback Teensy
-    com.add_callback(display.on_teensy_odom, Messages.UPDATE_ROLLING_BASIS.value)
-    
-    # Boucle principale — juste afficher les données reçues
     try:
-        while True:
-            time.sleep(1)
+        com, mode = init_robot(logger)
+        logger.info(f"✓ Teensy connecté (mode: {mode})")
+    except Exception as e:
+        logger.error(f"❌ Teensy init failed: {e}")
+        com, mode = None, None
+    logger.info("=" * 70)
     
+    # ─────────────────────────────────────────────────────────────────────────
+    # Préparer les callbacks
+    # ─────────────────────────────────────────────────────────────────────────
+    
+    lidar_poller = None
+    if args.with_lidar:
+        lidar_poller = make_lidar_poller()
+        if lidar_poller:
+            logger.info("✓ Lidar poller activé")
+        else:
+            logger.warning("⚠ Lidar poller non disponible")
+    
+    # ─────────────────────────────────────────────────────────────────────────
+    # Ajouter callback Teensy
+    # ─────────────────────────────────────────────────────────────────────────
+    
+    if com:
+        try:
+            com.add_callback(make_teensy_callback(), Messages.UPDATE_ROLLING_BASIS.value)
+            logger.info("✓ Callback Teensy enregistré")
+        except Exception as e:
+            logger.warning(f"⚠ Callback registration failed: {e}")
+    else:
+        logger.warning("⚠ Aucun hardware Teensy — données statiques seulement")
+    
+    # ─────────────────────────────────────────────────────────────────────────
+    # Boucle principale
+    # ─────────────────────────────────────────────────────────────────────────
+    
+    logger.info("=" * 70)
+    logger.info(f"✅ Initialisation complète")
+    logger.info(f"   Mode: {args.mode}:/{args.port}")
+    logger.info(f"   Lidar: {'Oui' if args.with_lidar else 'Non'}")
+    logger.info(f"   Hardware: {'Teensy trouvé' if com else 'Aucun hardware'}")
+    logger.info("▶ Publication à 20 Hz...")
+    logger.info("=" * 70)
+    
+    try:
+        publish_loop(hz=20.0, lidar_poller=lidar_poller)
     except KeyboardInterrupt:
         logger.info("\n" + "=" * 70)
         logger.info("🛑 Arrêt...")
-        if display.with_lidar:
-            try:
-                stop_lidar_runtime()
-            except:
-                pass
         logger.info("✅ Terminé")
 
 
