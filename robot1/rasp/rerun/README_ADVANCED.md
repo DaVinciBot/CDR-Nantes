@@ -1,41 +1,57 @@
-# Foxglove Bridge Advanced — Synthèse
+# Rerun Bridge — Architecture de visualisation
 
-## ⚠️ Clarification: Foxglove = Monitoring, pas Fusion
+> 📌 **Simple et puissant**: Visualisation temps réel en Rerun SDK (local ou serve)
 
-**Foxglove n'effectue PAS la fusion.**
+## ⚠️ Clarification: Rerun = Visualisation temps réel, pas Fusion
 
-La fusion réelle (Teensy Odom + Lidar + IMU) doit se faire dans votre **Path Finding/Navigator**.  
-Foxglove est juste un **listener** pour l'affichage et le débogage en temps réel.
+**Rerun n'effectue PAS la fusion.**
+
+La fusion réelle (Teensy Odom + Lidar + IMU) se fait dans votre **Path Finding/Navigator**.  
+Rerun est un **visualiseur SDK** pour le monitoring et débogage en temps réel avec timeline intégrée.
 
 ```
 Teensy Odom + Lidar + IMU → PATH FINDING (fusion logique)
-                                     ↓ (données finalisées)
-                              Foxglove (visualisation)
+                                     ↓ (données finalisées)  
+                            Rerun SDK rs://buffer
+                         (monitoring 3D + timeline)
                                      ↓
-                         📺 4 marqueurs visibles
-                         pour monitoring/debug
+                     📊 Terrain + positions historiques
+                     + Plots temporelles automatiques
 ```
 
 ## 🚀 Quick Start
 
-### 1. Test synthétique (rapide, sans hardware)
+### Mode 1: Rerun local (viewport intégré)
 ```bash
-cd c:\Users\Depot\CDR-Nantes\robot1\rasp\foxglove
-python test_synthetic_advanced.py
+cd e:\CDR\CDR-Nantes\robot1\rasp
+python rerun_bridge.py --mode local --sim
+# ✅ Viewer s'ouvre automatiquement
 ```
 
-Puis:
-1. Ouvrez Foxglove (http://localhost:8765)
-2. Vous verrez:
-   - **ROBOT ROUGE** : tourne (fusion 60% Lidar + 40% Odom)
-   - **VERT** : cercle externe (target)
-   - **BLEU** : cercle moyen (odométrie Teensy)
-   - **JAUNE** : cercle inner (Lidar)
-
-### 2. Intégration réelle (avec hardware)
+### Mode 2: Rerun serve (web)
 ```bash
-python test_integration_advanced.py
+python rerun_bridge.py --mode serve --port 9876
+# Puis ouvrir: http://localhost:9876
 ```
+
+### Vous verrez:
+- **Terrain 3D en haut** : Carte CDR 3000×2000mm avec tous les éléments (balises, caisses, grenier, murs, playmat)
+- **Robots colorés** :
+  - 🔵 BLEU : Position Teensy odométrie brute → `world/robot/odom`
+  - 🔴 ROUGE : Position fusionnée → `world/robot/fused`
+  - 🟡 ORANGE : Position Lidar (trilatération) → `world/lidar/pose`
+- **Nuage Lidar** : Points verts-bleus projetés en coordonnées monde
+- **Abaque temporelle en bas** : Position X/Y, Lidar confidence, écart odom↔lidar
+
+### Mode 3: Test simple (Teensy + Lidar SANS fusion)
+```bash
+python rerun/test_teensy_lidar_simple.py
+```
+
+Affiche:
+- 🔵 Position Teensy en bleu
+- 🔴 Position Lidar en rouge
+- **Pas de fusion**, just affichage brut des 2 sources
 
 Vous devez d'abord créer les messages manquants:
 ```python
@@ -77,9 +93,9 @@ SensorData(
 )
 ```
 
-## 🔧 Fusion (dans votre Path Finding, PAS dans Foxglove)
+## 🔧 Fusion (dans votre Path Finding, PAS dans Rerun)
 
-Foxglove reçoit la fusion finalisée. Voici où la faire:
+Rerun reçoit la fusion finalisée. Voici où la faire:
 
 ### Exemple: Navigator avec fusion
 ```python
@@ -104,45 +120,61 @@ class Navigator:
         return (x, y, self.imu_theta)  # ← IMU!
 ```
 
-### Puis envoyer à Foxglove
+### Puis envoyer à Rerun
 ```python
 # Dans votre boucle principale
+import rerun as rr
+
 x, y, theta = navigator.fuse_position()
 
-bridge.publish_data(
-    target_x=..., target_y=...,
-    odom_x=navigator.odom[0],
-    odom_y=navigator.odom[1],
-    lidar_x=navigator.lidar[0],
-    lidar_y=navigator.lidar[1],
-    lidar_confidence=navigator.confidence,
-    imu_theta=navigator.imu_theta
-    # ↑ Foxglove reçoit les données brutes + fusion info
-    # ↑ Affiche les 4 marqueurs pour monitoring
-)
+# Publier la position du robot
+rr.log("world/robot/odom", rr.Boxes3D(
+    centers=[[navigator.odom[0], navigator.odom[1], 50]],
+    half_sizes=[[150, 150, 50]],
+    colors=[[51, 153, 255, 220]]  # Bleu
+))
+
+# Publier la position fusionnée
+rr.log("world/robot/fused", rr.Boxes3D(
+    centers=[[x, y, 50]],
+    half_sizes=[[150, 150, 50]],
+    colors=[[80, 255, 120, 220]]  # Vert
+))
+
+# Publier position Lidar
+if navigator.confidence > 0:
+    rr.log("world/lidar/pose", rr.Boxes3D(
+        centers=[[navigator.lidar[0], navigator.lidar[1], 50]],
+        half_sizes=[[150, 150, 50]],
+        colors=[[255, 80, 80, 220]]  # Rouge
+    ))
+
+# Points temporels (courbes automatiques)
+rr.log("data/fused/x_mm", rr.Scalars(x))
+rr.log("data/fused/y_mm", rr.Scalars(y))
+rr.log("data/fused/theta_deg", rr.Scalars(math.degrees(theta)))
+rr.log("data/lidar/confidence", rr.Scalars(navigator.confidence))
 ```
 
-**Où les 4 marqueurs affichent**:
-- 🔴 ROBOT (ROUGE): La fusion que Path Finding a calculée
-- 🟢 TARGET (VERT): Position cible (debug)
-- 🔵 ODOM (BLEU): Odométrie brute Teensy (debug)
-- 🟡 LIDAR (JAUNE): Position Lidar (debug)
+**Où les robots affichent**:
+- 🔵 BLEU: Odométrie Teensy brute → `world/robot/odom`
+- 🟢 VERT: Fusion calculée → `world/robot/fused`
+- 🔴 ROUGE: Position Lidar (trilatération) → `world/lidar/pose`
 
-## 🎨 Visualisation Foxglove
+## 🎨 Visualisation Rerun
 
-| Couleur | Source | Affichage |
-|---------|--------|-----------|
-| 🔴 ROUGE | Fused (fusion) | **Cylindre + Flèche** (θ_imu) |
-| 🟢 VERT | Target | Petit cylindre (marqueur) |
-| 🔵 BLEU | Odom | Petit cylindre (marqueur) |
-| 🟡 JAUNE | Lidar | Petit cylindre (marqueur) |
+| Couleur | Source | Entity Path | Affichage |
+|---------|--------|-------------|-----------|
+| 🔵 BLEU | Odom | `world/robot/odom` | Cylindre + Flèche (θ_imu) |
+| 🟢 VERT | Fused | `world/robot/fused` | Cylindre + Flèche (fusion) |
+| 🔴 ROUGE | Lidar | `world/lidar/pose` | Cylindre + Flèche (trilatéra) |
+| 🟡 ORANGE | Beacons | `world/lidar/beacons_detected` | Diamants en 3D |
 
-**Plot (courbes)**:
-- x_target, y_target
-- x_odom, y_odom
-- x_lidar, y_lidar (+ confidence bar)
-- x_fused, y_fused
-- theta_imu
+**Timeline (courbes)** - Automatique:
+- `data/teensy/x_mm`, `data/teensy/y_mm` → Position brute
+- `data/lidar/confidence` → Validation Lidar
+- `data/fused/x_mm`, `data/fused/y_mm`, `data/fused/theta_deg` → Fusion
+- `data/fusion/*` → Écarts
 
 ## 📚 Documentation détaillée
 

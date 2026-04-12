@@ -1,19 +1,19 @@
-# Foxglove Bridge — Guide de démarrage complet
+# Rerun Bridge — Guide de démarrage complet
 
 ## 🎯 Objectif
 
-Afficher en **temps réel** dans Foxglove 4 positions du robot pour **monitoring et débogage**:
+Afficher en **temps réel** dans Rerun **positions historisées** du robot pour **monitoring et débogage avec timeline**:
 
-1. **🔴 ROBOT (ROUGE)** — Position fusionnée (calculée par Path Finding)
-2. **🟢 TARGET (VERT)** — Position cible du Path Finding
-3. **🔵 ODOM (BLEU)** — Odométrie brute du Teensy (pour debug)
-4. **🟡 LIDAR (JAUNE)** — Position Lidar brute (pour debug)
+1. **🔵 BLEU** — Odométrie Teensy brute → `world/robot/odom`
+2. **🟢 VERT** — Position fusionnée (calculée par Path Finding) → `world/robot/fused`
+3. **🔴 ROUGE** — Position Lidar (trilatération) → `world/lidar/pose`
+4. **🟡 ORANGE** — Balises détectées par Lidar → `world/lidar/beacons_detected`
 
-**Important**: La fusion (Teensy Odom + Lidar + IMU) se fait dans votre **Path Finding/Navigator**, pas dans Foxglove.  
-Foxglove est juste un **listener/visualiseur** pour le monitoring en temps réel.
+**Important**: La fusion (Teensy Odom + Lidar + IMU) se fait dans votre **Path Finding/Navigator**, pas dans Rerun.  
+Rerun est un **visualiseur SDK** pour le monitoring temps réel avec historique + timeline interactive.
 
 ```
-PATH FINDING (fusion logique) → FOXGLOVE (monitoring)
+PATH FINDING (fusion logique) → RERUN (monitoring + timeline)
 ```
 
 ---
@@ -21,34 +21,35 @@ PATH FINDING (fusion logique) → FOXGLOVE (monitoring)
 ## 📁 Structure des fichiers
 
 ```
-robot1/rasp/foxglove/
-├── foxglove_bridge_advanced.py      ← Bridge principal (classe FoxgloveBridgeAdvanced)
-├── foxglove_3d_bridge.py            ← Version complète avec carte CDR (ancien)
-├── foxglove_bridge.py               ← Version simple (ancien)
-├── test_synthetic_advanced.py       ← Test sans hardware (4 cercles animés)
-├── test_integration_advanced.py     ← Exemple intégration avec callbacks
-├── ARCHITECTURE_GENERALE.md         ← Types de données + fusion détaillée
-├── MESSAGES_A_AJOUTER.md           ← Messages USB manquants à créer
-└── README_ADVANCED.md              ← Résumé rapide
+robot1/rasp/
+├── rerun_bridge.py                  ← Bridge principal Rerun
+├── rerun/
+│   ├── test_teensy_lidar_simple.py  ← Test simple Teensy + Lidar brut
+│   ├── ARCHITECTURE_GENERALE.md     ← Types de données + fusion détaillée
+│   ├── GUIDE_DEMARRAGE_COMPLET.md   ← Ce fichier
+│   └── README_ADVANCED.md           ← Résumé rapide
+└── [autres modules]
 ```
 
 ---
 
 ## 🚀 Étape 1: Quick Test (5 min)
 
-### Si vous avez juste Foxglove et Python:
+### Rerun local avec simulation
 
 ```bash
-cd c:\Users\Depot\CDR-Nantes\robot1\rasp\foxglove
-python test_synthetic_advanced.py
+cd e:\CDR\CDR-Nantes\robot1\rasp
+python rerun_bridge.py --mode local --sim
 ```
 
-Vous verrez:
-- Terminal affichant les positions tous les 20 itérations
-- 4 marqueurs animés dans Foxglove (cercles concentriques)
-- Plots temporelles en bas
+**Résultat**:
+- Viewer Rerun s'ouvre automatiquement
+- 4 robots animés (bleu, vert, rouge, marqueurs)
+- Nuage Lidar synthétique
+- Timeline en bas calculée automatiquement
+- 3 graphiques temporels: Po, Lidar, Fusion
 
-**✓ Si ça marche**: Foxglove et Python ✅  
+**✓ Si ça marche**: Rerun SDK ✅  
 **✗ Si erreur**: Lire DEBUG section plus bas
 
 ---
@@ -58,15 +59,16 @@ Vous verrez:
 ### Architecture
 
 ```
-                         VOS CAPTEURS
-                    (Teensy, Lidar, IMU)
-                             ↓
-                        PATH FINDING
-                      (votre algorithme
-                    de navigation/fusion)
-                             ↓
-                      FOXGLOVE (optionnel)
-                    (affichage en temps réel)
+                    VOS CAPTEURS
+                (Teensy, Lidar, IMU)
+                          ↓
+                     PATH FINDING
+                   (votre algorithme
+                 de navigation/fusion)
+                          ↓
+                    RERUN SDK
+                  (affichage historisé
+                   + timeline interactive)
 ```
 
 ### Prérequis:
@@ -83,8 +85,7 @@ Vous verrez:
 # robot1/rasp/navigator.py (exemple simplifié)
 
 class Navigator:
-    def __init__(self, bridge=None):
-        self.bridge = bridge  # Référence à Foxglove (optionnel)
+    def __init__(self):
         self.odom = (0.0, 0.0)
         self.lidar = (0.0, 0.0)
         self.imu_theta = 0.0
@@ -113,27 +114,41 @@ class Navigator:
     
     def navigate(self):
         """Logique navigation (utiliser position fusionnée)."""
+        import math
         x, y, theta = self.fuse_position()
         
         # Calculs de trajectoire, PID, etc.
         dx = self.target[0] - x
         dy = self.target[1] - y
-        distance = hypot(dx, dy)
+        distance = math.hypot(dx, dy)
         
         # ... envoyer commandes au Teensy ...
         
-        # Optionnel: publier pour monitoring
-        if self.bridge:
-            self.bridge.publish_data(
-                target_x=self.target[0],
-                target_y=self.target[1],
-                odom_x=self.odom[0],
-                odom_y=self.odom[1],
-                lidar_x=self.lidar[0],
-                lidar_y=self.lidar[1],
-                lidar_confidence=self.confidence,
-                imu_theta=self.imu_theta
-            )
+        # Publier pour monitoring Rerun
+        import rerun as rr
+        rr.log("world/robot/odom", rr.Boxes3D(
+            centers=[[self.odom[0], self.odom[1], 50]],
+            half_sizes=[[150, 150, 50]],
+            colors=[[51, 153, 255, 220]]  # Bleu
+        ))
+        
+        rr.log("world/robot/fused", rr.Boxes3D(
+            centers=[[x, y, 50]],
+            half_sizes=[[150, 150, 50]],
+            colors=[[80, 255, 120, 220]]  # Vert
+        ))
+        
+        if self.confidence > 0:
+            rr.log("world/lidar/pose", rr.Boxes3D(
+                centers=[[self.lidar[0], self.lidar[1], 50]],
+                half_sizes=[[150, 150, 50]],
+                colors=[[255, 80, 80, 220]]  # Rouge
+            ))
+        
+        # Courbes temporelles
+        rr.log("data/fused/x_mm", rr.Scalars(x))
+        rr.log("data/fused/y_mm", rr.Scalars(y))
+        rr.log("data/fusion/confidence", rr.Scalars(self.confidence))
 ```
 
 #### 2b. Créer les messages manquants (common/usb_com/python/messages.py)
@@ -157,28 +172,31 @@ class Messages(Enum):
 ```python
 # robot1/rasp/mon_script_principal.py
 
-from foxglove.foxglove_bridge_advanced import FoxgloveBridgeAdvanced
+import rerun as rr
 from navigator import Navigator
 
-# Initialiser le bridge (optionnel, pour monitoring)
-bridge = FoxgloveBridgeAdvanced(port=8765).start()
+# Initialiser Rerun
+rr.init("eurobot_2026", spawn=True)
 
 # Créer le Navigator (où la fusion se fait)
-navigator = Navigator(bridge=bridge)
+navigator = Navigator()
 
 # Callbacks depuis COM
 def on_rolling_basis(data: bytes):
     if len(data) >= 24:
+        import struct
         x, y, _ = struct.unpack("<ddd", data[:24])
         navigator.update_sensors(x, y, ...)
 
 def on_lidar(data: bytes):
     if len(data) >= 20:
+        import struct
         x, y, conf = struct.unpack("<ddf", data[:20])
         navigator.update_sensors(..., x, y, conf, ...)
 
 def on_imu(data: bytes):
     if len(data) >= 8:
+        import struct
         theta, = struct.unpack("<d", data[:8])
         navigator.update_sensors(..., theta)
 
@@ -188,14 +206,15 @@ com.add_callback(on_imu, Messages.IMU_ANGLE.value)
 
 # Boucle principale
 while True:
-    navigator.navigate()  # ← Fusion + commandes
+    navigator.navigate()  # ← Fusion + commandes + Rerun publish
     time.sleep(0.05)
 ```
 
-#### 2d. Vérifier dans Foxglove
-- ✓ 4 marqueurs visibles
-- ✓ Robot rouge = position que Navigator calcule
-- ✓ Cible, Odom, Lidar = pour debug
+#### 2d. Vérifier dans Rerun Viewer
+- ✓ 3 robots visibles (bleu, vert, rouge)
+- ✓ Robot vert = position que Navigator calcule (fusion)
+- ✓ Bleu = Odom brut, Rouge = Lidar brut (pour debug)
+- ✓ Timeline en bas se construit automatiquement
 
 ---
 
@@ -222,7 +241,7 @@ Position exemple: (1500, 1000) = centre
 
 ### Confiance Lidar: 0.0 à 1.0
 ```python
-confidence = 0.85  # Bien détecté (seules 2-3 balises)
+confidence = 0.85  # Bien détecté (2-3 balises visibles)
 confidence = 0.5   # Moyen (données noisy)
 confidence = 0.0   # Absent (pas de balise visible)
 ```
@@ -241,12 +260,14 @@ confidence = 0.0   # Absent (pas de balise visible)
 └─────────────────┘
                            ↓ [Python Rasp]
                     ┌──────────────────────────────┐
-                    │ SensorFusionManager          │
-                    │ (thread-safe storage)        │
+                    │ Navigator                    │
+                    │ (fusion logique)             │
                     │                              │
                     │ • update_odom()              │
                     │ • update_lidar()             │
                     │ • update_imu()               │
+                    │ • fuse_position()            │
+                    │ • navigate()                 │
                     │ • update_target()            │
                     │                              │
                     │ fuse_position() →            │
@@ -272,28 +293,25 @@ confidence = 0.0   # Absent (pas de balise visible)
 
 ### Test 1: Python importe correctement
 ```bash
-cd robot1/rasp/foxglove
-python -c "from foxglove_bridge_advanced import FoxgloveBridgeAdvanced; print('✓ OK')"
+cd robot1/rasp
+python -c "import rerun as rr; print('✓ Rerun OK')"
+python -c "from rerun_bridge import *; print('✓ Bridge OK')"
 ```
 
-### Test 2: Server Foxglove démarre
+### Test 2: Rerun SDK démarre en local
 ```bash
-python -c "
-from foxglove_bridge_advanced import FoxgloveBridgeAdvanced
-b = FoxgloveBridgeAdvanced()
-b.start()
-import time; time.sleep(2)
-b.stop()
-print('✓ Server lancé et arrêté')
-"
+python rerun_bridge.py --mode local --sim
+# Viewer doit s'ouvrir automatiquement
+# Esc pour quitter
 ```
 
-### Test 3: Données arrivent à Foxglove
+### Test 3: Vérifier les données publiées
 ```bash
-python test_synthetic_advanced.py
+python rerun/test_teensy_lidar_simple.py
 # Doit afficher:
-# 2025-01-08 14:23:45 ... | foxglove_bridge_advanced | Foxglove prêt sur ws://localhost:8765
-# [  0] Target(2300,...) | Odom(...) | Lidar(...) | Fused(...) | θ_imu=...
+# 2025-01-08 14:23:45 | test_teensy_lidar_simple | TEST SIMPLE: Teensy + Lidar...
+# 📍 Teensy: X=1500mm, Y=1000mm
+# 🎯 Lidar: X=1523mm, Y=1015mm, θ=0.157rad, conf=0.85...
 ```
 
 ### Test 4: Vérifier les logs détaillés
@@ -307,19 +325,15 @@ logging.basicConfig(level=logging.DEBUG)
 
 ## ⚠️ Erreurs courantes
 
-### 1. "foxglove_websocket non installé"
+### 1. "rerun-sdk non installé"
 ```bash
-pip install foxglove-websocket
+pip install rerun-sdk
 ```
 
-### 2. "Port 8765 déjà utilisé"
+### 2. "Pas d'accès au hardware (Teensy, Lidar)"
 ```bash
-# Tuer les antennes Foxglove existantes
-netstat -ano | findstr :8765
-taskkill /PID <PID> /F
-
-# Ou utiliser un autre port
-bridge = FoxgloveBridgeAdvanced(port=8766)
+# Utiliser --sim pour tester avec simulation
+python rerun_bridge.py --mode local --sim
 ```
 
 ### 3. "struct.unpack failed"

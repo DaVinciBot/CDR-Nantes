@@ -1,11 +1,11 @@
-# Architecture Foxglove Advanced — Logique générale
+# Architecture Rerun — Logique générale
 
-## ⚠️ IMPORTANT: Foxglove = Visualisation UNIQUEMENT
+## ⚠️ IMPORTANT: Rerun = Visualisation + Timeline
 
-**Foxglove n'effectue PAS la fusion réelle.**
+**Rerun n'effectue PAS la fusion réelle.**
 
 La fusion (Teensy Odom + Lidar + IMU) se fait dans le **Path Finding**,  
-Foxglove reçoit juste les données finalisées pour l'affichage/monitoring.
+Rerun reçoit juste les données finalisées pour l'affichage/monitoring/replay temps réel et historique.
 
 ---
 
@@ -43,21 +43,22 @@ Foxglove reçoit juste les données finalisées pour l'affichage/monitoring.
                              ↓
             ┌────────────────┴────────────────┐
             ↓                                  ↓
-    [Navigation/Contrôle]           [Foxglove Visualization]
-    (commandes Teensy)              (monitoring seulement)
+    [Navigation/Contrôle]           [Rerun Visualization]
+    (commandes Teensy)              (monitoring + timeline)
                                              ↓
-                                    ┌─────────────────────┐
-                                    │  SensorFusionManager │
-                                    │  (bridge listener)   │
+                                    ┌──────────────────────┐
+                                    │  Rerun Logger        │
+                                    │  (rr.log())          │
                                     │                      │
-                                    │ Reçoit:              │
-                                    │ • x_fused, y_fused   │
-                                    │ • θ_imu              │
-                                    │ • x_target, y_target │
-                                    │ • confidence         │
-                                    └─────────────────────┘
+                                    │ Enregistre:          │
+                                    │ • world/robot/odom   │
+                                    │ • world/robot/fused  │
+                                    │ • world/lidar/pose   │
+                                    │ • data/fused/*       │
+                                    │ • data/lidar/*       │
+                                    └──────────────────────┘
                                              ↓
-                                       ┌─────────────┐
+                                       ┌─────────────────┐
                                        │ Foxglove 3D │
                                        │ (WS 8765)   │
                                        └─────────────┘
