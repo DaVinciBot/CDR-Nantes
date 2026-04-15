@@ -22,9 +22,9 @@
 #define W2_ADDR         0x01
 
 //MOTEUR W3 — Serial3 (Arrière 0°)
-#define W3_SERIAL       Serial3
-#define W3_TX_PIN       14
-#define W3_RX_PIN       15
+#define W3_SERIAL       Serial6
+#define W3_TX_PIN       24
+#define W3_RX_PIN       25
 #define W3_ADDR         0x01
 
 //  SENSORS PINS 
@@ -58,19 +58,19 @@
 
 //  PID CONTROLLERS 
 // PID X (déplacement horizontal) - Augmenté pour corriger les dérives
-#define KP_X 6.0
+#define KP_X 1.0
 #define KI_X 0.0  
-#define KD_X 0.15 
+#define KD_X 0.0
 
 // PID Y (déplacement vertical) - Augmenté pour corriger les dérives
-#define KP_Y 6.0
+#define KP_Y 1.0
 #define KI_Y 0.0  
-#define KD_Y 0.15
+#define KD_Y 0.0
 
 // PID THETA (rotation)
-#define KP_THETA 120.0
-#define KI_THETA 3.0
-#define KD_THETA 0.5
+#define KP_THETA 1.0
+#define KI_THETA 0.0
+#define KD_THETA 0.0
 
 // PID IDs pour la communication
 #define X_PID_ID 0
