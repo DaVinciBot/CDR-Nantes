@@ -28,7 +28,7 @@
 #define W3_ADDR         0x01
 
 //  SENSORS PINS 
-// IMU BNO085 (I2C)
+// IMU BNO085 (I2C)  
 #define PIN_SDA 18
 #define PIN_SCL 19
 #define BNO085_RESET_PIN -1  // -1 si relié au Reset de la Teensy ou non utilisé
@@ -43,7 +43,7 @@
 // MKS CONFIGURATION 
 #define MKS_BAUDRATE 115200
 #define MKS_MSTEP 32
-#define MKS_MAX_RPM 3000.0
+#define MKS_MAX_RPM 100.0
 #define MKS_ACC 5
 #define MKS_COUNTS_PER_REV 16384.0
 
