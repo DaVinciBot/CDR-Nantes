@@ -36,9 +36,12 @@ bool MKSServo::sendPacket(uint8_t cmd, const uint8_t* payload, size_t payloadLen
     }
     frame[3 + payloadLen] = computeCRC(frame, 3 + payloadLen);
 
-    // Purge RX avant envoi pour éviter de parser d'anciens bytes comme réponse courante
-    while (serial.available() > 0) {
-        (void)serial.read();
+    // Purge RX uniquement pour les commandes de contrôle (pas pour 0x31 readEncoder)
+    // En mode rafale, la réponse du moteur peut arriver pendant l'envoi suivant
+    if (cmd != 0x31) {
+        while (serial.available() > 0) {
+            (void)serial.read();
+        }
     }
 
     serial.write(frame, frameLen);

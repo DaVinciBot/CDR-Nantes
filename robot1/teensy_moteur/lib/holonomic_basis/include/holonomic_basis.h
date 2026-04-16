@@ -51,7 +51,7 @@ class Holonomic_Basis {
     MKSServo* wheel3;  // Back wheel (0°)
     MKSGroup* mksGroup;
     // Capteurs
-    #ifdef WEBOT    S_SIMULATION
+    #ifdef WEBOTS_SIMULATION
         PAA5100* pmw3901 = nullptr; // On garde le Mock en simu
         Adafruit_BNO08x* bno085 = nullptr;
     #else
