@@ -77,3 +77,42 @@ bool MKSGroup::readAllEncoders(int64_t& enc1, int64_t& enc2, int64_t& enc3) {
 
     return ok;
 }
+
+// ─── READ ALL ENCODERS SYNCED ─────────────────────────────────────────────────────
+// Envoi en rafale ~0.3ms de décalage total, puis lectures en parallèle
+// Au lieu de : send(0x31 wheel1) → wait response → send(0x31 wheel2) → wait → etc
+// On fait : send(0x31 wheel1) → send(0x31 wheel2) → send(0x31 wheel3) → 
+//           read response wheel1 → read response wheel2 → read response wheel3
+// Les servos répondent en parallèle, gain de ~30-40ms en pratique
+
+bool MKSGroup::readAllEncodersSynced(int64_t& enc1, int64_t& enc2, int64_t& enc3) {
+    enc1 = enc2 = enc3 = 0;
+    
+    // Phase 1 : Envoyer 3 requêtes 0x31 en rafale (~0.3ms de décalage)
+    bool send_ok = true;
+    if (wheel1) {
+        send_ok = wheel1->sendReadRequest() && send_ok;
+    }
+    if (wheel2) {
+        send_ok = wheel2->sendReadRequest() && send_ok;
+    }
+    if (wheel3) {
+        send_ok = wheel3->sendReadRequest() && send_ok;
+    }
+    
+    if (!send_ok) return false;
+    
+    // Phase 2 : Lire 3 réponses (timeout = 50ms par servo, mais réponses en //è)
+    bool ok = true;
+    if (wheel1) {
+        ok = wheel1->readEncoderResponse(enc1, 50) && ok;
+    }
+    if (wheel2) {
+        ok = wheel2->readEncoderResponse(enc2, 50) && ok;
+    }
+    if (wheel3) {
+        ok = wheel3->readEncoderResponse(enc3, 50) && ok;
+    }
+    
+    return ok;
+}

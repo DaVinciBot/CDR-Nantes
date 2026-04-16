@@ -744,14 +744,15 @@ void Holonomic_Basis::emergency_stop() {
 
 // ===== ARCHITECTURE NON-BLOQUANTE: RS485 SORTIS DE L'ISR =====
 
-// Lire les encodeurs DEPUIS loop() - 50ms timeout max, pas d'impact sur ISR
+// Lire les encodeurs DEPUIS loop() - rafale synchronisée, ~2ms total
 bool Holonomic_Basis::read_encoders_nonblocking() {
     if (!mksGroup) return false;
     
     int64_t enc1 = 0, enc2 = 0, enc3 = 0;
     
-    // Appel RS485 bloquant - c'est OK ici, on est dans loop() pas dans ISR
-    bool success = mksGroup->readAllEncoders(enc1, enc2, enc3);
+    // Appel RS485 bloquant optimisé : envoie 3 requêtes en rafale, lit 3 réponses en parallèle
+    // ~2ms au lieu de ~150ms avec readAllEncoders() séquentiel
+    bool success = mksGroup->readAllEncodersSynced(enc1, enc2, enc3);
     
     if (success) {
         // Stocker dans buffers pour que update_odometry() (ISR) puisse les lire

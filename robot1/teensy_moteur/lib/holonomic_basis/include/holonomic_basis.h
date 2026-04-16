@@ -118,9 +118,9 @@ class Holonomic_Basis {
     // Envoi vitesses vers MKS (RS485 bloquant 10ms x3) - À APPELER DEPUIS loop()
     bool send_movement_commands_nonblocking();
     
-    // Flag pour que loop() sache quand il faut lire/envoyer
-    bool need_read_encoders = false;
-    bool need_send_movement = false;
+    // Flag pour que loop() sache quand il faut lire/envoyer (volatile: accès depuis ISR)
+    volatile bool need_read_encoders = false;
+    volatile bool need_send_movement = false;
 
    private:
     struct OdometryData {

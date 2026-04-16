@@ -81,6 +81,9 @@ void interruption_compute() {
     
     // 3. Signaler que loop() doit envoyer les commandes velocité
     holonomic_basis_ptr->need_send_movement = true;
+    
+    // 4. Signaler que loop() doit lire les encodeurs (rafale synchronisée)
+    holonomic_basis_ptr->need_read_encoders = true;
 }
 
 void setup() {
@@ -90,7 +93,7 @@ void setup() {
     // Configuration des moteurs RS485
     holonomic_basis_ptr->define_wheel1(W1_SERIAL, W1_ADDR);
     holonomic_basis_ptr->define_wheel2(W2_SERIAL, W2_ADDR);
-    //holonomic_basis_ptr->define_wheel3(W3_SERIAL, W3_ADDR);
+    holonomic_basis_ptr->define_wheel3(W3_SERIAL, W3_ADDR);
     
     // Initialisation moteurs et base holonome
     holonomic_basis_ptr->init_motors();
@@ -113,10 +116,13 @@ uint_fast32_t counter = 0;
 static bool motors_enabled = false;
 
 void loop() {
-    // ===== ÉTAPE 1: OPÉRATIONS RS485 NON-BLOQUANTES =====
-    // Ces appels peuvent bloquer 50ms, mais dans loop() c'est acceptable
+    // ===== ÉTAPE 1: GESTION DES MESSAGES USB (prioritaire) =====
+    com->handle_callback(callback_functions);
     
-    // Lecture encodeurs (50ms timeout max)
+    // ===== ÉTAPE 2: OPÉRATIONS RS485 NON-BLOQUANTES =====
+    // Ces appels peuvent bloquer ~2ms (rafale sync), mais c'est acceptable après les callbacks USB
+    
+    // Lecture encodeurs (~2ms via readAllEncodersSynced rafale synchronisée)
     if (holonomic_basis_ptr->need_read_encoders) {
         if (holonomic_basis_ptr->read_encoders_nonblocking()) {
             holonomic_basis_ptr->need_read_encoders = false;
@@ -124,7 +130,7 @@ void loop() {
         // Si timeout : retry au prochain loop()
     }
     
-    // Envoi commandes vitesse aux MKS (10ms x 3 roues = 30ms max)
+    // Envoi commandes vitesse aux MKS (~0.3ms fire & forget avec setSpeedsSynced)
     if (holonomic_basis_ptr->need_send_movement) {
         if (holonomic_basis_ptr->send_movement_commands_nonblocking()) {
             holonomic_basis_ptr->need_send_movement = false;
@@ -132,15 +138,12 @@ void loop() {
         // Si timeout : retry au prochain loop()
     }
     
-    // ===== ÉTAPE 2: MOTOR ENABLE (une seule fois) =====
+    // ===== ÉTAPE 3: MOTOR ENABLE (une seule fois) =====
     // Non-blocking motor enable on first pass (deferred from setup to avoid RS485 timeout freeze)
     if (!motors_enabled) {
         holonomic_basis_ptr->enable_motors();
         motors_enabled = true;
     }
-
-    // ===== ÉTAPE 3: GESTION DES MESSAGES USB (rapide) =====
-    com->handle_callback(callback_functions);
 
     // ===== ÉTAPE 4: TÉLÉMÉTRIE VERS PI (lente) =====
     if (counter++ > 50000) { 
