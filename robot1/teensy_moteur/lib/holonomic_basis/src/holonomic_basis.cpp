@@ -199,15 +199,17 @@ void Holonomic_Basis::set_position(double x, double y, double theta) {
 }
 
 /**
- * Accumulate sensor deltas (dx, dy, dtheta) into position
- * Called from teensy_capteur sensor data stream
- * Thread-safe: disables interrupts during critical section
+ * Queue sensor deltas (dx, dy, dtheta) from teensy_capteur.
+ * Fusion and final odometry integration are handled in update_odometry().
  */
 void Holonomic_Basis::update_from_sensor_deltas(double dx_mm, double dy_mm, double dtheta) {
-    noInterrupts(); // Critical section for atomic update
-    this->X += dx_mm / 1000.0;      // Convert mm to meters
-    this->Y += dy_mm / 1000.0;      // Convert mm to meters
-    this->THETA += dtheta;
+    uint32_t now_ms = millis();
+    noInterrupts(); // Critical section for shared buffer update
+    odo_data.pending_sensor_dx_mm += dx_mm;
+    odo_data.pending_sensor_dy_mm += dy_mm;
+    odo_data.pending_sensor_dtheta += dtheta;
+    odo_data.pending_sensor_packets++;
+    odo_data.last_sensor_packet_ms = now_ms;
     interrupts();
 }
 
@@ -366,11 +368,51 @@ void Holonomic_Basis::update_odometry() {
     if (abs(d2) < ENCODER_NOISE_THRESHOLD) d2 = 0.0;
     if (abs(d3) < ENCODER_NOISE_THRESHOLD) d3 = 0.0;
 
+    // External sensor freshness: if no packet for too long, fallback to encoders only.
+    const uint32_t SENSOR_TIMEOUT_MS = 100;
+    uint32_t now_ms = millis();
+    bool sensor_packet_recent = false;
+    uint16_t sensor_packet_count = 0;
+    double sensor_dx_world = 0.0;
+    double sensor_dy_world = 0.0;
+    double sensor_dtheta = 0.0;
+
+    if (odo_data.last_sensor_packet_ms != 0 &&
+        (now_ms - odo_data.last_sensor_packet_ms) <= SENSOR_TIMEOUT_MS) {
+        sensor_packet_recent = true;
+        sensor_packet_count = odo_data.pending_sensor_packets;
+        sensor_dx_world = odo_data.pending_sensor_dx_mm;
+        sensor_dy_world = odo_data.pending_sensor_dy_mm;
+        sensor_dtheta = odo_data.pending_sensor_dtheta;
+
+        // Consume queued deltas once per ISR cycle.
+        odo_data.pending_sensor_dx_mm = 0.0;
+        odo_data.pending_sensor_dy_mm = 0.0;
+        odo_data.pending_sensor_dtheta = 0.0;
+        odo_data.pending_sensor_packets = 0;
+    } else if (odo_data.last_sensor_packet_ms != 0 &&
+               (now_ms - odo_data.last_sensor_packet_ms) > SENSOR_TIMEOUT_MS) {
+        // Stale stream: discard pending deltas and fallback on encoders.
+        odo_data.pending_sensor_dx_mm = 0.0;
+        odo_data.pending_sensor_dy_mm = 0.0;
+        odo_data.pending_sensor_dtheta = 0.0;
+        odo_data.pending_sensor_packets = 0;
+    }
+
+    bool has_new_sensor_data = sensor_packet_recent && (sensor_packet_count > 0);
+
     //  Appel du capteur optique AVANT check encodeurs (pour avoir logs même au repos)
     bool optical_active = false;
     double dx_optical_world = 0.0;
     double dy_optical_world = 0.0;
-    if (use_optical_flow && pmw3901) {
+    if (has_new_sensor_data) {
+        // teensy_capteur already provides deltas in the robot odometry frame.
+        dx_optical_world = sensor_dx_world;
+        dy_optical_world = sensor_dy_world;
+        optical_active = true;
+    }
+
+    if (!optical_active && use_optical_flow && pmw3901) {
         double prev_acc_x = odo_data.optical_x_acc;
         double prev_acc_y = odo_data.optical_y_acc;
         
@@ -533,7 +575,13 @@ void Holonomic_Basis::update_odometry() {
     
     // Méthode 3 : IMU BNO085  
     bool theta_updated = false;
-    if (use_imu && bno085 && odo_data.imu_calibrated) {
+    if (has_new_sensor_data) {
+        // dtheta from teensy_capteur is already a delta in radians.
+        this->THETA = normalizeAngle(this->THETA + sensor_dtheta);
+        theta_updated = true;
+    }
+
+    if (!theta_updated && use_imu && bno085 && odo_data.imu_calibrated) {
         #ifdef WEBOTS_SIMULATION
             // SIMULATION : Utiliser getSensorEvent
             sh2_SensorValue_t sv;
@@ -781,10 +829,13 @@ bool Holonomic_Basis::read_encoders_nonblocking() {
     
     if (success) {
         // Stocker dans buffers pour que update_odometry() (ISR) puisse les lire
+        uint32_t now_ms = millis();
+        noInterrupts();
         odo_data.buffered_enc1 = enc1;
         odo_data.buffered_enc2 = enc2;
         odo_data.buffered_enc3 = enc3;
-        odo_data.buffer_timestamp = millis();
+        odo_data.buffer_timestamp = now_ms;
+        interrupts();
         
         #ifdef DEBUG_RS485
         static uint32_t enc_read_counter = 0;

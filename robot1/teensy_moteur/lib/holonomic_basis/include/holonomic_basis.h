@@ -108,7 +108,7 @@ class Holonomic_Basis {
     void execute_movement();
     Point get_current_position();
     void set_position(double x, double y, double theta); // Update position from sensors
-    void update_from_sensor_deltas(double dx_mm, double dy_mm, double dtheta); // Accumulate sensor variations
+    void update_from_sensor_deltas(double dx_mm, double dy_mm, double dtheta); // Queue sensor deltas for fusion in update_odometry
     void emergency_stop();
 
     // ===== ARCHITECTURE NON-BLOQUANTE : RS485 HORS ISR =====
@@ -138,6 +138,13 @@ class Holonomic_Basis {
         int64_t buffered_enc2 = 0;
         int64_t buffered_enc3 = 0;
         uint32_t buffer_timestamp = 0;  // Pour tracking validité du buffer
+
+        // Deltas reçus depuis teensy_capteur (mis à jour dans loop, consommés en ISR)
+        double pending_sensor_dx_mm = 0.0;
+        double pending_sensor_dy_mm = 0.0;
+        double pending_sensor_dtheta = 0.0;
+        uint16_t pending_sensor_packets = 0;
+        uint32_t last_sensor_packet_ms = 0;
         
         // Calibration IMU
         double imu_yaw_offset = 0.0;

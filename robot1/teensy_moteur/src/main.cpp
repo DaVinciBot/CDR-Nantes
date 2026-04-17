@@ -4,7 +4,7 @@
 #include <config.h>           // Configuration file
 
 // ============= SENSOR COMMUNICATION PROTOCOL =============
-// Receive dx, dy, dtheta from teensy_capteur via Serial1
+// Receive dx, dy, dtheta from teensy_capteur via Serial4
 #define SYNC_START 0xAA
 #define SYNC_END 0xBB
 
@@ -22,6 +22,8 @@ struct SensorPacket {
 // Sensor data reception state
 SensorPacket sensor_data = {0.0f, 0.0f, 0.0f};
 SensorPacket last_sensor_data = {0.0f, 0.0f, 0.0f};
+static bool new_sensor_packet_available = false;
+static uint32_t last_sensor_packet_ms = 0;
 
 // ============= PID CONTROLLERS =============
 // PID Controllers
@@ -144,6 +146,16 @@ void receive_sensor_data() {
                 if (byte == SYNC_END) {
                     // Valid packet received!
                     sensor_data = rx_packet;
+                    last_sensor_data = rx_packet;
+                    last_sensor_packet_ms = millis();
+                    new_sensor_packet_available = true;
+
+                    // Queue deltas in holonomic_basis; fusion happens in update_odometry() ISR.
+                    holonomic_basis_ptr->update_from_sensor_deltas(
+                        (double)rx_packet.dx,
+                        (double)rx_packet.dy,
+                        (double)rx_packet.dtheta
+                    );
                 }
                 rx_state = RX_SYNC_START;
                 break;
@@ -152,20 +164,19 @@ void receive_sensor_data() {
 }
 
 /**
- * Apply sensor data (dx, dy, dtheta) to odometry
- * Forward sensor deltas to holonomic_basis for accumulation
+ * Sensor packets are pushed to holonomic_basis directly in receive_sensor_data().
+ * This function only acknowledges new packet reception state.
  */
 void update_odometry_from_sensors() {
-    if (sensor_data.dx == 0 && sensor_data.dy == 0 && sensor_data.dtheta == 0) {
-        return; // No new data
+    if (!new_sensor_packet_available) {
+        if (last_sensor_packet_ms != 0 && (millis() - last_sensor_packet_ms) > 100) {
+            // Stream stale: holonomic_basis will fallback on encoder-only odometry.
+        }
+        return;
     }
-    
-    // Pass sensor deltas to holonomic_basis (accumulation happens there)
-    holonomic_basis_ptr->update_from_sensor_deltas(
-        (double)sensor_data.dx,
-        (double)sensor_data.dy,
-        (double)sensor_data.dtheta
-    );
+
+    // Mark as consumed; stale handling and fallback are performed in holonomic_basis.
+    new_sensor_packet_available = false;
 }
 
 void (*callback_functions[256])(byte* msg, byte size);

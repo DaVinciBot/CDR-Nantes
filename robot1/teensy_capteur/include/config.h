@@ -32,3 +32,7 @@
 //  COMMUNICATION 
 // Com baudrate
 #define BAUDRATE 115200
+
+// Lien série vers teensy_moteur
+#define MOTOR_BOARD_SERIAL Serial4
+#define MOTOR_BOARD_BAUD 115200

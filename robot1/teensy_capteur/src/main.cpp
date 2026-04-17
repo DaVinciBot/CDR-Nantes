@@ -5,7 +5,7 @@
  * - PAA5100 Optical Flow Sensor (SPI)
  * - BNO085 9-Axis IMU (I2C)
  * 
- * Sends processed sensor data (dx, dy, dtheta) to teensy_moteur via Serial1
+ * Sends processed sensor data (dx, dy, dtheta) to teensy_moteur via MOTOR_BOARD_SERIAL
  * Format: [0xAA] [dx:float] [dy:float] [dtheta:float] [0xBB] (14 bytes)
  * Rate: 100 Hz
  */
@@ -143,7 +143,7 @@ bool init_imu_sensor() {
  * Read optical sensor and convert to mm displacement (robot frame)
  * Based on holonomic_basis::update_optical_odometry()
  */
-void read_optical_sensor(float& dx, float& dy) {
+void read_optical_sensor(float& dx, float& dy, float dtheta = 0.0f) {
     if (!sensors.optical_ready) {
         dx = 0.0f;
         dy = 0.0f;
@@ -171,6 +171,10 @@ void read_optical_sensor(float& dx, float& dy) {
     float sin_mnt = sin(OPTICAL_MOUNT_ANGLE);
     dx = dx_mm * cos_mnt - dy_mm * sin_mnt;
     dy = dx_mm * sin_mnt + dy_mm * cos_mnt;
+
+    // Centrifugal compensation from robot rotation around sensor offset.
+    dx -= -OPTICAL_OFFSET_Y * dtheta;
+    dy -=  OPTICAL_OFFSET_X * dtheta;
     
     // Outlier rejection: magnitude > 15mm per cycle = impossible (max ~3mm at 100Hz)
     float magnitude = sqrt(dx*dx + dy*dy);
@@ -243,7 +247,7 @@ float read_imu_yaw() {
 // ============= PACKET TRANSMISSION =============
 
 /**
- * Send sensor data packet to teensy_moteur via Serial1
+ * Send sensor data packet to teensy_moteur via MOTOR_BOARD_SERIAL
  * Format: [0xAA] [dx:float] [dy:float] [dtheta:float] [0xBB]
  */
 void send_sensor_data(float dx, float dy, float dtheta) {
@@ -252,18 +256,18 @@ void send_sensor_data(float dx, float dy, float dtheta) {
     fby.value = dy;
     fbt.value = dtheta;
     
-    Serial1.write(SYNC_START);
-    Serial1.write(fbx.bytes, 4);
-    Serial1.write(fby.bytes, 4);
-    Serial1.write(fbt.bytes, 4);
-    Serial1.write(SYNC_END);
+    MOTOR_BOARD_SERIAL.write(SYNC_START);
+    MOTOR_BOARD_SERIAL.write(fbx.bytes, 4);
+    MOTOR_BOARD_SERIAL.write(fby.bytes, 4);
+    MOTOR_BOARD_SERIAL.write(fbt.bytes, 4);
+    MOTOR_BOARD_SERIAL.write(SYNC_END);
 }
 
 // ============= SETUP & LOOP =============
 
 void setup() {
     Serial.begin(115200);  // USB debug
-    Serial1.begin(115200); // To teensy_moteur (TX=pin 16, RX=pin 17)
+    MOTOR_BOARD_SERIAL.begin(MOTOR_BOARD_BAUD);
     
     delay(1000);
     Serial.println("\n=== teensy_capteur STARTING ===");
@@ -285,15 +289,15 @@ void loop() {
     // Read sensors
     float dx = 0.0f, dy = 0.0f, dtheta = 0.0f;
     
-    read_optical_sensor(dx, dy);
     dtheta = read_imu_yaw();
+    read_optical_sensor(dx, dy, dtheta);
     
     // Send to teensy_moteur
     send_sensor_data(dx, dy, dtheta);
     
     // Debug output (~10Hz)
     static uint32_t debug_cnt = 0;
-    if (++debug_cnt >= 20) {  // 20 cycles × 5ms = 100ms = 10Hz
+    if (++debug_cnt >= 10) {  // 10 cycles × 10ms = 100ms = 10Hz
         debug_cnt = 0;
         Serial.print("dx=");
         Serial.print(dx, 3);
@@ -307,5 +311,5 @@ void loop() {
         Serial.println(sensors.optical_outlier_count);
     }
     
-    delay(5);  // 200Hz (5ms = 2 packets per 10ms ISR cycle)
+    delay(10);  // 100Hz
 }
