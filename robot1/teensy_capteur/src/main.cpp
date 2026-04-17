@@ -33,13 +33,6 @@
 #define SYNC_START 0xAA
 #define SYNC_END 0xBB
 
-// ============= SENSOR CONSTANTS (from config.h) =============
-// Optical flow sensor calibration (adjust for real robot vs simulation)
-#define OPTICAL_SCALE 0.0423f  // Real robot: counts to mm conversion
-#define OPTICAL_MOUNT_ANGLE 0.0f  // Sensor mounting angle (rad)
-#define OPTICAL_OFFSET_X 0.0f  // Centrifuge compensation (mm)
-#define OPTICAL_OFFSET_Y 0.0f  // Centrifuge compensation (mm)
-
 // ============= SENSOR OBJECTS =============
 Bitcraze_PMW3901 pmw3901(PAA5100_CS_PIN);
 Adafruit_BNO08x bno085(BNO085_RESET_PIN);

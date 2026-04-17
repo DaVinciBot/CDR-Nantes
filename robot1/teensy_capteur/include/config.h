@@ -19,6 +19,10 @@
 
 #define HAUTEUR_MM 25.0   // Hauteur du capteur par rapport au sol (mm)
 #define SEUIL_BRUIT 2     // Seuil de bruit pour filtrage capteur optique
+#define OPTICAL_SCALE 0.0423f  // Real robot: counts to mm conversion
+#define OPTICAL_MOUNT_ANGLE 0.0f  // Sensor mounting angle (rad)
+#define OPTICAL_OFFSET_X 0.0f  // Centrifuge compensation (mm)
+#define OPTICAL_OFFSET_Y 0.0f  // Centrifuge compensation (mm)
 
 //  ROBOT GEOMETRY 
 #define ROBOT_RADIUS 156.9  // mm - Distance du centre aux roues
