@@ -21,24 +21,17 @@
 #define W2_RX_PIN       7
 #define W2_ADDR         0x01
 
-//MOTEUR W3 — Serial3 (Arrière 0°)
+//MOTEUR W3 — Serial6 (Arrière 0°)
 #define W3_SERIAL       Serial6
 #define W3_TX_PIN       24
 #define W3_RX_PIN       25
 #define W3_ADDR         0x01
 
-//  SENSORS PINS 
-// IMU BNO085 (I2C)  
-#define PIN_SDA 18
-#define PIN_SCL 19
-#define BNO085_RESET_PIN -1  // -1 si relié au Reset de la Teensy ou non utilisé
-
-// Capteur optique PAA5100/PMW3901 (SPI)
-#define PAA5100_CS_PIN 10
-// MOSI = 11, MISO = 12, SCK = 13 (Obligatoire, géré par le matériel)
-
-#define HAUTEUR_MM 25.0   // Hauteur du capteur par rapport au sol (mm)
-#define SEUIL_BRUIT 2     // Seuil de bruit pour filtrage capteur optique
+// ====== SENSOR BOARD (teensy_capteur) COMMUNICATION ======
+// teensy_capteur TX1 (pin 16) → teensy_moteur Serial4 RX (pin 15)
+// teensy_capteur RX1 (pin 17) ← teensy_moteur Serial4 TX (pin 14) [optional]
+#define SENSOR_BOARD_SERIAL  Serial4
+#define SENSOR_BOARD_BAUD    115200
 
 // MKS CONFIGURATION 
 #define MKS_BAUDRATE 115200

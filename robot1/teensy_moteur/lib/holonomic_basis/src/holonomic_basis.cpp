@@ -186,6 +186,31 @@ Point Holonomic_Basis::get_current_position() {
     return position;
 }
 
+/**
+ * Update robot position (for sensor fusion from teensy_capteur)
+ * Thread-safe: disables interrupts during critical section
+ */
+void Holonomic_Basis::set_position(double x, double y, double theta) {
+    noInterrupts(); // Critical section for atomic update
+    this->X = x;
+    this->Y = y;
+    this->THETA = theta;
+    interrupts();
+}
+
+/**
+ * Accumulate sensor deltas (dx, dy, dtheta) into position
+ * Called from teensy_capteur sensor data stream
+ * Thread-safe: disables interrupts during critical section
+ */
+void Holonomic_Basis::update_from_sensor_deltas(double dx_mm, double dy_mm, double dtheta) {
+    noInterrupts(); // Critical section for atomic update
+    this->X += dx_mm / 1000.0;      // Convert mm to meters
+    this->Y += dy_mm / 1000.0;      // Convert mm to meters
+    this->THETA += dtheta;
+    interrupts();
+}
+
 // FONCTION PRINCIPALE - ODOMÉTRIE OPTIQUE
 void Holonomic_Basis::update_optical_odometry(double dtheta_robot) {
     if (!pmw3901) return;

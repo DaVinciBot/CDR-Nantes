@@ -3,6 +3,27 @@
 #include <holonomic_basis.h>  // Holonomic Basis with MKS RS485
 #include <config.h>           // Configuration file
 
+// ============= SENSOR COMMUNICATION PROTOCOL =============
+// Receive dx, dy, dtheta from teensy_capteur via Serial1
+#define SYNC_START 0xAA
+#define SYNC_END 0xBB
+
+union FloatBytes {
+    float value;
+    uint8_t bytes[4];
+};
+
+struct SensorPacket {
+    float dx;
+    float dy;
+    float dtheta;
+};
+
+// Sensor data reception state
+SensorPacket sensor_data = {0.0f, 0.0f, 0.0f};
+SensorPacket last_sensor_data = {0.0f, 0.0f, 0.0f};
+
+// ============= PID CONTROLLERS =============
 // PID Controllers
 PID x_pid(KP_X, KI_X, KD_X, -MAX_SPEED_RPM, MAX_SPEED_RPM, 5.0);
 PID y_pid(KP_Y, KI_Y, KD_Y, -MAX_SPEED_RPM, MAX_SPEED_RPM, 5.0);
@@ -60,6 +81,93 @@ void reset_teensy(byte* msg, byte size) {
     reboot(); // Reset Hardware ARM
 }
 
+// ============= SENSOR DATA RECEPTION =============
+
+/**
+ * Non-blocking reception of sensor packet from teensy_capteur
+ * Expected format: [0xAA] [dx:float] [dy:float] [dtheta:float] [0xBB]
+ * Total: 14 bytes
+ */
+enum RxState {
+    RX_SYNC_START,
+    RX_DX,
+    RX_DY,
+    RX_DTHETA,
+    RX_SYNC_END
+};
+
+static RxState rx_state = RX_SYNC_START;
+static FloatBytes rx_buffer;
+static uint8_t rx_byte_count = 0;
+static SensorPacket rx_packet;
+
+void receive_sensor_data() {
+    while (SENSOR_BOARD_SERIAL.available()) {
+        uint8_t byte = SENSOR_BOARD_SERIAL.read();
+        
+        switch (rx_state) {
+            case RX_SYNC_START:
+                if (byte == SYNC_START) {
+                    rx_state = RX_DX;
+                    rx_byte_count = 0;
+                }
+                break;
+            
+            case RX_DX:
+                rx_buffer.bytes[rx_byte_count++] = byte;
+                if (rx_byte_count == 4) {
+                    rx_packet.dx = rx_buffer.value;
+                    rx_state = RX_DY;
+                    rx_byte_count = 0;
+                }
+                break;
+            
+            case RX_DY:
+                rx_buffer.bytes[rx_byte_count++] = byte;
+                if (rx_byte_count == 4) {
+                    rx_packet.dy = rx_buffer.value;
+                    rx_state = RX_DTHETA;
+                    rx_byte_count = 0;
+                }
+                break;
+            
+            case RX_DTHETA:
+                rx_buffer.bytes[rx_byte_count++] = byte;
+                if (rx_byte_count == 4) {
+                    rx_packet.dtheta = rx_buffer.value;
+                    rx_state = RX_SYNC_END;
+                    rx_byte_count = 0;
+                }
+                break;
+            
+            case RX_SYNC_END:
+                if (byte == SYNC_END) {
+                    // Valid packet received!
+                    sensor_data = rx_packet;
+                }
+                rx_state = RX_SYNC_START;
+                break;
+        }
+    }
+}
+
+/**
+ * Apply sensor data (dx, dy, dtheta) to odometry
+ * Forward sensor deltas to holonomic_basis for accumulation
+ */
+void update_odometry_from_sensors() {
+    if (sensor_data.dx == 0 && sensor_data.dy == 0 && sensor_data.dtheta == 0) {
+        return; // No new data
+    }
+    
+    // Pass sensor deltas to holonomic_basis (accumulation happens there)
+    holonomic_basis_ptr->update_from_sensor_deltas(
+        (double)sensor_data.dx,
+        (double)sensor_data.dy,
+        (double)sensor_data.dtheta
+    );
+}
+
 void (*callback_functions[256])(byte* msg, byte size);
 
 void initialize_callback_functions() {
@@ -89,6 +197,10 @@ void interruption_compute() {
 void setup() {
     // Initialisation communication
     com = new Com(&Serial, BAUDRATE);
+    
+    // Initialisation communication avec teensy_capteur (Serial4 = pins 16-17)
+    // teensy_capteur TX (pin 16) → teensy_moteur Serial4 RX (pin 16)
+    SENSOR_BOARD_SERIAL.begin(SENSOR_BOARD_BAUD);
 
     // Configuration des moteurs RS485
     holonomic_basis_ptr->define_wheel1(W1_SERIAL, W1_ADDR);
@@ -116,6 +228,11 @@ uint_fast32_t counter = 0;
 static bool motors_enabled = false;
 
 void loop() {
+    // ===== ÉTAPE 0: RÉCEPTION CAPTEURS (non-bloquant) =====
+    // Lire les données du teensy_capteur (optical + IMU)
+    receive_sensor_data();
+    update_odometry_from_sensors();
+    
     // ===== ÉTAPE 1: GESTION DES MESSAGES USB (prioritaire) =====
     com->handle_callback(callback_functions);
     

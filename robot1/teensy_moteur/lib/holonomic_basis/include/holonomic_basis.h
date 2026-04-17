@@ -107,6 +107,8 @@ class Holonomic_Basis {
     void run_motors();        // Obsolète (gardé pour compatibilité)
     void execute_movement();
     Point get_current_position();
+    void set_position(double x, double y, double theta); // Update position from sensors
+    void update_from_sensor_deltas(double dx_mm, double dy_mm, double dtheta); // Accumulate sensor variations
     void emergency_stop();
 
     // ===== ARCHITECTURE NON-BLOQUANTE : RS485 HORS ISR =====
