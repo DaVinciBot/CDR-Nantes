@@ -19,12 +19,6 @@ struct SensorPacket {
     float dtheta;
 };
 
-// Sensor data reception state
-SensorPacket sensor_data = {0.0f, 0.0f, 0.0f};
-SensorPacket last_sensor_data = {0.0f, 0.0f, 0.0f};
-static bool new_sensor_packet_available = false;
-static uint32_t last_sensor_packet_ms = 0;
-
 // ============= PID CONTROLLERS =============
 // PID Controllers
 PID x_pid(KP_X, KI_X, KD_X, -MAX_SPEED_RPM, MAX_SPEED_RPM, 5.0);
@@ -145,11 +139,6 @@ void receive_sensor_data() {
             case RX_SYNC_END:
                 if (byte == SYNC_END) {
                     // Valid packet received!
-                    sensor_data = rx_packet;
-                    last_sensor_data = rx_packet;
-                    last_sensor_packet_ms = millis();
-                    new_sensor_packet_available = true;
-
                     // Queue deltas in holonomic_basis; fusion happens in update_odometry() ISR.
                     holonomic_basis_ptr->update_from_sensor_deltas(
                         (double)rx_packet.dx,
@@ -161,22 +150,6 @@ void receive_sensor_data() {
                 break;
         }
     }
-}
-
-/**
- * Sensor packets are pushed to holonomic_basis directly in receive_sensor_data().
- * This function only acknowledges new packet reception state.
- */
-void update_odometry_from_sensors() {
-    if (!new_sensor_packet_available) {
-        if (last_sensor_packet_ms != 0 && (millis() - last_sensor_packet_ms) > 100) {
-            // Stream stale: holonomic_basis will fallback on encoder-only odometry.
-        }
-        return;
-    }
-
-    // Mark as consumed; stale handling and fallback are performed in holonomic_basis.
-    new_sensor_packet_available = false;
 }
 
 void (*callback_functions[256])(byte* msg, byte size);
@@ -221,9 +194,8 @@ void setup() {
     // Initialisation moteurs et base holonome
     holonomic_basis_ptr->init_motors();
     holonomic_basis_ptr->init_holonomic_basis(START_X, START_Y, START_THETA);
-    
-    // Initialisation des capteurs (PMW3901, BNO085)
-    //holonomic_basis_ptr->init_sensors();
+
+    // Capteurs gérés par teensy_capteur (données reçues sur Serial4)
 
     // Initialisation des callbacks BEFORE starting timer
     initialize_callback_functions();
@@ -235,14 +207,13 @@ void setup() {
 }
 
 
-uint_fast32_t counter = 0;
 static bool motors_enabled = false;
+static uint32_t last_telemetry_ms = 0;
 
 void loop() {
     // ===== ÉTAPE 0: RÉCEPTION CAPTEURS (non-bloquant) =====
     // Lire les données du teensy_capteur (optical + IMU)
     receive_sensor_data();
-    update_odometry_from_sensors();
     
     // ===== ÉTAPE 1: GESTION DES MESSAGES USB (prioritaire) =====
     com->handle_callback(callback_functions);
@@ -274,7 +245,8 @@ void loop() {
     }
 
     // ===== ÉTAPE 4: TÉLÉMÉTRIE VERS PI (lente) =====
-    if (counter++ > 50000) { 
+    if ((millis() - last_telemetry_ms) >= 20) { // 50 Hz deterministic telemetry
+        last_telemetry_ms = millis();
         msg_update_rolling_basis odo_msg;
         Point current = holonomic_basis_ptr->get_current_position();
         
@@ -283,6 +255,5 @@ void loop() {
         odo_msg.theta = current.theta;
 
         com->send_msg((byte*)&odo_msg, sizeof(msg_update_rolling_basis));
-        counter = 0;
     }
 }
