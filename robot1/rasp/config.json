@@ -15,8 +15,8 @@
         }
     },
     "serial_config": {
-        "port": "COM1",
-        "serial_number": null,
+        "port": null,
+        "serial_number": "AUTO",
         "vid": null,
         "pid": null,
         "baudrate": 115200,

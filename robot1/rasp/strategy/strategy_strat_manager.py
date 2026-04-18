@@ -2,8 +2,9 @@
 strat_manager.py
 La machine à états qui dicte les missions du robot.
 """
+import time
 import logging
-from .actions import Action, TypeAction
+from .strategy_actions import Action, TypeAction
 
 class StratManager:
     def __init__(self, couleur_equipe: str):

@@ -286,7 +286,7 @@ def main():
 
     if args.mode == "serve":
         rr.serve_web(open_browser=False, web_port=args.port)
-        print(f"" Webots map sur http://localhost:{args.port}")
+        print(f"Webots map sur http://localhost:{args.port}")
 
     if args.output:
         rr.save(args.output)

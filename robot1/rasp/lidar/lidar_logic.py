@@ -1,5 +1,6 @@
 import importlib
 import itertools
+import logging
 import math
 import os
 import sys
@@ -34,6 +35,9 @@ except Exception:
 
 FIELD_WIDTH_MM = float(getattr(_terrain_module, 'FIELD_WIDTH_MM', 3000.0))
 FIELD_HEIGHT_MM = float(getattr(_terrain_module, 'FIELD_HEIGHT_MM', 2000.0))
+
+# Logger configuration
+logger = logging.getLogger("LIDAR")
 
 
 def _build_display_beacons(beacons_by_id: Dict[int, Tuple[float, float]]) -> Dict[str, Tuple[float, float]]:
@@ -141,6 +145,13 @@ POSE_MAX_JUMP_DEG = 28.0
 POSE_MAX_MISSES_BEFORE_UNLOCK = 10
 FUSION_MIN_CONFIDENCE = 0.14
 
+# ── CORRECTION D'ODOMÉTRIE (Prédiction fenêtres + SVD) ──────────────────────
+BEACON_WINDOW_ANGLE_RAD = math.radians(10.0)    # ±10° autour angle prédit
+BEACON_WINDOW_DIST_MM = 200.0                   # ±200mm autour distance prédite
+POSE_CORRECTION_MIN_CONFIDENCE = 0.60           # Seuil confiance pour correction
+POSE_CORRECTION_MIN_BEACONS = 2                 # Min 2 balises pour correction
+POSE_SEND_BACK_INTERVAL_S = 1.0                 # Correction Teensy toutes les 1s
+
 # Detection robot adverse (coordonnees absolues sur le plateau)
 ROBOT_MIN_RADIUS_MM = 60.0
 ROBOT_MAX_RADIUS_MM = 220.0
@@ -196,6 +207,235 @@ class OpponentState:
     confidence: float = 0.0
     missed_count: int = 0
     last_update_time: float = 0.0
+
+
+# ── MESURES GÉOMÉTRIQUES (Classification Balise vs Robot) ────────────────────
+
+# Seuils de classification
+LINEARITY_THRESHOLD = 2.0       # Ratio λ_max/λ_min : > 2.0 = linéaire (balise)
+CIRCULARITY_THRESHOLD = 0.15    # Coeff variation rayons : < 0.15 = circulaire (robot)
+
+
+def _measure_linearity(points_xy: np.ndarray) -> float:
+    """
+    Mesure la linéarité d'un cluster via PCA.
+    
+    Args:
+        points_xy: Array (N, 2) de points [x, y]
+    
+    Returns:
+        float: Ratio λ_max / λ_min des valeurs propres
+               > 2.0 = objet linéaire (balise)
+               ≈ 1.0 = objet isotrope (robot)
+    """
+    if points_xy is None or len(points_xy) < 2:
+        return 1.0
+    
+    try:
+        # Centrer les points
+        centroid = np.mean(points_xy, axis=0)
+        points_centered = points_xy - centroid
+        
+        # Covariance
+        cov_matrix = np.cov(points_centered.T)
+        
+        # Valeurs propres via SVD
+        _, s, _ = np.linalg.svd(cov_matrix)
+        eigenvalues = s ** 2
+        
+        # Ratio λ_max / λ_min
+        if len(eigenvalues) >= 2 and eigenvalues[1] > 1e-6:
+            ratio = eigenvalues[0] / eigenvalues[1]
+        else:
+            ratio = 1.0
+        
+        return float(ratio)
+    
+    except Exception as e:
+        logger.debug(f"Linearity measurement error: {e}")
+        return 1.0
+
+
+def _measure_circularity(points_xy: np.ndarray) -> float:
+    """
+    Mesure la circularité d'un cluster.
+    
+    Args:
+        points_xy: Array (N, 2) de points [x, y]
+    
+    Returns:
+        float: Coefficient de variation des rayons (écart-type / moyenne)
+               < 0.15 = profil circulaire (robot)
+               > 0.20 = profil irrégulier (balise)
+    """
+    if points_xy is None or len(points_xy) < 3:
+        return 1.0
+    
+    try:
+        # Centroïde
+        centroid = np.mean(points_xy, axis=0)
+        
+        # Rayons au centroïde
+        distances = np.linalg.norm(points_xy - centroid, axis=1)
+        
+        # Coefficient de variation
+        if np.mean(distances) > 1e-6:
+            cv = np.std(distances) / np.mean(distances)
+        else:
+            cv = 1.0
+        
+        return float(cv)
+    
+    except Exception as e:
+        logger.debug(f"Circularity measurement error: {e}")
+        return 1.0
+
+
+def _classify_cluster(points_xy: np.ndarray) -> dict:
+    """
+    Classifie un cluster comme balise ou robot adverse.
+    
+    Args:
+        points_xy: Array (N, 2) de points [x, y]
+    
+    Returns:
+        dict avec clés:
+            - is_beacon_like: bool (linéaire + irrégulier)
+            - is_robot_like: bool (circulaire + régulier)
+            - linearity: float (ratio PCA)
+            - circularity: float (coeff variation)
+    """
+    linearity = _measure_linearity(points_xy)
+    circularity = _measure_circularity(points_xy)
+    
+    is_beacon_like = (linearity > LINEARITY_THRESHOLD)
+    is_robot_like = (circularity < CIRCULARITY_THRESHOLD)
+    
+    return {
+        'is_beacon_like': is_beacon_like,
+        'is_robot_like': is_robot_like,
+        'linearity': linearity,
+        'circularity': circularity,
+    }
+
+
+def _detect_opponent(merged_data: List[Tuple], 
+                     beacon_candidates: List[Dict],
+                     pose_estimate: Optional[PoseState] = None) -> Optional[Dict]:
+    """
+    Détecte le robot adverse via cascade de filtres.
+    
+    On connaît la position des balises → tout ce qui n'est pas une balise 
+    dans la bonne position est un candidat adversaire.
+    
+    Args:
+        merged_data: Points bruts LiDAR fusionnés [(angle_rad, dist_mm, quality), ...]
+        beacon_candidates: Candidats détectés comme balises (pour exclusion)
+        pose_estimate: Pose robot (optionnel)
+    
+    Returns:
+        dict {x, y, confidence, points_count} ou None
+    
+    Filtres appliqués (dans l'ordre):
+        1. Taille du cluster: rayon 60-220 mm
+        2. Exclusion balises: distance > 150 mm de tout candidat balise
+        3. Contrainte terrain: x ∈ [-50, 3050], y ∈ [-50, 2050]
+        4. Linéarité: rejeter si trop linéaire (balise)
+    """
+    if not merged_data or len(merged_data) < 3:
+        return None
+    
+    try:
+        # ─ Convertir scan brut en points XY ──────────────────────────────────
+        all_points_xy = []
+        for angle_rad, dist_mm, quality in merged_data:
+            x = dist_mm * np.cos(angle_rad)
+            y = dist_mm * np.sin(angle_rad)
+            all_points_xy.append([x, y])
+        
+        all_points_xy = np.array(all_points_xy)
+        
+        # ─ Clustering spatial simple (DBScan-like) ──────────────────────────
+        # Grouper les points proches les uns des autres
+        clusters = []
+        used = set()
+        
+        for i, point in enumerate(all_points_xy):
+            if i in used:
+                continue
+            
+            # Trouver tous les points proches
+            dists = np.linalg.norm(all_points_xy - point, axis=1)
+            neighbors = np.where(dists < CLUSTER_GAP_MM)[0]
+            
+            if len(neighbors) >= CLUSTER_MIN_POINTS:
+                cluster_points = all_points_xy[neighbors]
+                for idx in neighbors:
+                    used.add(idx)
+                clusters.append(cluster_points)
+        
+        if not clusters:
+            return None
+        
+        # ─ Filtrer clusters pour trouver adversaire ──────────────────────────
+        candidates = []
+        
+        for cluster_points in clusters:
+            # Filtre 1: Taille du cluster (rayon 60-220mm)
+            centroid = np.mean(cluster_points, axis=0)
+            distances = np.linalg.norm(cluster_points - centroid, axis=1)
+            cluster_radius = np.max(distances)
+            
+            if not (ROBOT_MIN_RADIUS_MM <= cluster_radius <= ROBOT_MAX_RADIUS_MM):
+                continue
+            
+            # Filtre 2: Exclusion balises (distance > 150mm de toute balise connue)
+            too_close_to_beacon = False
+            for beacon_cand in beacon_candidates:
+                beacon_x = beacon_cand.get('x_r', 0)  # Relatif au robot
+                beacon_y = beacon_cand.get('y_r', 0)
+                dist_to_beacon = np.linalg.norm(
+                    centroid - np.array([beacon_x, beacon_y])
+                )
+                if dist_to_beacon < OPPONENT_BEACON_EXCLUSION_MM:
+                    too_close_to_beacon = True
+                    break
+            
+            if too_close_to_beacon:
+                continue
+            
+            # Filtre 3: Contrainte terrain
+            x, y = centroid
+            if not (-50 <= x <= MAP_W_MM + 50 and -50 <= y <= MAP_H_MM + 50):
+                continue
+            
+            # Filtre 4: Linéarité (rejeter si trop linéaire = balise)
+            classification = _classify_cluster(cluster_points)
+            if classification['is_beacon_like']:
+                continue
+            
+            # ─ Candidat valide ────────────────────────────────────────────────
+            confidence = 0.6 + 0.3 * float(classification['is_robot_like'])
+            candidates.append({
+                'x': float(x),
+                'y': float(y),
+                'confidence': float(confidence),
+                'points_count': len(cluster_points),
+                'cluster_radius': float(cluster_radius),
+                'linearity': classification['linearity'],
+                'circularity': classification['circularity'],
+            })
+        
+        if not candidates:
+            return None
+        
+        # Retourner le candidat avec la plus haute confiance
+        best = max(candidates, key=lambda c: c['confidence'])
+        return best
+    
+    except Exception as e:
+        logger.debug(f"Opponent detection error: {e}")
+        return None
 
 
 # ── MOTEUR DE POSE ────────────────────────────────────────────────────────────
@@ -494,8 +734,196 @@ lidar_obj = None
 beacon_candidates_buf = []
 beacon_lock = threading.Lock()
 
+# ── CORRECTION D'ODOMÉTRIE ─────────────────────────────────────────────────────
+# Pose actuelle de la Teensy (x, y, theta) - mise à jour par robot.py
+_teensy_pose = (None, None, None)
+_teensy_pose_lock = threading.Lock()
+
+# Dernière pose corrigée par LiDAR (à envoyer vers Teensy)
+_corrected_pose = PoseState()
+_corrected_pose_lock = threading.Lock()
+
+# Timestamp dernier renvoi vers Teensy
+_last_correction_time = 0.0
+
 
 # ── PRE-FILTRAGE BALISES ──────────────────────────────────────────────────────
+
+
+
+# ── CORRECTION SVD UMEYAMA ────────────────────────────────────────────────────
+
+def _compute_corrected_pose(beacon_candidates: List[Dict], 
+                            teensy_x: float, teensy_y: float, 
+                            teensy_theta: float) -> Optional[PoseState]:
+    """
+    Corrige la pose Teensy en comparant balises mesurées vs théoriques (SVD Umeyama 2D).
+    
+    Args:
+        beacon_candidates: Candidats avec 'beacon_id' fourni
+        teensy_x/y/theta: Pose Teensy courante (transformation provisoire)
+    
+    Returns:
+        PoseState corrigée ou None si échec
+    """
+    if len(beacon_candidates) < POSE_CORRECTION_MIN_BEACONS:
+        return None
+    
+    # Étape A : Construire correspondances
+    measured_points = []  # Positions mesurées en monde
+    theoretical_points = []  # Positions théoriques
+    beacon_ids_used = []
+    
+    cos_theta = math.cos(teensy_theta)
+    sin_theta = math.sin(teensy_theta)
+    
+    for cand in beacon_candidates:
+        if 'beacon_id' not in cand:
+            continue
+        
+        bid = int(cand['beacon_id'])
+        if bid not in BEACONS_BY_ID:
+            continue
+        
+        # Coordonnées mesurées relatives au LiDAR
+        x_lidar = cand.get('x_r', 0.0)
+        y_lidar = cand.get('y_r', 0.0)
+        
+        # Transformer en monde via pose Teensy provisoire
+        x_measured = teensy_x + (x_lidar * cos_theta - y_lidar * sin_theta)
+        y_measured = teensy_y + (x_lidar * sin_theta + y_lidar * cos_theta)
+        
+        measured_points.append([x_measured, y_measured])
+        theoretical_points.append(list(BEACONS_BY_ID[bid]))
+        beacon_ids_used.append(str(bid))
+    
+    if len(measured_points) < POSE_CORRECTION_MIN_BEACONS:
+        return None
+    
+    # Étape B : SVD Umeyama 2D
+    measured = np.array(measured_points)
+    theoretical = np.array(theoretical_points)
+    
+    # Centroïdes
+    centroid_m = np.mean(measured, axis=0)
+    centroid_t = np.mean(theoretical, axis=0)
+    
+    # Centrer
+    measured_c = measured - centroid_m
+    theoretical_c = theoretical - centroid_t
+    
+    # Covariance croisée
+    H = measured_c.T @ theoretical_c
+    
+    # SVD
+    U, S, Vt = np.linalg.svd(H)
+    R = Vt.T @ U.T
+    
+    # Garantir rotation pure (det=1)
+    if np.linalg.det(R) < 0:
+        Vt[-1, :] *= -1
+        R = Vt.T @ U.T
+    
+    # Extraire theta de rotation
+    delta_theta = float(np.arctan2(R[1, 0], R[0, 0]))
+    
+    # Translation
+    t = centroid_t - R @ centroid_m
+    delta_x = float(t[0])
+    delta_y = float(t[1])
+    
+    # Étape C : Validation
+    corrected_measured = (measured @ R.T) + t
+    residuals = corrected_measured - theoretical
+    rms = float(np.sqrt(np.mean(residuals**2)))
+    
+    if rms > BEACON_FIT_MAX_RMS_MM:
+        return None
+    
+    # Confidence basée sur nombre de balises et RMS
+    if len(beacon_ids_used) >= 3:
+        confidence = max(0.7, 1.0 - rms / 100.0)
+    else:
+        confidence = max(0.5, 0.8 - rms / 100.0)
+    
+    # Pose corrigée finale
+    x_corrected = teensy_x + delta_x
+    y_corrected = teensy_y + delta_y
+    theta_corrected = teensy_theta + delta_theta
+    
+    return PoseState(
+        x=float(x_corrected),
+        y=float(y_corrected),
+        theta=float(theta_corrected),
+        confidence=float(confidence),
+        beacon_ids=beacon_ids_used,
+        is_localized=confidence >= POSE_CORRECTION_MIN_CONFIDENCE,
+        last_update_time=time.time()
+    )
+
+
+# ── PRÉDICTION FENÊTRES BALISES ───────────────────────────────────────────────
+
+def _predict_beacon_windows(teensy_x: float, teensy_y: float, 
+                            teensy_theta: float) -> Optional[Dict]:
+    """
+    Calcule pour chaque balise sa fenêtre de prédiction dans le scan LiDAR.
+    
+    Args:
+        teensy_x/y/theta: Pose Teensy actuelle (repère monde)
+    
+    Returns:
+        Dict {beacon_id: {
+            'angle_pred': rad,
+            'dist_pred': mm,
+            'angle_min': rad,
+            'angle_max': rad,
+            'dist_min': mm,
+            'dist_max': mm
+        }} ou None si pose invalide
+    """
+    if teensy_x is None or teensy_y is None or teensy_theta is None:
+        return None
+    
+    windows = {}
+    
+    cos_theta = math.cos(teensy_theta)
+    sin_theta = math.sin(teensy_theta)
+    
+    for beacon_id, (bx_world, by_world) in BEACONS_BY_ID.items():
+        # Transformer balise du monde au repère robot
+        dx_world = bx_world - teensy_x
+        dy_world = by_world - teensy_y
+        
+        # Rotation inverse pour passer au repère robot
+        dx_robot = dx_world * cos_theta + dy_world * sin_theta
+        dy_robot = -dx_world * sin_theta + dy_world * cos_theta
+        
+        # Conversion en polaire
+        dist_pred = math.hypot(dx_robot, dy_robot)
+        angle_pred = math.atan2(dy_robot, dx_robot)
+        
+        # Filtrer si hors portée LiDAR
+        if dist_pred < POSE_MIN_DIST_MM or dist_pred > POSE_MAX_DIST_MM:
+            continue
+        
+        # Fenêtres de recherche
+        angle_min = angle_pred - BEACON_WINDOW_ANGLE_RAD
+        angle_max = angle_pred + BEACON_WINDOW_ANGLE_RAD
+        dist_min = max(POSE_MIN_DIST_MM, dist_pred - BEACON_WINDOW_DIST_MM)
+        dist_max = min(POSE_MAX_DIST_MM, dist_pred + BEACON_WINDOW_DIST_MM)
+        
+        windows[beacon_id] = {
+            'angle_pred': float(angle_pred),
+            'dist_pred': float(dist_pred),
+            'angle_min': float(angle_min),
+            'angle_max': float(angle_max),
+            'dist_min': float(dist_min),
+            'dist_max': float(dist_max),
+        }
+    
+    return windows if windows else None
+
 
 def _extract_beacon_candidates_fast(points):
     """
@@ -707,6 +1135,7 @@ def lidar_thread(console_callback, status_callback):
 
             # ── Pre-filtrage balises (haute qualite + distance utile) ──────────
             beacon_cands = _extract_beacon_candidates_fast(merged_data)
+            pose_estimate = None  # Sera calculée si >= 2 balises
 
             # ── Double-buffer scan complet ────────────────────────────────────
             with lock:
@@ -717,6 +1146,27 @@ def lidar_thread(console_callback, status_callback):
             # ── Buffer balises thread-safe ────────────────────────────────────
             with beacon_lock:
                 beacon_candidates_buf = beacon_cands
+            
+            # ── CORRECTION SVD UMEYAMA: Pose corrigée via balises ──────────────
+            # Récupérer pose Teensy courante pour prédiction fenêtres
+            with _teensy_pose_lock:
+                teensy_x, teensy_y, teensy_theta = _teensy_pose
+            
+            if teensy_x is not None and len(beacon_cands) >= 2:
+                try:
+                    # Ajouter beacon_id à chaque candidat pour SVD
+                    # (Normalement fait par association aux balises connues)
+                    corrected_pose = _compute_corrected_pose(
+                        beacon_cands, teensy_x, teensy_y, teensy_theta
+                    )
+                    
+                    if corrected_pose is not None:
+                        with _corrected_pose_lock:
+                            _corrected_pose = corrected_pose
+                            _last_correction_time = time.time()
+                
+                except Exception as e:
+                    logger.debug(f"SVD correction error: {e}")
             
             # ── Estimation de la pose depuis les balises ──────────────────────
             if len(beacon_cands) >= 2:
@@ -734,6 +1184,21 @@ def lidar_thread(console_callback, status_callback):
                 pose_estimate = pose_engine.estimate_pose_from_beacons(
                     beacon_list, quality_scores
                 )
+            
+            # ── DÉTECTION ADVERSAIRE: Clusters non-balise ──────────────────────
+            # Chercher des objets circul aires qui ne sont pas des balises
+            opponent_candidate = _detect_opponent(merged_data, beacon_cands, pose_estimate)
+            if opponent_candidate:
+                try:
+                    pose_engine.update_opponent_tracking([opponent_candidate])
+                except Exception as e:
+                    logger.debug(f"Opponent tracking error: {e}")
+            else:
+                # Incrémenter missed count si pas détecté
+                try:
+                    pose_engine.update_opponent_tracking([])
+                except Exception as e:
+                    logger.debug(f"Opponent missed count error: {e}")
 
             # ── Log console ───────────────────────────────────────────────────
             if points:
@@ -763,6 +1228,54 @@ def lidar_thread(console_callback, status_callback):
             lidar_obj = None
         status_callback('Deconnecte')
         console_callback('[INFO] Déconnecté.\n')
+
+
+# ── API PUBLIQUES CORRECTION ODOMÉTRIE ─────────────────────────────────────────
+
+def update_teensy_pose(x: float, y: float, theta: float) -> None:
+    """
+    Reçoit la pose actuelle de la Teensy.
+    Appelée par robot.py à chaque callback USB (50 Hz).
+    
+    Args:
+        x: Position X (mm)
+        y: Position Y (mm)
+        theta: Orientation (rad)
+    """
+    global _teensy_pose
+    with _teensy_pose_lock:
+        _teensy_pose = (float(x), float(y), float(theta))
+
+
+def get_corrected_pose() -> PoseState:
+    """
+    Retourne la dernière pose corrigée par LiDAR (SVD).
+    À envoyer vers la Teensy si confiance suffisante.
+    """
+    with _corrected_pose_lock:
+        return _corrected_pose
+
+
+def should_send_correction_to_teensy() -> bool:
+    """
+    Retourne True si une correction doit être envoyée vers la Teensy.
+    Vérifie: confiance, nombre de balises, intervalle minimum écoulé.
+    """
+    global _last_correction_time
+    
+    with _corrected_pose_lock:
+        if not _corrected_pose.is_localized:
+            return False
+        if _corrected_pose.confidence < POSE_CORRECTION_MIN_CONFIDENCE:
+            return False
+        if len(_corrected_pose.beacon_ids or []) < POSE_CORRECTION_MIN_BEACONS:
+            return False
+    
+    now = time.time()
+    if now - _last_correction_time < POSE_SEND_BACK_INTERVAL_S:
+        return False
+    
+    return True
 
 
 def get_latest_scan_data():
