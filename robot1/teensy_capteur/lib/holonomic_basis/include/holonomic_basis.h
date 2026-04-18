@@ -8,6 +8,18 @@
 #include "structures.h"
 #include <com.h>
 
+#ifdef WEBOTS_SIMULATION
+    // Mode simulation : Mocks
+    #include "Mock_PAA5100.h"
+    #include "Mock_BNO085.h"
+    // Les encodeurs MKS sont gérés par fake_stepper.cpp
+#else
+    // Mode robot réel : Vraies librairies
+    #include <Bitcraze_PMW3901.h>      // Capteur optique
+    #include <Adafruit_BNO08x.h>      // IMU
+    #include <Adafruit_Sensor.h> 
+#endif
+
 class Holonomic_Basis {
    public:
    //Odométrie 
@@ -15,8 +27,16 @@ class Holonomic_Basis {
     double Y = 0.0;
     double THETA = 0.0;
 
-    bool use_encoders = true;
-    bool use_pid_control = false;
+    bool use_encoders = true;       
+    bool use_optical_flow = false; 
+    bool use_imu = false;            
+    bool use_pid_control = false;    
+
+
+    const double OPTICAL_SCALE = 1.0; // 1.0 Pour webots sinon 0.0423 ( a redefinir) pour réel
+    const double OPTICAL_OFFSET_X = 0.0; // mm
+    const double OPTICAL_OFFSET_Y = 0.0; // mm
+    const double OPTICAL_MOUNT_ANGLE = 0.0; // rad
 
     // PID controllers (3 for X, Y, THETA)
     PID x_pid;
@@ -30,6 +50,15 @@ class Holonomic_Basis {
     MKSServo* wheel2;  // Front-left wheel (240°)
     MKSServo* wheel3;  // Back wheel (0°)
     MKSGroup* mksGroup;
+    // Capteurs
+    #ifdef WEBOTS_SIMULATION
+        PAA5100* pmw3901 = nullptr; // On garde le Mock en simu
+        Adafruit_BNO08x* bno085 = nullptr;
+    #else
+        // Objet réel Bitcraze
+        Bitcraze_PMW3901* pmw3901 = nullptr; 
+        Adafruit_BNO08x* bno085 = nullptr;
+    #endif
 
     // Robot parameters
     double robot_radius;      // Distance from center to wheels (mm)
@@ -67,6 +96,8 @@ class Holonomic_Basis {
     void disable_motors();
 
     // Control PID
+    //Capteur
+    void init_sensors();
     //Odométrie
     void update_odometry();
     //Boucle principale
@@ -76,8 +107,6 @@ class Holonomic_Basis {
     void run_motors();        // Obsolète (gardé pour compatibilité)
     void execute_movement();
     Point get_current_position();
-    void set_position(double x, double y, double theta); // Update position from sensors
-    void update_from_sensor_deltas(double dx_mm, double dy_mm, double dtheta); // Queue sensor deltas for fusion in update_odometry
     void emergency_stop();
 
     // ===== ARCHITECTURE NON-BLOQUANTE : RS485 HORS ISR =====
@@ -103,20 +132,27 @@ class Holonomic_Basis {
         // ===== BUFFERS NON-BLOQUANTS =====
         // Ces valeurs sont mises à jour par read_encoders_nonblocking() depuis loop()
         // update_odometry() (ISR) lit ces buffers au lieu d'appeler RS485
-        volatile int64_t buffered_enc1 = 0;
-        volatile int64_t buffered_enc2 = 0;
-        volatile int64_t buffered_enc3 = 0;
-        volatile uint32_t buffer_timestamp = 0;  // Pour tracking validité du buffer
-
-        // Deltas reçus depuis teensy_capteur (mis à jour dans loop, consommés en ISR)
-        volatile double pending_sensor_dx_mm = 0.0;
-        volatile double pending_sensor_dy_mm = 0.0;
-        volatile double pending_sensor_dtheta = 0.0;
-        volatile uint16_t pending_sensor_packets = 0;
-        volatile uint32_t last_sensor_packet_ms = 0;
+        int64_t buffered_enc1 = 0;
+        int64_t buffered_enc2 = 0;
+        int64_t buffered_enc3 = 0;
+        uint32_t buffer_timestamp = 0;  // Pour tracking validité du buffer
         
-        // Statistiques internes (debug possible)
-        double encoder_x_acc = 0.0;
+        // Calibration IMU
+        double imu_yaw_offset = 0.0;
+        bool imu_calibrated = false;
+
+        // Capteur optique PAA5100
+        double optical_x_acc = 0.0;
+        double optical_y_acc = 0.0;
+        
+        // Fusion complémentaire (encodeurs + optique)
+        double encoder_x_acc = 0.0;      // Accumulation position encodeurs
         double encoder_y_acc = 0.0;
+        uint32_t optical_outlier_count = 0; // Nombre de rejets outliers
+        uint32_t optical_valid_count = 0;   // Nombre de lectures valides
+        
+        uint32_t debug_counter = 0;
     } odo_data;
+
+    void update_optical_odometry(double dtheta_robot);
 };

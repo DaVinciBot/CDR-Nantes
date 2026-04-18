@@ -46,7 +46,7 @@ class PathFinder:
         grid = [row[:] for row in self.static_grid]
         
         for (lx, ly) in lidar_obstacles:
-            self._inflate_on_grid(grid, lx, ly, 10, 10, self.inflation_radius)
+            self._inflate_on_grid(grid, lx, ly, 1, 1, self.inflation_radius)
 
         return grid
 
@@ -63,10 +63,13 @@ class PathFinder:
         heapq.heappush(open_set, (0, start_node))
         came_from = {}
         g_score = {start_node: 0}
-        
+        closed_set = set()
+
         while open_set:
             current = heapq.heappop(open_set)[1]
-
+             if current in closed_set:
+                continue
+            closed_set.add(current)
             if current == end_node:
                 path = []
                 while current in came_from:

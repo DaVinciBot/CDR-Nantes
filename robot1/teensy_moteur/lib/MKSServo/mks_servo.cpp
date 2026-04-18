@@ -36,9 +36,12 @@ bool MKSServo::sendPacket(uint8_t cmd, const uint8_t* payload, size_t payloadLen
     }
     frame[3 + payloadLen] = computeCRC(frame, 3 + payloadLen);
 
-    // Purge RX avant envoi pour éviter de parser d'anciens bytes comme réponse courante
-    while (serial.available() > 0) {
-        (void)serial.read();
+    // Purge RX uniquement pour les commandes de contrôle (pas pour 0x31 readEncoder)
+    // En mode rafale, la réponse du moteur peut arriver pendant l'envoi suivant
+    if (cmd != 0x31) {
+        while (serial.available() > 0) {
+            (void)serial.read();
+        }
     }
 
     serial.write(frame, frameLen);
@@ -107,26 +110,14 @@ bool MKSServo::readResponse(uint8_t expectedCmd,
 
 bool MKSServo::enable() {
     const uint8_t payload[1] = {0x01};
-    if (!sendPacket(0xF3, payload, sizeof(payload))) return false;
-
-    uint8_t rsp[4];
-    size_t rspLen = 0;
-    if (!readResponse(0xF3, rsp, sizeof(rsp), rspLen, 10)) {
-        return true;  // Pas de réponse — commande envoyée quand même
-    }
-    return (rspLen >= 1) ? (rsp[0] == 1) : true;
+    return sendPacket(0xF3, payload, sizeof(payload));
+    // Fire & forget: pas d'attente de réponse 0xF3
 }
 
 bool MKSServo::disable() {
     const uint8_t payload[1] = {0x00};
-    if (!sendPacket(0xF3, payload, sizeof(payload))) return false;
-
-    uint8_t rsp[4];
-    size_t rspLen = 0;
-    if (!readResponse(0xF3, rsp, sizeof(rsp), rspLen, 10)) {
-        return true;
-    }
-    return (rspLen >= 1) ? (rsp[0] == 1) : true;
+    return sendPacket(0xF3, payload, sizeof(payload));
+    // Fire & forget: pas d'attente de réponse 0xF3
 }
 
 // ─── SET SPEED ───────────────────────────────────────────────────────────────
@@ -142,7 +133,6 @@ bool MKSServo::disable() {
 bool MKSServo::setSpeed(double rpm, uint8_t acc) {
     const bool ccw       = rpm < 0.0;
     const uint16_t speed = static_cast<uint16_t>(fabs(rpm));
-    const bool isStop    = (speed == 0);
 
     // Format F6 : [dir(7)|speed_high(3..0)] [speed_low] [acc 0-255]
     uint8_t payload[3];
@@ -150,25 +140,8 @@ bool MKSServo::setSpeed(double rpm, uint8_t acc) {
     payload[1] = static_cast<uint8_t>(speed & 0xFF);
     payload[2] = acc;  // V1.0.9 : 0-255, limite V1.0 à 32 supprimée
 
-    if (!sendPacket(0xF6, payload, sizeof(payload))) return false;
-
-    uint8_t rsp[4];
-    size_t rspLen = 0;
-    if (!readResponse(0xF6, rsp, sizeof(rsp), rspLen, 10)) {
-        // Timeout — UartRSP=Disable ou moteur absent — commande envoyée, on considère OK
-        return true;
-    }
-
-    if (rspLen < 1) return true;
-
-    if (isStop) {
-        // 0x00 = moteur arrêté (réponse normale et attendue sur speed=0)
-        // 0x01 = variante firmware (commande acceptée)
-        return (rsp[0] == 0x00 || rsp[0] == 0x01);
-    }
-
-    // En mouvement : 0x01 = accélération, 0x02 = vitesse croisière
-    return (rsp[0] == 0x01 || rsp[0] == 0x02);
+    return sendPacket(0xF6, payload, sizeof(payload));
+    // Fire & forget: pas d'attente de réponse 0xF6 (UartRSP=Disable au niveau HW)
 }
 
 // ─── STOP / EMERGENCY STOP ───────────────────────────────────────────────────
@@ -183,19 +156,24 @@ bool MKSServo::emergencyStop() {
     return setSpeed(0.0, 0);   // arrêt immédiat sans rampe
 }
 
-// ─── READ ENCODER ────────────────────────────────────────────────────────────
-// Lecture TOUJOURS attendue (indépendant de UartRSP).
-// Timeout 50ms : réponse 9 bytes ≈ 780µs + latence RS485.
-// En pratique la réponse arrive en ~1-2ms ; 50ms est le filet de sécurité.
-// Appelé depuis interruption 100Hz via update_odometry() → readAllEncoders().
+// ─── READ ENCODER ASYNCHRONE ─────────────────────────────────────────────────────
+// Protocole asynchrone en 2 phases pour rafale synchronisée :
+//   1. sendReadRequest()    → envoie requête 0x31 sans attendre
+//   2. readEncoderResponse() → lit réponse 0x31 avec timeout
+//
+// Permet à mksGroup->readAllEncodersSynced() d'envoyer 3 requêtes en rafale,
+// puis de lire 3 réponses (les servos répondent en parallèle).
 
-bool MKSServo::readEncoder(int64_t& encoderCount) {
+bool MKSServo::sendReadRequest() {
+    return sendPacket(0x31, nullptr, 0);
+    // Fire & forget: envoie la requête, ne bloque pas
+}
+
+bool MKSServo::readEncoderResponse(int64_t& encoderCount, uint32_t timeoutMs) {
     encoderCount = 0;
-    if (!sendPacket(0x31, nullptr, 0)) return false;
-
     uint8_t payload[8];
     size_t payloadLen = 0;
-    if (!readResponse(0x31, payload, sizeof(payload), payloadLen, 50)) {
+    if (!readResponse(0x31, payload, sizeof(payload), payloadLen, timeoutMs)) {
         return false;
     }
 
@@ -213,6 +191,15 @@ bool MKSServo::readEncoder(int64_t& encoderCount) {
 
     encoderCount = value;
     return true;
+}
+
+// ─── READ ENCODER (synchrone, wrapper) ───────────────────────────────────────────
+// Interface synchrone existante : envoie requête + attend réponse dans le même appel.
+// Utilise les 2 primitives asynchrones.
+
+bool MKSServo::readEncoder(int64_t& encoderCount) {
+    if (!sendReadRequest()) return false;
+    return readEncoderResponse(encoderCount, 50);
 }
 
 // ─── CALIBRATION ─────────────────────────────────────────────────────────────

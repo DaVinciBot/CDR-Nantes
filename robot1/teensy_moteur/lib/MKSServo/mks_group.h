@@ -13,6 +13,7 @@ class MKSGroup {
     void stopAll();
     void emergencyStopAll();
     bool readAllEncoders(int64_t& enc1, int64_t& enc2, int64_t& enc3);
+    bool readAllEncodersSynced(int64_t& enc1, int64_t& enc2, int64_t& enc3);
 
    private:
     MKSServo* wheel1;

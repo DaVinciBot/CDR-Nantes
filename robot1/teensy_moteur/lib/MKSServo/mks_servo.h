@@ -13,6 +13,11 @@ class MKSServo {
     bool stop();           // décélération douce acc=5
     bool emergencyStop();  // coupure immédiate acc=0
     bool readEncoder(int64_t& encoderCount);
+    
+    // Lecture encodeur asynchrone (rafale synchronisée)
+    bool sendReadRequest();  // Envoie 0x31 sans attendre réponse
+    bool readEncoderResponse(int64_t& encoderCount, uint32_t timeoutMs = 50);
+    
     bool calibrate(uint32_t timeoutMs = 15000);
 
    private:
