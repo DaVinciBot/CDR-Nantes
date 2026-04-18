@@ -22,12 +22,14 @@ PATH FINDING (fusion logique) → RERUN (monitoring + timeline)
 
 ```
 robot1/rasp/
-├── rerun_bridge.py                  ← Bridge principal Rerun
 ├── rerun/
-│   ├── test_teensy_lidar_simple.py  ← Test simple Teensy + Lidar brut
+│   ├── rerun_bridge.py              ← Bridge principal Rerun
 │   ├── ARCHITECTURE_GENERALE.md     ← Types de données + fusion détaillée
 │   ├── GUIDE_DEMARRAGE_COMPLET.md   ← Ce fichier
 │   └── README_ADVANCED.md           ← Résumé rapide
+├── lidar/
+│   ├── main.py                      ← GUI lidar (logique active)
+│   └── launch_rerun.py              ← Launcher vers rerun_bridge.py
 └── [autres modules]
 ```
 
@@ -39,7 +41,7 @@ robot1/rasp/
 
 ```bash
 cd e:\CDR\CDR-Nantes\robot1\rasp
-python rerun_bridge.py --mode local --sim
+python rerun/rerun_bridge.py --mode local --sim
 ```
 
 **Résultat**:
@@ -300,18 +302,18 @@ python -c "from rerun_bridge import *; print('✓ Bridge OK')"
 
 ### Test 2: Rerun SDK démarre en local
 ```bash
-python rerun_bridge.py --mode local --sim
+python rerun/rerun_bridge.py --mode local --sim
 # Viewer doit s'ouvrir automatiquement
 # Esc pour quitter
 ```
 
 ### Test 3: Vérifier les données publiées
 ```bash
-python rerun/test_teensy_lidar_simple.py
+python rerun/rerun_bridge.py --mode local --with-lidar
 # Doit afficher:
-# 2025-01-08 14:23:45 | test_teensy_lidar_simple | TEST SIMPLE: Teensy + Lidar...
-# 📍 Teensy: X=1500mm, Y=1000mm
-# 🎯 Lidar: X=1523mm, Y=1015mm, θ=0.157rad, conf=0.85...
+# callbacks odometrie Teensy
+# donnees lidar et confiance
+# publication continue a 20 Hz
 ```
 
 ### Test 4: Vérifier les logs détaillés
@@ -333,7 +335,7 @@ pip install rerun-sdk
 ### 2. "Pas d'accès au hardware (Teensy, Lidar)"
 ```bash
 # Utiliser --sim pour tester avec simulation
-python rerun_bridge.py --mode local --sim
+python rerun/rerun_bridge.py --mode local --sim
 ```
 
 ### 3. "struct.unpack failed"

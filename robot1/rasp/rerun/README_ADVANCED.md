@@ -24,13 +24,13 @@ Teensy Odom + Lidar + IMU → PATH FINDING (fusion logique)
 ### Mode 1: Rerun local (viewport intégré)
 ```bash
 cd e:\CDR\CDR-Nantes\robot1\rasp
-python rerun_bridge.py --mode local --sim
+python rerun/rerun_bridge.py --mode local --sim
 # ✅ Viewer s'ouvre automatiquement
 ```
 
 ### Mode 2: Rerun serve (web)
 ```bash
-python rerun_bridge.py --mode serve --port 9876
+python rerun/rerun_bridge.py --mode serve --port 9876
 # Puis ouvrir: http://localhost:9876
 ```
 
@@ -43,15 +43,15 @@ python rerun_bridge.py --mode serve --port 9876
 - **Nuage Lidar** : Points verts-bleus projetés en coordonnées monde
 - **Abaque temporelle en bas** : Position X/Y, Lidar confidence, écart odom↔lidar
 
-### Mode 3: Test simple (Teensy + Lidar SANS fusion)
+### Mode 3: Lidar + Rerun (sans scripts de test legacy)
 ```bash
-python rerun/test_teensy_lidar_simple.py
+python rerun/rerun_bridge.py --mode local --with-lidar
 ```
 
 Affiche:
-- 🔵 Position Teensy en bleu
-- 🔴 Position Lidar en rouge
-- **Pas de fusion**, just affichage brut des 2 sources
+- Position Teensy en bleu
+- Position Lidar en rouge
+- Position fusionnee en vert
 
 Vous devez d'abord créer les messages manquants:
 ```python

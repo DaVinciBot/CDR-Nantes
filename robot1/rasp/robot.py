@@ -6,18 +6,20 @@ import time
 
 from terrain_jeu import Terrain
 from pathfinder import PathFinder
-from lidar import GestionnaireLidar
+from lidar.lidar import LidarInterface
 
 from loader import loader
 from utils import init_robot
-from strategy.actions import TypeAction
-from strategy.strat_manager import StratManager
+from strategy.strategy_actions import TypeAction
+from strategy.strategy_strat_manager import StratManager
+
 class Robot:
     def __init__(self, couleur_equipe: str):
         """Initialise le robot, ses capteurs, son cerveau et son hardware."""
         self.logger = logging.getLogger("ROBOT")
         self.logger.info(f"Initialisation du robot en mode {couleur_equipe}...")
-
+        
+        self.couleur = couleur_equipe
         # 1. MÉMOIRE PARTAGÉE (Position sécurisée par un Lock)
         self.x = 0.0
         self.y = 0.0
@@ -27,7 +29,7 @@ class Robot:
         # 2. PERCEPTION ET NAVIGATION (Ton code !)
         self.terrain = Terrain(couleur_equipe)
         self.cerveau = PathFinder(self.terrain)
-        self.lidar = GestionnaireLidar(port_usb='/dev/ttyUSB0')
+        self.lidar = LidarInterface(team_color=couleur_equipe)
 
         # 3. HARDWARE ET COMMUNICATION (Leur code !)
         self.Messages = loader.load_class('usb_com', 'Messages')
@@ -74,18 +76,29 @@ class Robot:
         self.logger.info("Tirette retirée !")
 
     def update(self):
-        """LA grande boucle de décision. Appelée 20 fois par seconde."""
+        """La grande boucle de décision. Appelée 20 fois par seconde."""
         
-        # 1. LECTURE DE LA RÉALITÉ (Copie sécurisée de la position)
+        # 1. LECTURE DE LA POSITION TEENSY (Copie sécurisée)
         with self.lock:
-            rx, ry, rtheta = self.x, self.y, self.theta
+            teensy_x, teensy_y, teensy_theta = self.x, self.y, self.theta
 
-        # 2. PERCEPTION : Où sont les méchants ?
-        obstacles = self.lidar.obtenir_obstacles_absolus(rx, ry, rtheta)
+        # 1b. FUSION LIDAR + TEENSY (X, Y simplement blendés)
+        rx, ry, rtheta, lidar_confidence = self.lidar.get_fused_position(
+            teensy_x, teensy_y, teensy_theta
+        )
+        
+        self.logger.debug(
+            f"Pose fused: ({rx:.1f}, {ry:.1f}, {rtheta:.3f}) | "
+            f"lidar_conf={lidar_confidence:.2f}"
+        )
+
+        # 2. PERCEPTION : Où sont les obstacles/adversaires ?
+        obstacles = self.lidar.get_obstacles(rx, ry, rtheta)
 
         # ==========================================================
         # 3. STRATÉGIE : VRAIE LECTURE DE LA MACHINE À ÉTATS
         # ==========================================================
+       
         action = self.strategie.get_action_actuelle()
 
         # Si la liste des actions est vide, le match est fini !

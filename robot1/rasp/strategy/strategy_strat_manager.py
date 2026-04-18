@@ -44,7 +44,7 @@ class StratManager:
         else:
             return None # Plus aucune action à faire, le match est fini !
 
-            def demarrer_chrono_si_necessaire(self):
+    def demarrer_chrono_si_necessaire(self):
         """Lance le chrono si l'action vient de débuter."""
         if self.chrono_action is None:
             self.chrono_action = time.time()

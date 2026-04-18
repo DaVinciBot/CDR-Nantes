@@ -46,10 +46,12 @@ class Terrain:
     def add_obstacle(self, name, x_blue, y_blue, width, height):
         """Ajoute un obstacle en appliquant la symétrie si on est JAUNE."""
         final_x = x_blue
+        final_y = y_blue
         if self.team == TeamColor.YELLOW:
             final_x = self.WIDTH - (x_blue + width)
+            final_y = self.HEIGHT - (y_blue + height)
             
-        self.obstacles.append(Obstacle(name, final_x, y_blue, width, height))
+        self.obstacles.append(Obstacle(name, final_x, final_y, width, height))
 
 
 # ==============================================================================

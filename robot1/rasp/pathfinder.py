@@ -67,7 +67,7 @@ class PathFinder:
 
         while open_set:
             current = heapq.heappop(open_set)[1]
-             if current in closed_set:
+            if current in closed_set:
                 continue
             closed_set.add(current)
             if current == end_node:

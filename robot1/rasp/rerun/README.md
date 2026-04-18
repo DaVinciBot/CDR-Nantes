@@ -47,17 +47,23 @@ Active polling du Lidar. Vérifier que:
 
 ```bash
 cd robot1/rasp/lidar/
-python launch_rerun.py --sim          # Mode local simulation
-python launch_rerun.py --serve        # Mode serveur (port 9876 par défaut)
+python launch_rerun.py --mode local --sim
+python launch_rerun.py --mode serve --port 9876
 ```
 
-### Via module helper (depuis Python)
+### Via Python (sans helper externe)
 
 ```python
-from rerun_init import setup_rerun
+import subprocess
+import sys
 
-# Démarrer serveur Rerun
-setup_rerun(mode="serve", port=9876, with_lidar=True)
+subprocess.run([
+    sys.executable,
+    "rerun/rerun_bridge.py",
+    "--mode", "serve",
+    "--with-lidar",
+    "--port", "9876",
+])
 ```
 
 ---
@@ -223,7 +229,7 @@ Redémarrer le service et observer l'effet sur robot vert.
 
 ## 📖 Documentation détaillée
 
-- [TEST_TEENSY_LIDAR_SIMPLE_README.md](TEST_TEENSY_LIDAR_SIMPLE_README.md) — Test simple Teensy+Lidar sans fusion
+- [../../archive_rasp/rerun_docs/TEST_TEENSY_LIDAR_SIMPLE_README.md](../../archive_rasp/rerun_docs/TEST_TEENSY_LIDAR_SIMPLE_README.md) — Archive test simple Teensy+Lidar sans fusion
 - [ARCHITECTURE_GENERALE.md](ARCHITECTURE_GENERALE.md) — Architecture globale (Rerun, Teensy, Lidar, PathFinding)
 - [GUIDE_DEMARRAGE_COMPLET.md](GUIDE_DEMARRAGE_COMPLET.md) — Guide complet (plus détaillé)
 
@@ -234,7 +240,6 @@ Redémarrer le service et observer l'effet sur robot vert.
 | Fichier | Rôle |
 |---------|------|
 | `rerun/rerun_bridge.py` | **Bridge principal** Teensy+Lidar→Rerun |
-| `rerun_init.py` | Helper pour imports + debug |
 | `lidar/launch_rerun.py` | Launcher depuis lidar/ |
 | `test_local.py` | Test simulation locale |
 | `terrain_jeu.py` | Positions balises (source-of-truth) |
