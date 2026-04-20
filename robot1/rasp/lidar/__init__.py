@@ -6,8 +6,9 @@ try:
         stop_lidar_runtime,
         get_latest_scan_data,
         get_latest_beacon_candidates,
-        get_latest_pose,
         get_latest_opponent,
+        get_corrected_pose,
+        get_latest_pose,
         PoseState,
         OpponentState,
     )
@@ -17,8 +18,9 @@ except ImportError:
         stop_lidar_runtime,
         get_latest_scan_data,
         get_latest_beacon_candidates,
-        get_latest_pose,
         get_latest_opponent,
+        get_corrected_pose,
+        get_latest_pose,
         PoseState,
         OpponentState,
     )
@@ -38,6 +40,11 @@ except ImportError:
     )
 
 try:
+    from .lidar import LidarInterface
+except ImportError:
+    from lidar import LidarInterface
+
+try:
     from .lidar_gui import LidarApp, run_gui
 except Exception:
     try:
@@ -53,6 +60,12 @@ __all__ = [
     "stop_lidar_runtime",
     "get_latest_scan_data",
     "get_latest_beacon_candidates",
+    "get_latest_opponent",
+    "get_corrected_pose",
+    "get_latest_pose",
+    "PoseState",
+    "OpponentState",
+    "LidarInterface",
     "LidarNavigationBridge",
     "OpponentTrack",
     "PathfindingState",

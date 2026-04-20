@@ -632,21 +632,21 @@ class LidarApp:
     # ── POSE CALCULATION MOVED TO PoseEngine ────────────────────────────────
     # All pose calculation (trilateration, SVD fitting, 2/3-beacon logic,
     # and opponent detection) has been moved to PoseEngine in lidar_logic.py.
-    # The GUI now retrieves calculated poses via get_latest_pose() and
-    # get_latest_opponent() instead of computing them directly.
+    # The GUI now retrieves calculated poses via get_corrected_pose() (SVD-corrected)
+    # and get_latest_opponent() instead of computing them directly.
 
     # ── POSE UPDATE ───────────────────────────────────────────────────────────
 
     def _update_pose_from_scan(self, angles, dists, quals):
         """
-        Retrieve pose from PoseEngine in lidar_logic.py.
-        The mathematical work is done in lidar_logic.PoseEngine.
+        Retrieve corrected pose from lidar_logic.py via SVD Umeyama.
+        The mathematical work is done in lidar_logic._compute_corrected_pose.
         This GUI method just displays the calculated pose.
         """
-        latest_pose = get_latest_pose()
+        latest_pose = get_corrected_pose()
         
         if latest_pose and latest_pose.is_localized and latest_pose.confidence >= AUTO_POSE_MIN_CONFIDENCE:
-            # Accept the pose calculated by PoseEngine
+            # Accept the corrected pose from SVD
             self._accept_pose(
                 latest_pose.x,
                 latest_pose.y,

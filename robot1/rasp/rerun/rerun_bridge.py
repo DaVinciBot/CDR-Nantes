@@ -449,12 +449,12 @@ def make_lidar_poll():
     Récupère le nuage, les balises et la pose depuis lidar_logic.
     """
     from lidar.lidar_logic import (
-        get_latest_scan_data, get_latest_beacon_candidates, get_latest_pose,
+        get_latest_scan_data, get_latest_beacon_candidates, get_corrected_pose,
     )
     def poll():
         update_lidar_cloud(get_latest_scan_data())
         update_lidar_beacons(get_latest_beacon_candidates())
-        p = get_latest_pose()
+        p = get_corrected_pose()
         if p:
             update_lidar_pose(p.x, p.y, p.theta, p.confidence, p.is_localized)
     return poll

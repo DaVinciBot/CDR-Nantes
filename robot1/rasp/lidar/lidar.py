@@ -3,198 +3,171 @@ lidar.py
 Wrapper simplifié pour encapsuler la localisation et tracking adversaire.
 
 Fournit une interface unique pour :
-- Fusion pose lidar (trilatération beacons) + odométrie Teensy
+- Fusion pose lidar (SVD Umeyama) + odométrie Teensy
 - Tracking robot adverse
-- Exporte pour pathfinding
+- Export pour pathfinding
 """
 
 import logging
+import math
 import threading
-import time
-from typing import Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 try:
     from .lidar_navigation_bridge import LidarNavigationBridge, OpponentTrack
     from .lidar_logic import (
-        get_latest_pose, 
+        get_corrected_pose,
         get_latest_opponent,
         get_latest_scan_data,
         get_latest_beacon_candidates,
+        stop_lidar_runtime,
     )
 except ImportError:
     from lidar_navigation_bridge import LidarNavigationBridge, OpponentTrack
     from lidar_logic import (
-        get_latest_pose, 
+        get_corrected_pose,
         get_latest_opponent,
         get_latest_scan_data,
         get_latest_beacon_candidates,
+        stop_lidar_runtime,
     )
 
 
 class LidarInterface:
     """
-    Interface simplifiée pour accéder à la localisation fusionnée et tracking adversaire.
-    
+    Interface simplifiée pour accéder à la localisation fusionnée
+    et au tracking adversaire.
+
     Usage:
         lidar = LidarInterface(team_color="BLUE")
-        
+
         # Lors de chaque update robot
-        pose_x, pose_y, pose_theta, confidence = lidar.get_fused_position(imu_theta)
-        opp_x, opp_y, opp_conf = lidar.get_opponent()
+        x, y, theta, conf = lidar.get_fused_position(teensy_x, teensy_y, teensy_theta)
+        opp = lidar.get_opponent()   # (x, y, conf) ou None
     """
-    
+
     def __init__(self, team_color: str = "BLUE", opponent_timeout_s: float = 0.70):
-        """
-        Initialize the lidar bridge.
-        
-        Args:
-            team_color: "BLUE" or "YELLOW" (used for beacon symmetry)
-            opponent_timeout_s: Timeout for opponent track validity
-        """
-        self.logger = logging.getLogger("LIDAR_INTERFACE")
+        self.logger     = logging.getLogger("LIDAR_INTERFACE")
         self.team_color = team_color.upper()
-        self._bridge = LidarNavigationBridge(
+        self._bridge    = LidarNavigationBridge(
             team_color=self.team_color,
-            opponent_timeout_s=opponent_timeout_s
+            opponent_timeout_s=opponent_timeout_s,
         )
         self._lock = threading.Lock()
-        self.logger.info(f"LidarInterface initialized for team {self.team_color}")
-    
-    def get_fused_position(self, teensy_x: float, teensy_y: float, 
-                          teensy_theta: float) -> Tuple[float, float, float, float]:
+        self.logger.info(f"LidarInterface initialisé pour équipe {self.team_color}")
+
+    # ── POSITION FUSIONNÉE ────────────────────────────────────────────────────
+
+    def get_fused_position(
+        self,
+        teensy_x: float,
+        teensy_y: float,
+        teensy_theta: float,
+    ) -> Tuple[float, float, float, float]:
         """
-        Get fused robot position: blend lidar (x,y) with teensy odometry.
-        
-        Performs simple alpha-blending:
-        - x_fused = alpha * lidar_x + (1-alpha) * teensy_x
-        - y_fused = alpha * lidar_y + (1-alpha) * teensy_y
-        - theta_fused = teensy_theta (always from Teensy IMU)
-        
-        Args:
-            teensy_x: X position (mm) from Teensy odometry
-            teensy_y: Y position (mm) from Teensy odometry
-            teensy_theta: Robot orientation (rad) from Teensy IMU
-        
+        Retourne la position fusionnée LiDAR + Teensy.
+
+        Blend adaptatif basé sur la confiance SVD :
+          - conf < 0.2  → alpha = 0.85 (85 % Teensy)
+          - conf > 0.8  → alpha = 0.25 (75 % LiDAR)
+          - intermédiaire → transition linéaire
+
         Returns:
             (x_mm, y_mm, theta_rad, confidence)
-            confidence: Blended based on lidar beacon visibility (0.0 = no beacons)
         """
-        alpha_xy = 0.35  # Weight for lidar X,Y (higher = trust lidar more)
-        
         with self._lock:
-            # Get lidar pose estimate
-            lidar_pose = get_latest_pose()
-            
-            # If no lidar localization, use teensy odometry as-is
-            if not lidar_pose or not lidar_pose.is_localized:
+            corrected = get_corrected_pose()
+
+            if corrected is None or not corrected.is_localized:
                 return teensy_x, teensy_y, teensy_theta, 0.0
-            
-            # Blend X, Y from lidar and teensy
-            fused_x = alpha_xy * lidar_pose.x + (1.0 - alpha_xy) * teensy_x
-            fused_y = alpha_xy * lidar_pose.y + (1.0 - alpha_xy) * teensy_y
-            
-            # Theta always from Teensy IMU
-            fused_theta = teensy_theta
-            
-            # Confidence from lidar (how many beacons used)
-            confidence = lidar_pose.confidence
-            
-            return (fused_x, fused_y, fused_theta, confidence)
-    
+
+            conf = corrected.confidence
+
+            # Alpha adaptatif
+            if conf < 0.2:
+                alpha = 0.85
+            elif conf > 0.8:
+                alpha = 0.25
+            else:
+                alpha = 0.85 - (conf - 0.2) / 0.6 * 0.60
+
+            fused_x = (1.0 - alpha) * corrected.x + alpha * teensy_x
+            fused_y = (1.0 - alpha) * corrected.y + alpha * teensy_y
+
+            # Theta toujours depuis l'IMU Teensy
+            return fused_x, fused_y, teensy_theta, conf
+
+    # ── ADVERSAIRE ────────────────────────────────────────────────────────────
+
     def get_opponent(self) -> Optional[Tuple[float, float, float]]:
         """
-        Get opponent (robot adverse) position if available.
-        
+        Retourne la position du robot adverse si disponible.
+
         Returns:
-            (x_mm, y_mm, confidence) or None if no opponent detected
+            (x_mm, y_mm, confidence) ou None
         """
         with self._lock:
-            opponent = get_latest_opponent()
-            
-            if not opponent or opponent.confidence < 0.1:
+            opp = get_latest_opponent()
+            if opp is None or opp.confidence < 0.1:
                 return None
-            
-            return (opponent.x, opponent.y, opponent.confidence)
-    
-    def get_obstacles(self, robot_x: float, robot_y: float, robot_theta: float) -> list:
+            return (opp.x, opp.y, opp.confidence)
+
+    # ── OBSTACLES ────────────────────────────────────────────────────────────
+
+    def get_obstacles(
+        self,
+        robot_x: float,
+        robot_y: float,
+        robot_theta: float,
+    ) -> List[Dict]:
         """
-        Get list of obstacle points in absolute world coordinates.
-        
-        Converts relative lidar scan points to absolute coordinates.
-        Points are filtered to exclude beacons and keep valid obstacles only.
-        
-        Args:
-            robot_x: Robot X position (mm)
-            robot_y: Robot Y position (mm)
-            robot_theta: Robot orientation (rad)
-        
+        Retourne les obstacles LiDAR pertinents pour le pathfinding.
+
+        NOTE: Le LiDAR ne voit que :
+          - Balises (exclues — pour localisation SVD uniquement)
+          - Robot adverse (retourné via get_opponent() séparément)
+          - Bruit/reflets isolés (ignorés)
+
+        Les obstacles statiques (murs, caisses, grenier) sont définis
+        dans terrain_jeu.py et ajoutés par robot.py.
+
         Returns:
-            List of (x, y) tuples in mm absolute coordinates
+            Liste vide [] en temps normal
+            (LiDAR n'a pas d'obstacles pertinents pour pathfinding)
         """
-        import math
-        
-        with self._lock:
-            try:
-                scan_data = get_latest_scan_data()
-            except Exception:
-                return []
-            
-            if not scan_data:
-                return []
-            
-            obstacles = []
-            cos_theta = math.cos(robot_theta)
-            sin_theta = math.sin(robot_theta)
-            
-            # Convert points from relative to absolute coordinates
-            for point in scan_data:
-                try:
-                    x_rel = float(point.get('x', 0.0) if isinstance(point, dict) else getattr(point, 'x', 0.0))
-                    y_rel = float(point.get('y', 0.0) if isinstance(point, dict) else getattr(point, 'y', 0.0))
-                    
-                    # Rotate from lidar frame to robot frame, then translate
-                    x_abs = robot_x + (x_rel * cos_theta - y_rel * sin_theta)
-                    y_abs = robot_y + (x_rel * sin_theta + y_rel * cos_theta)
-                    
-                    obstacles.append((x_abs, y_abs))
-                except (ValueError, TypeError, AttributeError):
-                    continue
-            
-            # Add opponent if detected
-            opp = self.get_opponent()
-            if opp:
-                opp_x, opp_y, _ = opp
-                obstacles.append((opp_x, opp_y))
-            
-            return obstacles
-    
+        # Le LiDAR détecte principalement les balises et l'adversaire.
+        # Les balises sont exclues (localisation SVD), l'adversaire est
+        # via get_opponent(). Les points isolés sont du bruit.
+        # Les vrais obstacles (murs, caisses) viennent de terrain_jeu.
+        return []
+
+    # ── DIAGNOSTIC ───────────────────────────────────────────────────────────
+
     def get_diagnostic_info(self) -> dict:
-        """
-        Get debug/diagnostic info about localization state.
-        
-        Returns dict with:
-            - is_localized: bool
-            - nb_beacons: int
-            - confidence: float
-            - beacon_ids: list
-            - last_update_time: float
-        """
+        """Informations de debug sur l'état de localisation."""
         with self._lock:
-            pose = get_latest_pose()
-            
-            if not pose:
-                return {
-                    "is_localized": False,
-                    "nb_beacons": 0,
-                    "confidence": 0.0,
-                    "beacon_ids": [],
-                    "last_update_time": 0.0
-                }
-            
+            pose = get_corrected_pose()
+
+        if pose is None:
             return {
-                "is_localized": pose.is_localized,
-                "nb_beacons": len(pose.beacon_ids or []),
-                "confidence": pose.confidence,
-                "beacon_ids": pose.beacon_ids or [],
-                "last_update_time": pose.last_update_time
+                "is_localized":    False,
+                "nb_beacons":      0,
+                "confidence":      0.0,
+                "beacon_ids":      [],
+                "last_update_time": 0.0,
             }
+
+        return {
+            "is_localized":    pose.is_localized,
+            "nb_beacons":      len(pose.beacon_ids or []),
+            "confidence":      pose.confidence,
+            "beacon_ids":      pose.beacon_ids or [],
+            "last_update_time": pose.last_update_time,
+        }
+
+    # ── ARRÊT ─────────────────────────────────────────────────────────────────
+
+    def arreter(self) -> None:
+        """Arrête proprement le thread LiDAR."""
+        stop_lidar_runtime()
+        self.logger.info("LiDAR arrêté.")

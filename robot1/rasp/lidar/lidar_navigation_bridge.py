@@ -22,7 +22,7 @@ if ROOT_DIR not in sys.path:
 # Import pose and scan data from lidar_logic
 try:
     from .lidar_logic import (
-        get_latest_pose,
+        get_corrected_pose,
         get_latest_opponent,
         get_latest_scan_data,
         PoseState,
@@ -30,7 +30,7 @@ try:
     )
 except ImportError:
     from lidar_logic import (
-        get_latest_pose,
+        get_corrected_pose,
         get_latest_opponent,
         get_latest_scan_data,
         PoseState,
@@ -115,12 +115,12 @@ class LidarNavigationBridge:
 
     def process_lidar_scan(self, scan_points) -> None:
         """DEPRECATED: Scans are processed by lidar_logic runtime.
-        Call get_latest_pose() instead."""
+        Call get_corrected_pose() instead."""
         pass
 
     def get_state(self) -> PathfindingState:
         """Return latest lidar-based robot state plus tracked opponent."""
-        lidar_pose = get_latest_pose()
+        lidar_pose = get_corrected_pose()
         lidar_opponent = get_latest_opponent()
         now = time.time()
         
