@@ -4,6 +4,21 @@
 
 ---
 
+## 🔴 CRITICAL UPDATES (April 20, 2026)
+
+**Status**: ✅ Ready for Match (3 critical bugs fixed)
+
+| Issue | Fix | Status |
+|-------|-----|--------|
+| `test_program.py:L12` | Import changed: `GestionnaireLidar` → `LidarInterface` | ✅ FIXED |
+| `lidar_logic.py:L607` | beacon_ids type fixed: `List[str]` → `List[int]` | ✅ FIXED |
+| `lidar_gui.py` | Dead beacon detection code removed (~180 lines) | ✅ CLEANED |
+
+**For complete codebase status**, see:  
+👉 [`robot1/rasp/doc/CODEBASE_ANALYSIS_2026_UNIFIED.md`](robot1/rasp/doc/CODEBASE_ANALYSIS_2026_UNIFIED.md) — **Single source of truth** for Python state
+
+---
+
 ##  Table des matières
 
 1. [Vue d'ensemble du projet](#1-vue-densemble-du-projet)

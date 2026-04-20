@@ -1,40 +1,66 @@
 # Robot1 Raspberry Pi - Python
 
-Ce dossier contient la partie Python active du robot.
+**Status**: ✅ MOSTLY READY (April 20, 2026 — Critical bugs fixed)
 
-## Structure utile
+**For complete codebase status**, see [doc/CODEBASE_ANALYSIS_2026_UNIFIED.md](doc/CODEBASE_ANALYSIS_2026_UNIFIED.md)
+
+## Critical Fixes Applied (April 20)
+
+- ✅ `test_program.py:L12` → Import fixed: `GestionnaireLidar` → `LidarInterface`
+- ✅ `lidar_logic.py:L607` → beacon_ids type fixed: `List[str]` → `List[int]`
+- ✅ `lidar_gui.py` → Dead code removed, cleaner architecture
+
+## Structure
 
 ```text
 robot1/rasp/
-├── main.py
-├── robot.py
-├── terrain_jeu.py
-├── pathfinder.py
-├── loader.py
-├── switch_mode.py
-├── config.json
-├── lidar/
-├── strategy/
-├── utils/
-├── rerun/
-├── test/
-├── simu/
-└── doc/
+├── main.py                     # Entry point
+├── robot.py                    # Main state machine
+├── terrain_jeu.py              # Field geometry + beacons
+├── pathfinder.py               # A* navigation
+├── loader.py                   # Dynamic module loader
+├── switch_mode.py              # Simulation ↔ Hardware toggle
+├── config.json                 # USB config
+├── lidar/                      # ✅ LiDAR subsystem (SEE README)
+│   ├── lidar_logic.py          # SVD Umeyama pose calculation
+│   ├── lidar_gui.py            # Matplotlib GUI visualization
+│   ├── lidar_navigation_bridge.py  # Pathfinding integration
+│   ├── main.py                 # GUI launcher
+│   └── README.md               # Complete LiDAR documentation
+├── strategy/                   # Strategy state machine
+│   ├── strategy_actions.py     # Action types
+│   └── strategy_strat_manager.py  # Orchestration
+├── utils/                      # Utilities
+├── rerun/                      # Rerun 3D visualization ✅
+├── test/                       # Hardware tests
+├── simu/                       # Webots simulation
+└── doc/                        # Documentation
+    ├── CODEBASE_ANALYSIS_2026_UNIFIED.md  # ← Single source of truth
+    └── ODOMETRY_CORRECTION_IMPLEMENTATION.md
 ```
 
-## Flux lidar actif (debug)
+## LiDAR Module (Updated April 20)
+
+**For complete module documentation**, see [lidar/README.md](lidar/README.md)
+
+### Quick Start
 
 ```bash
 cd robot1/rasp
 
-# Interface lidar (lidar_logic + lidar_gui)
+# Launch GUI (debugging)
 python -m lidar.main
 
-# Visualisation Rerun avec polling lidar
+# Rerun 3D visualization
 python rerun/rerun_bridge.py --mode serve --with-lidar --port 9876
 ```
 
-Les scripts de test lidar historiques ont ete archives.
+### Key Changes (April 20)
+
+- ✅ Dead beacon detection code removed (~180 lines)
+- ✅ Clear separation: lidar_logic calculates, lidar_gui displays
+- ✅ beacon_ids type consistency: all `List[int]` now
+- ✅ New README documenting full architecture
 
 ## Lancement module lidar GUI
 

@@ -36,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 # Imports robot + lidar
 from loader import loader
 from utils import init_robot
-from terrain_jeu import Terrain, BEACONS_BY_ID
+from terrain_jeu import Terrain
 
 try:
     from lidar.lidar_logic import (
@@ -48,6 +48,7 @@ try:
         should_send_correction_to_teensy,
         _predict_beacon_windows,
         _compute_corrected_pose,
+        BEACONS_BY_ID,
         _extract_beacon_candidates_fast,
     )
 except ImportError as e:
@@ -372,7 +373,7 @@ def test_level_4_complementary_filter(duration_sec: int = 30):
             x_fused, y_fused, alpha = robot._apply_complementary_filter(
                 lidar_x=1000.0, lidar_y=2000.0,
                 teensy_x=1010.0, teensy_y=2010.0,
-                confidence=conf
+                lidar_confidence=conf
             )
             
             alpha_ok = abs(alpha - expected_alpha) < 0.01
@@ -392,7 +393,9 @@ def test_level_4_complementary_filter(duration_sec: int = 30):
         
         # Vérifier monotonie
         alphas = [t['alpha'] for t in filter_tests]
-        monotonic = all(alphas[i] >= alphas[i+1] for i in range(len(alphas)-1))
+        # Tolérance epsilon pour erreurs de précision numérique
+        epsilon = 1e-6
+        monotonic = all(alphas[i] >= alphas[i+1] - epsilon for i in range(len(alphas)-1))
         
         print("\n" + "─"*70)
         all_ok = all(t['ok'] for t in filter_tests) and monotonic

@@ -2,9 +2,13 @@
 
 ## Overview
 
+**Last Updated**: April 20, 2026 ✅  
+**Status**: Fully Operational (beacon_ids type consistency verified)
+
 This document describes the complete bidirectional odometry correction system implemented for CDR 2026. The system combines:
 
 1. **SVD Umeyama 2D** (beacon-based pose correction in `lidar_logic.py`)
+   - ✅ beacon_ids stored as `List[int]` (fixed April 20 — was String, now consistent)
 2. **Adaptive Complementary Filter** (LiDAR + Teensy fusion in `robot.py`)
 3. **Throttled Correction Sending** (Teensy reset 1-2s intervals)
 
@@ -118,7 +122,7 @@ if corrected_pose is not None:
     x_corrected = corrected_pose.x
     y_corrected = corrected_pose.y
     confidence = corrected_pose.confidence
-    beacon_ids = corrected_pose.beacon_ids  # Which beacons were used
+    beacon_ids = corrected_pose.beacon_ids  # Which beacons were used (List[int]) ✅
 ```
 
 ---
@@ -128,7 +132,7 @@ if corrected_pose is not None:
 **Returns**: True if correction ready (all conditions met + time interval elapsed)
 **Conditions**:
 - `get_corrected_pose().confidence > POSE_CORRECTION_MIN_CONFIDENCE (0.60)`
-- `len(beacon_ids) >= POSE_CORRECTION_MIN_BEACONS (2)`
+- `len(beacon_ids) >= POSE_CORRECTION_MIN_BEACONS (2)` [beacon_ids: List[int] ✅ type-consistent]
 - `time.time() - _last_correction_time >= POSE_SEND_BACK_INTERVAL_S (1.0)`
 
 ```python

@@ -383,7 +383,9 @@ class _State:
     lidar_ok: bool = False
     target_x: float = CX
     target_y: float = CY
+    target_theta: float = 0.0
     trajectory: list = field(default_factory=list)      # [(x,y)]
+    obstacles: list = field(default_factory=list)       # [{"x": x, "y": y, "radius": r}, ...]
     fused_x: float = CX
     fused_y: float = CY
     fused_theta: float = 0.0
@@ -420,11 +422,23 @@ def update_lidar_pose(x: float, y: float, theta: float, conf: float, ok: bool = 
         _st.lidar_x, _st.lidar_y, _st.lidar_theta = x, y, theta
         _st.lidar_conf, _st.lidar_ok = conf, ok
 
-def update_target(x: float, y: float):
-    with _st._lock: _st.target_x, _st.target_y = x, y
+def update_target(x: float, y: float, theta: float = None):
+    with _st._lock:
+        _st.target_x, _st.target_y = x, y
+        if theta is not None:
+            _st.target_theta = theta
 
 def update_trajectory(pts):
     with _st._lock: _st.trajectory = list(pts)
+
+def update_obstacles(obstacles):
+    """Update detected obstacles (adversary robots, static obstacles).
+    
+    Args:
+        obstacles: List of dicts {"x": float, "y": float, "radius": float}
+                   Positions in mm, radius in mm
+    """
+    with _st._lock: _st.obstacles = list(obstacles)
 
 def update_fused(x: float, y: float, theta: float):
     with _st._lock: _st.fused_x, _st.fused_y, _st.fused_theta = x, y, theta
@@ -598,11 +612,21 @@ def _publish(s: _State) -> None:
     # ── Position fusionnée (robot vert) ───────────────────────────────────────
     _log_robot("world/robot/fused", s.fused_x, s.fused_y, s.fused_theta, C_FUSED)
 
-    # ── Cible PathFinding (point jaune) ───────────────────────────────────────
+    # ── Cible PathFinding (point jaune avec flèche) ───────────────────────────────────────
     rr.log("world/pathfinding/target", rr.Points3D(
         positions=[[s.target_x, s.target_y, 60.0]],
         colors=[C_TARGET], radii=[80.0],
     ))
+    # Flèche directionnelle sur la cible (si theta défini)
+    if s.target_theta is not None:
+        target_arrow_len = 150.0
+        tdx = target_arrow_len * math.cos(s.target_theta)
+        tdy = target_arrow_len * math.sin(s.target_theta)
+        rr.log("world/pathfinding/target_arrow", rr.Arrows3D(
+            origins=[[s.target_x, s.target_y, 60.0]],
+            vectors=[[tdx, tdy, 0.0]],
+            colors=[C_TARGET]
+        ))
 
     # ── Trajectoire (ligne pointillée) ────────────────────────────────────────
     if len(s.trajectory) >= 2:
@@ -612,6 +636,21 @@ def _publish(s: _State) -> None:
         ))
     else:
         rr.log("world/pathfinding/trajectory", rr.Clear(recursive=False))
+
+    # ── Robots adversaires et obstacles (sphères rouges) ───────────────────────
+    if s.obstacles:
+        obs_pts = []
+        obs_radii = []
+        for obs in s.obstacles:
+            obs_pts.append([obs.get("x", 0), obs.get("y", 0), obs.get("radius", 100)])
+            obs_radii.append(obs.get("radius", 100))
+        rr.log("world/obstacles/adversaries", rr.Points3D(
+            positions=np.array(obs_pts, dtype=np.float32),
+            colors=[[255, 50, 50, 200]] * len(obs_pts),  # Red with transparency
+            radii=np.array(obs_radii, dtype=np.float32),
+        ))
+    else:
+        rr.log("world/obstacles/adversaries", rr.Clear(recursive=False))
 
     # ── Courbes temporelles ───────────────────────────────────────────────────
     rr.log("data/teensy/x_mm",      rr.Scalars(s.odom_x))
