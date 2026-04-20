@@ -12,7 +12,7 @@ from loader import loader
 # --- AJOUT: Import de mes modules d'IA et de LiDAR ---
 from terrain_jeu import Terrain
 from pathfinder import PathFinder
-from lidar import GestionnaireLidar
+from lidar import LidarInterface
 # =================================================================
 
 # Créer un logger simple

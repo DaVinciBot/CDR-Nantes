@@ -604,7 +604,7 @@ def _compute_corrected_pose(
 
     measured_points:    List[List[float]] = []
     theoretical_points: List[List[float]] = []
-    beacon_ids_used:    List[str]         = []
+    beacon_ids_used:    List[int]         = []
 
     for cand in beacon_candidates:
         if 'beacon_id' not in cand:
@@ -621,7 +621,7 @@ def _compute_corrected_pose(
 
         measured_points.append([x_measured, y_measured])
         theoretical_points.append(list(BEACONS_BY_ID[bid]))
-        beacon_ids_used.append(str(bid))
+        beacon_ids_used.append(bid)
 
     if len(measured_points) < POSE_CORRECTION_MIN_BEACONS:
         return None
