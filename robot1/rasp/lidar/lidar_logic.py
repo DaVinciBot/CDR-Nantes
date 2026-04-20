@@ -51,6 +51,23 @@ def _build_display_beacons(
     return mapping
 
 
+# ── VALIDATION BeaconLayout ───────────────────────────────────────────────────
+# Pas de fallback silencieux : si BeaconLayout.BEACONS est absent ou vide,
+# on lève une erreur explicite dès le chargement du module.
+if not hasattr(BeaconLayout, 'BEACON_SIZE_MM'):
+    raise RuntimeError(
+        "BeaconLayout.BEACON_SIZE_MM non défini dans terrain_jeu.py. "
+        "Vérifier que la classe BeaconLayout est correctement configurée."
+    )
+if not hasattr(BeaconLayout, 'BEACONS') or not BeaconLayout.BEACONS:
+    raise RuntimeError(
+        "BeaconLayout.BEACONS est absent ou vide dans terrain_jeu.py. "
+        "Définir les positions des balises avant de démarrer le LiDAR."
+    )
+
+BEACON_SIZE_MM = float(BeaconLayout.BEACON_SIZE_MM)
+
+
 # ── CONFIG RUNTIME LIDAR ──────────────────────────────────────────────────────
 PORT      = '/dev/ttyUSB0'
 BAUDRATE  = 256000
@@ -59,58 +76,120 @@ MIN_DIST  = 50
 MAX_DIST  = 12000
 MIN_QUAL  = 1
 
-SCAN_MAX_BUF_MEAS  = 1500
-SCAN_MIN_LEN       = 20
-SCAN_HISTORY_LEN   = 2
+SCAN_MAX_BUF_MEAS   = 1500
+SCAN_MIN_LEN        = 20
+SCAN_HISTORY_LEN    = 2
 MERGE_ANGLE_BIN_DEG = 0.5
-MAX_MERGED_POINTS  = 1200
+MAX_MERGED_POINTS   = 1200
 
 MAP_W_MM = int(FIELD_WIDTH_MM)
 MAP_H_MM = int(FIELD_HEIGHT_MM)
 
-BEACON_SIZE_MM = float(getattr(BeaconLayout, 'BEACON_SIZE_MM', 100.0))
-BEACONS_BY_ID  = {
-    int(bid): (float(pos[0]), float(pos[1]))
-    for bid, pos in getattr(BeaconLayout, 'BEACONS', {}).items()
-}
-if not BEACONS_BY_ID:
+
+# ── ÉTAT BALISES (modifiable via set_team_color) ─────────────────────────────
+# Initialisé en BLEU par défaut ; Robot.__init__() appelle set_team_color()
+# AVANT start_lidar_thread() pour charger les bonnes coordonnées.
+_team_color: str = "BLUE"
+
+BEACONS_BY_ID: Dict[int, Tuple[float, float]] = {}
+_beacon_xs:    List[float] = []
+_beacon_ys:    List[float] = []
+
+BEACON_OUTSIDE_LEFT_MM:   float = 0.0
+BEACON_OUTSIDE_RIGHT_MM:  float = 0.0
+BEACON_OUTSIDE_BOTTOM_MM: float = 0.0
+BEACON_OUTSIDE_TOP_MM:    float = 0.0
+OFFSET_BALISE_MM:         float = 0.0
+MAP_VIEW_MARGIN_MM:       float = 150.0
+POSE_MAX_DIST_MM:         int   = 4000
+
+BEACONS_TEST:      Dict[str, Tuple[float, float]] = {}
+_THEO_DISTS:       Dict[Tuple[int, int], float]   = {}
+_beacon_ids_list:  List[int]                       = []
+
+
+def _recompute_beacon_globals() -> None:
+    """Recalcule toutes les constantes dérivées de BEACONS_BY_ID."""
+    global _beacon_xs, _beacon_ys
+    global BEACON_OUTSIDE_LEFT_MM, BEACON_OUTSIDE_RIGHT_MM
+    global BEACON_OUTSIDE_BOTTOM_MM, BEACON_OUTSIDE_TOP_MM
+    global OFFSET_BALISE_MM, MAP_VIEW_MARGIN_MM, POSE_MAX_DIST_MM
+    global BEACONS_TEST, _THEO_DISTS, _beacon_ids_list
+
+    _beacon_xs = [bx for bx, _ in BEACONS_BY_ID.values()]
+    _beacon_ys = [by for _, by in BEACONS_BY_ID.values()]
+
+    BEACON_OUTSIDE_LEFT_MM   = max(0.0, -min(_beacon_xs))
+    BEACON_OUTSIDE_RIGHT_MM  = max(0.0,  max(_beacon_xs) - float(MAP_W_MM))
+    BEACON_OUTSIDE_BOTTOM_MM = max(0.0, -min(_beacon_ys))
+    BEACON_OUTSIDE_TOP_MM    = max(0.0,  max(_beacon_ys) - float(MAP_H_MM))
+
+    OFFSET_BALISE_MM = max(
+        BEACON_OUTSIDE_LEFT_MM, BEACON_OUTSIDE_RIGHT_MM,
+        BEACON_OUTSIDE_BOTTOM_MM, BEACON_OUTSIDE_TOP_MM,
+    )
+    MAP_VIEW_MARGIN_MM = max(
+        150.0, OFFSET_BALISE_MM + (BEACON_SIZE_MM * 0.5) + 20.0
+    )
+    POSE_MAX_DIST_MM = int(
+        math.hypot(
+            MAP_W_MM + BEACON_OUTSIDE_LEFT_MM + BEACON_OUTSIDE_RIGHT_MM,
+            MAP_H_MM + BEACON_OUTSIDE_BOTTOM_MM + BEACON_OUTSIDE_TOP_MM,
+        ) + 200.0
+    )
+
+    BEACONS_TEST     = _build_display_beacons(BEACONS_BY_ID)
+    _beacon_ids_list = sorted(BEACONS_BY_ID.keys())
+
+    _THEO_DISTS = {}
+    for i, bid1 in enumerate(_beacon_ids_list):
+        for bid2 in _beacon_ids_list[i + 1:]:
+            bx1, by1 = BEACONS_BY_ID[bid1]
+            bx2, by2 = BEACONS_BY_ID[bid2]
+            _THEO_DISTS[(min(bid1, bid2), max(bid1, bid2))] = math.hypot(
+                bx1 - bx2, by1 - by2
+            )
+
+
+def set_team_color(color: str) -> None:
+    """
+    Charge les positions des balises pour la bonne couleur d'équipe.
+
+    Doit être appelé depuis Robot.__init__() AVANT start_lidar_thread().
+    Utilise BeaconLayout.get_beacon() qui gère déjà la symétrie.
+
+    Args:
+        color: "BLUE" ou "YELLOW"
+    """
+    global _team_color, BEACONS_BY_ID
+
+    _team_color = color.upper()
+
+    # Utiliser BeaconLayout.get_beacon() qui gère la symétrie YELLOW
     BEACONS_BY_ID = {
-        1: (3050.0, 1950.0),
-        2: (3050.0,   50.0),
-        3: (  -50.0, 1000.0),
+        bid: BeaconLayout.get_beacon(bid, _team_color)
+        for bid in BeaconLayout.BEACONS.keys()
     }
 
-_beacon_xs = [bx for bx, _ in BEACONS_BY_ID.values()]
-_beacon_ys = [by for _, by in BEACONS_BY_ID.values()]
+    _recompute_beacon_globals()
 
-BEACON_OUTSIDE_LEFT_MM   = max(0.0, -min(_beacon_xs))
-BEACON_OUTSIDE_RIGHT_MM  = max(0.0,  max(_beacon_xs) - float(MAP_W_MM))
-BEACON_OUTSIDE_BOTTOM_MM = max(0.0, -min(_beacon_ys))
-BEACON_OUTSIDE_TOP_MM    = max(0.0,  max(_beacon_ys) - float(MAP_H_MM))
+    logger.info(
+        f"[LIDAR] Balises chargées pour équipe {_team_color}: {BEACONS_BY_ID}"
+    )
 
-OFFSET_BALISE_MM = max(
-    BEACON_OUTSIDE_LEFT_MM,
-    BEACON_OUTSIDE_RIGHT_MM,
-    BEACON_OUTSIDE_BOTTOM_MM,
-    BEACON_OUTSIDE_TOP_MM,
-)
-MAP_VIEW_MARGIN_MM = max(150.0, OFFSET_BALISE_MM + (BEACON_SIZE_MM * 0.5) + 20.0)
 
+# Charger BLEU par défaut au démarrage du module
+set_team_color("BLUE")
+
+
+# ── CONSTANTES LOCALISATION ───────────────────────────────────────────────────
 POSE_MIN_DIST_MM = 120
-POSE_MAX_DIST_MM = int(
-    math.hypot(
-        MAP_W_MM + BEACON_OUTSIDE_LEFT_MM + BEACON_OUTSIDE_RIGHT_MM,
-        MAP_H_MM + BEACON_OUTSIDE_BOTTOM_MM + BEACON_OUTSIDE_TOP_MM,
-    ) + 200.0
-)
 
 CLUSTER_GAP_MM     = max(120.0, 1.2 * BEACON_SIZE_MM)
 CLUSTER_MIN_POINTS = 4
 TRACK_MATCH_MM     = 220
 TRACK_MAX_MISSED   = 8
 TRACK_HISTORY_LEN  = 20
-
-BEACONS_TEST = _build_display_beacons(BEACONS_BY_ID)
 
 AUTO_BEACON_LOCALIZATION        = True
 BEACON_QUAL_MIN                 = 2
@@ -145,14 +224,14 @@ POSE_CORRECTION_MIN_BEACONS     = 2
 POSE_SEND_BACK_INTERVAL_S       = 1.0
 
 # ── DÉTECTION ADVERSAIRE ──────────────────────────────────────────────────────
-ROBOT_MIN_RADIUS_MM         = 60.0
-ROBOT_MAX_RADIUS_MM         = 220.0
+ROBOT_MIN_RADIUS_MM          = 60.0
+ROBOT_MAX_RADIUS_MM          = 220.0
 OPPONENT_BEACON_EXCLUSION_MM = max(150.0, BEACON_SIZE_MM + 50.0)
-OPPONENT_MAX_MISSED         = 12
+OPPONENT_MAX_MISSED          = 12
 
 # ── CLASSIFICATION CLUSTERS ───────────────────────────────────────────────────
-LINEARITY_THRESHOLD    = 2.0
-CIRCULARITY_THRESHOLD  = 0.15
+LINEARITY_THRESHOLD   = 2.0
+CIRCULARITY_THRESHOLD = 0.15
 
 __all__ = [
     'PORT', 'BAUDRATE', 'TIMEOUT', 'MIN_DIST', 'MAX_DIST', 'MIN_QUAL',
@@ -177,9 +256,10 @@ __all__ = [
     'ROBOT_MIN_RADIUS_MM', 'ROBOT_MAX_RADIUS_MM',
     'OPPONENT_BEACON_EXCLUSION_MM', 'OPPONENT_MAX_MISSED',
     'PoseState', 'OpponentState',
+    'set_team_color',
     'get_latest_scan_data', 'get_latest_beacon_candidates',
     'get_latest_opponent', 'get_corrected_pose', 'get_latest_pose',
-    'update_teensy_pose', 'get_corrected_pose', 'should_send_correction_to_teensy',
+    'update_teensy_pose', 'should_send_correction_to_teensy',
     'stop_lidar_runtime', 'start_lidar_thread',
 ]
 
@@ -189,13 +269,13 @@ __all__ = [
 @dataclass
 class PoseState:
     """État de pose du robot estimée depuis LiDAR."""
-    x: float                      = 0.0
-    y: float                      = 0.0
-    theta: float                  = 0.0
-    confidence: float             = 0.0
+    x: float                        = 0.0
+    y: float                        = 0.0
+    theta: float                    = 0.0
+    confidence: float               = 0.0
     beacon_ids: Optional[List[str]] = None
-    is_localized: bool            = False
-    last_update_time: float       = 0.0
+    is_localized: bool              = False
+    last_update_time: float         = 0.0
 
 
 @dataclass
@@ -241,7 +321,7 @@ def _detect_opponent_fast(
     """
     Détecte le robot adverse via clustering angulaire O(N).
 
-    Filtres appliqués :
+    Filtres :
       1. Taille cluster : rayon ∈ [ROBOT_MIN_RADIUS_MM, ROBOT_MAX_RADIUS_MM]
       2. Exclusion balises : distance > OPPONENT_BEACON_EXCLUSION_MM
       3. Contrainte terrain : x ∈ [-50, MAP_W+50], y ∈ [-50, MAP_H+50]
@@ -258,7 +338,6 @@ def _detect_opponent_fast(
         xs = dists * np.cos(angles)
         ys = dists * np.sin(angles)
 
-        # Clustering angulaire O(N)
         order  = np.argsort(angles)
         xs_s   = xs[order]
         ys_s   = ys[order]
@@ -269,7 +348,6 @@ def _detect_opponent_fast(
         splits_x = np.split(xs_s, breaks)
         splits_y = np.split(ys_s, breaks)
 
-        # Positions balises pour exclusion vectorisée
         beacon_pos = (
             np.array([[c['x_r'], c['y_r']] for c in beacon_candidates],
                      dtype=np.float32)
@@ -287,22 +365,18 @@ def _detect_opponent_fast(
             radii    = np.linalg.norm(pts - centroid, axis=1)
             radius   = radii.max()
 
-            # Filtre taille
             if not (ROBOT_MIN_RADIUS_MM <= radius <= ROBOT_MAX_RADIUS_MM):
                 continue
 
-            # Exclusion balises
             if len(beacon_pos) > 0:
                 if np.linalg.norm(beacon_pos - centroid, axis=1).min() \
                         < OPPONENT_BEACON_EXCLUSION_MM:
                     continue
 
-            # Contrainte terrain
             x, y = float(centroid[0]), float(centroid[1])
             if not (-50 <= x <= MAP_W_MM + 50 and -50 <= y <= MAP_H_MM + 50):
                 continue
 
-            # Linéarité PCA (SVD 2×2)
             pts_c     = pts - centroid
             cov       = (pts_c.T @ pts_c) / len(pts)
             s         = np.linalg.svd(cov, compute_uv=False)
@@ -315,10 +389,10 @@ def _detect_opponent_fast(
             confidence = 0.6 + 0.3 * float(cv < CIRCULARITY_THRESHOLD)
 
             candidates.append({
-                'x':             x,
-                'y':             y,
-                'confidence':    float(confidence),
-                'points_count':  len(sx),
+                'x':              x,
+                'y':              y,
+                'confidence':     float(confidence),
+                'points_count':   len(sx),
                 'cluster_radius': float(radius),
             })
 
@@ -359,17 +433,6 @@ _corrected_pose      = PoseState()
 _corrected_pose_lock = threading.Lock()
 _last_correction_time = 0.0
 
-# Distances théoriques inter-balises (pré-calculées une seule fois)
-_THEO_DISTS: Dict[Tuple[int, int], float] = {}
-_beacon_ids_list: List[int] = sorted(BEACONS_BY_ID.keys())
-for _i, _bid1 in enumerate(_beacon_ids_list):
-    for _bid2 in _beacon_ids_list[_i + 1:]:
-        _bx1, _by1 = BEACONS_BY_ID[_bid1]
-        _bx2, _by2 = BEACONS_BY_ID[_bid2]
-        _THEO_DISTS[(min(_bid1, _bid2), max(_bid1, _bid2))] = math.hypot(
-            _bx1 - _bx2, _by1 - _by2
-        )
-
 
 # ── UTILITAIRES ───────────────────────────────────────────────────────────────
 
@@ -387,11 +450,8 @@ def _hungarian_assign(
     cand_dists: Dict,
 ) -> Dict[int, int]:
     """
-    Association optimale candidats→balises par comparaison de distances
-    inter-points. Max 3! = 6 permutations pour 3 balises.
-
-    Returns:
-        {cand_index: beacon_id} — vide si géométrie incohérente
+    Association optimale candidats→balises par comparaison de distances.
+    Max 3! = 6 permutations pour 3 balises.
     """
     k          = min(len(candidates), len(beacon_ids))
     best_cost  = float('inf')
@@ -410,7 +470,7 @@ def _hungarian_assign(
                 cost  += abs(theo_d - meas_d)
 
         if cost < best_cost:
-            best_cost  = cost
+            best_cost   = cost
             best_assign = {i: beacon_perm[i] for i in range(k)}
 
     if best_cost > BEACON_GEOM_TOL_MM * k:
@@ -429,23 +489,16 @@ def _associate_candidates_to_beacons(
     """
     Associe chaque candidat-balise à une balise connue (ajoute 'beacon_id').
 
-    Mode 1 — fenêtres prédites (pose Teensy connue) :
-        Cherche dans ±BEACON_WINDOW_ANGLE_RAD / ±BEACON_WINDOW_DIST_MM.
-
-    Mode 2 — sans pose (démarrage) :
-        Nearest-neighbor sur distances inter-candidats vs théoriques.
-
-    Returns:
-        Liste de candidats enrichis avec clé 'beacon_id'.
+    Mode 1 — fenêtres prédites (pose Teensy connue).
+    Mode 2 — hungarian sur distances inter-candidats (démarrage).
     """
     if not candidates:
         return []
 
-    enriched: List[Dict]  = []
-    used_beacon_ids: set  = set()
+    enriched: List[Dict] = []
+    used_beacon_ids: set = set()
 
     if windows:
-        # ── Mode 1 : fenêtres prédites ────────────────────────────────────────
         for cand in candidates:
             angle_c    = cand['angle']
             dist_c     = cand['distance']
@@ -474,7 +527,6 @@ def _associate_candidates_to_beacons(
                 used_beacon_ids.add(best_bid)
 
     else:
-        # ── Mode 2 : distances inter-candidats (hungarian) ────────────────────
         cand_dists: Dict = {}
         for i in range(len(candidates)):
             for j in range(i + 1, len(candidates)):
@@ -496,9 +548,9 @@ def _associate_candidates_to_beacons(
 
 def _validate_beacon_geometry(associated_cands: List[Dict]) -> bool:
     """
-    Vérifie que les distances inter-candidats associés correspondent
-    aux distances théoriques à BEACON_GEOM_TOL_MM près.
-    Filtre les faux positifs avant le SVD.
+    Vérifie la cohérence géométrique avant le SVD.
+    Retourne False si bid_i est None ou si la distance mesurée
+    dépasse BEACON_GEOM_TOL_MM par rapport à la distance théorique.
     """
     if len(associated_cands) < 2:
         return False
@@ -510,7 +562,6 @@ def _validate_beacon_geometry(associated_cands: List[Dict]) -> bool:
             bid_i = ci.get('beacon_id')
             bid_j = cj.get('beacon_id')
 
-            # FIX : tester None explicitement avant 'not in'
             if bid_i is None or bid_j is None:
                 return False
             if bid_i not in BEACONS_BY_ID or bid_j not in BEACONS_BY_ID:
@@ -543,11 +594,7 @@ def _compute_corrected_pose(
 ) -> Optional[PoseState]:
     """
     Corrige la pose Teensy via SVD Umeyama 2D.
-
     Requiert que chaque candidat ait un champ 'beacon_id'.
-
-    Returns:
-        PoseState corrigée ou None si échec / delta trop grand.
     """
     if len(beacon_candidates) < POSE_CORRECTION_MIN_BEACONS:
         return None
@@ -588,9 +635,9 @@ def _compute_corrected_pose(
     measured_c    = measured    - centroid_m
     theoretical_c = theoretical - centroid_t
 
-    H  = measured_c.T @ theoretical_c
+    H        = measured_c.T @ theoretical_c
     U, S, Vt = np.linalg.svd(H)
-    R  = Vt.T @ U.T
+    R        = Vt.T @ U.T
 
     if np.linalg.det(R) < 0:
         Vt[-1, :] *= -1
@@ -601,20 +648,14 @@ def _compute_corrected_pose(
     delta_x     = float(t[0])
     delta_y     = float(t[1])
 
-    # ── Gardes sur les deltas (rejeter si trop grands) ────────────────────────
     if abs(delta_theta) > math.radians(POSE_MAX_JUMP_DEG):
-        logger.debug(
-            f"SVD delta_theta trop grand: {math.degrees(delta_theta):.1f}°"
-        )
+        logger.debug(f"SVD delta_theta trop grand: {math.degrees(delta_theta):.1f}°")
         return None
 
     if math.hypot(delta_x, delta_y) > POSE_MAX_JUMP_MM:
-        logger.debug(
-            f"SVD delta XY trop grand: {math.hypot(delta_x, delta_y):.0f}mm"
-        )
+        logger.debug(f"SVD delta XY trop grand: {math.hypot(delta_x, delta_y):.0f}mm")
         return None
 
-    # ── Validation RMS ────────────────────────────────────────────────────────
     corrected_measured = (measured @ R.T) + t
     residuals          = corrected_measured - theoretical
     rms                = float(np.sqrt(np.mean(residuals ** 2)))
@@ -622,13 +663,11 @@ def _compute_corrected_pose(
     if rms > BEACON_FIT_MAX_RMS_MM:
         return None
 
-    # ── Confiance ─────────────────────────────────────────────────────────────
-    if len(beacon_ids_used) >= 3:
-        confidence = max(0.7, 1.0 - rms / 100.0)
-    else:
-        confidence = max(0.5, 0.8 - rms / 100.0)
+    confidence = (
+        max(0.7, 1.0 - rms / 100.0) if len(beacon_ids_used) >= 3
+        else max(0.5, 0.8 - rms / 100.0)
+    )
 
-    # ── Pose corrigée avec theta normalisé ───────────────────────────────────
     x_corrected     = teensy_x + delta_x
     y_corrected     = teensy_y + delta_y
     theta_corrected = (teensy_theta + delta_theta + math.pi) % (2 * math.pi) - math.pi
@@ -651,13 +690,7 @@ def _predict_beacon_windows(
     teensy_y: float,
     teensy_theta: float,
 ) -> Optional[Dict]:
-    """
-    Calcule pour chaque balise sa fenêtre de prédiction dans le scan LiDAR.
-
-    Returns:
-        Dict {beacon_id: {angle_pred, dist_pred, angle_min, angle_max,
-                          dist_min, dist_max}} ou None si pose invalide.
-    """
+    """Calcule pour chaque balise sa fenêtre de prédiction dans le scan."""
     if teensy_x is None or teensy_y is None or teensy_theta is None:
         return None
 
@@ -695,21 +728,11 @@ def _predict_beacon_windows(
 def _extract_beacon_candidates_fast(points) -> List[Dict]:
     """
     Extrait les candidats-balises depuis un scan fusionné.
-
-    Pipeline :
-      1. Fenêtre distance [POSE_MIN_DIST_MM, POSE_MAX_DIST_MM]
-      2. Qualité >= BEACON_QUAL_MIN
-      3. Tri angulaire + clustering angulaire/distance
-      4. Validation taille de face
-      5. Calcul centre + décalage demi-profondeur
-
-    Returns:
-        Liste de dicts {angle, distance, quality, count, face_est, x_r, y_r}
+    Pipeline : distance → qualité → clustering angulaire → validation face.
     """
     if not points:
         return []
 
-    # FIX : cohérence float32 avec _merge_scan_frames
     arr = np.asarray(points, dtype=np.float32)
 
     d_mask = (arr[:, 1] >= POSE_MIN_DIST_MM) & (arr[:, 1] <= POSE_MAX_DIST_MM)
@@ -737,7 +760,6 @@ def _extract_beacon_candidates_fast(points) -> List[Dict]:
 
     idx_splits = np.split(np.arange(len(angles)), breaks)
 
-    # Wrap-around 360°→0°
     if len(idx_splits) >= 2:
         first_idx = idx_splits[0][0]
         last_idx  = idx_splits[-1][-1]
@@ -747,8 +769,7 @@ def _extract_beacon_candidates_fast(points) -> List[Dict]:
             len(idx_splits[0])  >= BEACON_MIN_RETURNS_PER_CLUSTER and
             len(idx_splits[-1]) >= BEACON_MIN_RETURNS_PER_CLUSTER
         )
-        if (wrap_ang  <= BEACON_ANG_GAP_RAD and
-                wrap_dist <= BEACON_DIST_GAP_MM and both_ok):
+        if wrap_ang <= BEACON_ANG_GAP_RAD and wrap_dist <= BEACON_DIST_GAP_MM and both_ok:
             merged_idx = np.concatenate([idx_splits[-1], idx_splits[0]])
             idx_splits = [merged_idx] + idx_splits[1:-1]
 
@@ -806,15 +827,10 @@ def _extract_beacon_candidates_fast(points) -> List[Dict]:
 # ── FUSION SCANS ──────────────────────────────────────────────────────────────
 
 def _merge_scan_frames(frames) -> List[Tuple[float, float, float]]:
-    """
-    Fusion vectorisée de scans successifs par bins angulaires.
-    Retourne une liste de tuples (rad, mm, qual) en float Python
-    pour compatibilité avec le reste du pipeline.
-    """
+    """Fusion vectorisée de scans successifs par bins angulaires."""
     if not frames:
         return []
 
-    # FIX : float32 cohérent
     arrays = [np.asarray(pts, dtype=np.float32) for pts in frames if pts]
     if not arrays:
         return []
@@ -830,11 +846,11 @@ def _merge_scan_frames(frames) -> List[Tuple[float, float, float]]:
     bin_rad = math.radians(max(0.1, float(MERGE_ANGLE_BIN_DEG)))
     bins    = np.floor(np.mod(rads, 2.0 * math.pi) / bin_rad).astype(np.int32)
 
-    order   = np.lexsort((dists, -quals, bins))
-    bins_s  = bins[order]
-    r_s     = rads[order]
-    d_s     = dists[order]
-    q_s     = quals[order]
+    order  = np.lexsort((dists, -quals, bins))
+    bins_s = bins[order]
+    r_s    = rads[order]
+    d_s    = dists[order]
+    q_s    = quals[order]
 
     _, first_idx = np.unique(bins_s, return_index=True)
     merged       = np.column_stack((r_s[first_idx], d_s[first_idx], q_s[first_idx]))
@@ -844,7 +860,6 @@ def _merge_scan_frames(frames) -> List[Tuple[float, float, float]]:
         stride = max(1, len(merged) // MAX_MERGED_POINTS)
         merged = merged[::stride][:MAX_MERGED_POINTS]
 
-    # Retourner tuples float pour compatibilité downstream
     return [
         (float(r), float(d), float(q))
         for r, d, q in merged
@@ -862,6 +877,7 @@ def lidar_thread(console_callback, status_callback):
         time.sleep(1)
         status_callback('Connecte - scan en cours')
         console_callback(f'[OK] Connecté sur {PORT} à {BAUDRATE} baud\n')
+        console_callback(f'[INFO] Équipe: {_team_color} | Balises: {list(BEACONS_BY_ID.keys())}\n')
 
         try:
             scan_iter = lidar_obj.iter_scans(
@@ -875,7 +891,6 @@ def lidar_thread(console_callback, status_callback):
             if not running:
                 break
 
-            # ── Collecte brute ────────────────────────────────────────────────
             points = []
             for quality, angle, distance in scan:
                 if MIN_DIST <= distance <= MAX_DIST:
@@ -884,36 +899,29 @@ def lidar_thread(console_callback, status_callback):
             if not points:
                 continue
 
-            # ── Fusion temporelle ─────────────────────────────────────────────
             if SCAN_HISTORY_LEN > 1:
                 scan_frames.append(points)
                 merged_data = _merge_scan_frames(scan_frames)
             else:
                 merged_data = points
 
-            # ── Extraction candidats balises ──────────────────────────────────
             beacon_cands = _extract_beacon_candidates_fast(merged_data)
 
-            # ── Double-buffer scan complet ────────────────────────────────────
             with lock:
                 scan_write_buf        = merged_data
                 scan_read_buf, scan_write_buf = scan_write_buf, scan_read_buf
                 merged_count          = len(scan_read_buf)
 
-            # ── Buffer balises thread-safe ────────────────────────────────────
             with beacon_lock:
                 beacon_candidates_buf = beacon_cands
 
-            # ── Lecture pose Teensy ───────────────────────────────────────────
             with _teensy_pose_lock:
                 teensy_x, teensy_y, teensy_theta = _teensy_pose
 
-            # ── Prédiction fenêtres (si pose connue) ─────────────────────────
             windows = None
             if teensy_x is not None:
                 windows = _predict_beacon_windows(teensy_x, teensy_y, teensy_theta)
 
-            # ── Association + validation + SVD ────────────────────────────────
             if len(beacon_cands) >= POSE_CORRECTION_MIN_BEACONS:
                 t_x     = teensy_x     if teensy_x     is not None else 0.0
                 t_y     = teensy_y     if teensy_y     is not None else 0.0
@@ -923,7 +931,6 @@ def lidar_thread(console_callback, status_callback):
                     beacon_cands, t_x, t_y, t_theta, windows
                 )
 
-                # FIX : condition teensy_x dans le même if, pas imbriqué
                 if (len(associated) >= POSE_CORRECTION_MIN_BEACONS and
                         _validate_beacon_geometry(associated) and
                         teensy_x is not None):
@@ -938,11 +945,9 @@ def lidar_thread(console_callback, status_callback):
                     except Exception as e:
                         logger.debug(f"SVD correction error: {e}")
 
-            # ── Détection adversaire ──────────────────────────────────────────
             opponent_candidate = _detect_opponent_fast(merged_data, beacon_cands)
             _update_opponent(opponent_candidate)
 
-            # ── Log console (numpy, pas de list comprehension) ────────────────
             arr_raw = np.asarray(points, dtype=np.float32)
             d_raw   = arr_raw[:, 1]
             console_callback(
@@ -973,10 +978,7 @@ def lidar_thread(console_callback, status_callback):
 # ── API PUBLIQUE — ODOMÉTRIE ──────────────────────────────────────────────────
 
 def update_teensy_pose(x: float, y: float, theta: float) -> None:
-    """
-    Reçoit la pose actuelle de la Teensy.
-    Appelée par robot.py à chaque callback USB.
-    """
+    """Reçoit la pose actuelle de la Teensy (appelée par robot.py)."""
     global _teensy_pose
     with _teensy_pose_lock:
         _teensy_pose = (float(x), float(y), float(theta))
@@ -989,10 +991,7 @@ def get_corrected_pose() -> PoseState:
 
 
 def should_send_correction_to_teensy() -> bool:
-    """
-    True si une correction peut être envoyée vers la Teensy.
-    Conditions : confiance, nb balises, intervalle minimum.
-    """
+    """True si une correction peut être envoyée vers la Teensy."""
     global _last_correction_time
 
     with _corrected_pose_lock:
@@ -1018,11 +1017,7 @@ def get_latest_scan_data() -> List[Tuple[float, float, float]]:
 
 
 def get_latest_beacon_candidates() -> List[Dict]:
-    """
-    Snapshot thread-safe des candidats-balises pré-filtrés.
-
-    Chaque élément : {angle, distance, quality, count, face_est, x_r, y_r}
-    """
+    """Snapshot thread-safe des candidats-balises pré-filtrés."""
     with beacon_lock:
         return list(beacon_candidates_buf)
 

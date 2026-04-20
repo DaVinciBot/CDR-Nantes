@@ -8,6 +8,7 @@ from terrain_jeu import Terrain
 from pathfinder import PathFinder
 from lidar.lidar import LidarInterface
 from lidar.lidar_logic import (
+    set_team_color,              # FIX : chargement balises dès __init__
     update_teensy_pose,
     get_corrected_pose,
     should_send_correction_to_teensy,
@@ -33,8 +34,16 @@ class Robot:
 
         self._last_correction_sent_time = 0.0
 
+        # 1. Charger les positions des balises AVANT tout le reste
+        #    (avant LidarInterface, avant start_lidar_thread)
+        set_team_color(couleur_equipe)
+        self.logger.info(f"Balises LiDAR chargées pour équipe {couleur_equipe}.")
+
+        # 2. Terrain et pathfinding
         self.terrain  = Terrain(couleur_equipe)
         self.cerveau  = PathFinder(self.terrain)
+
+        # 3. Interface LiDAR (démarre le thread d'acquisition en interne)
         self.lidar    = LidarInterface(team_color=couleur_equipe)
 
         self.Messages      = loader.load_class('usb_com', 'Messages')
