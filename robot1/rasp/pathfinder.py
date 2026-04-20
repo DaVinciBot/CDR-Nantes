@@ -51,10 +51,20 @@ class PathFinder:
         return grid
 
     def get_path(self, start_pos, end_pos, lidar_data):
+        """
+        Calcule le chemin A* orienté pour robot holonome.
+        
+        Args:
+            start_pos: {'x': mm, 'y': mm, 'theta': rad}
+                       theta = direction courante du robot (favorise mouvements alignés)
+            end_pos:   {'x': mm, 'y': mm}
+            lidar_data: obstacles dynamiques
+        """
         grid = self.create_dynamic_grid(lidar_data)
         
         start_node = self._to_grid(start_pos['x'], start_pos['y'])
         end_node = self._to_grid(end_pos['x'], end_pos['y'])
+        start_theta = start_pos.get('theta', 0.0)  # Angle courant du robot
 
         if not (0 <= start_node[0] < self.cols and 0 <= start_node[1] < self.rows): return []
         if not (0 <= end_node[0] < self.cols and 0 <= end_node[1] < self.rows) or grid[end_node[0]][end_node[1]] == 1: return []
@@ -100,8 +110,22 @@ class PathFinder:
                        grid[current[0]][current[1] + dy] == 1:
                         continue
 
-                # Coût différentiel: 1 pour tout droit, 1.414 (racine de 2) pour diagonale
-                cost = 1.414 if abs(dx) + abs(dy) == 2 else 1.0
+                # === COÛT ORIENTÉ (holonome) ===
+                # Coût géométrique de base
+                base_cost = 1.414 if abs(dx) + abs(dy) == 2 else 1.0
+                
+                # Angle du mouvement (0 = +X, π/2 = +Y)
+                move_angle = math.atan2(dy, dx)
+                
+                # Différence angulaire minimale avec direction courante (wrap-around)
+                angle_diff = abs((start_theta - move_angle + math.pi) % (2 * math.pi) - math.pi)
+                
+                # Pénalité: mouvements alignés avec theta coûtent moins
+                # angle_diff = 0    → penalty = 1.0 (va droit devant, bonus max)
+                # angle_diff = π    → penalty = 1.3 (va en arrière, pénalité)
+                orientation_penalty = 1.0 + 0.3 * (angle_diff / math.pi)
+                
+                cost = base_cost * orientation_penalty
                 new_score = g_score[current] + cost 
                 
                 if new_score < g_score.get(neighbor, float('inf')):

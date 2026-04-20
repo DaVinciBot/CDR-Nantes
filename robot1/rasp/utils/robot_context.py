@@ -9,6 +9,7 @@ La détection se fait automatiquement selon le contexte d'exécution.
 import os
 import sys
 import json
+import logging
 from pathlib import Path
 
 
@@ -108,6 +109,11 @@ def get_com_class():
         return loader.load_class('usb_com', 'Com')
 
 
+def _get_effective_logger(logger=None):
+    """Retourne un logger toujours valide (même si None est fourni)."""
+    return logger if logger is not None else logging.getLogger("ROBOT_CONTEXT")
+
+
 def create_com(logger=None):
     """Crée une instance Com adaptée au contexte (simulation ou hardware).
     
@@ -118,26 +124,52 @@ def create_com(logger=None):
         Com instance configurée pour le contexte actuel
     """
     config = get_com_config()
-    ComClass = get_com_class()
-    
-    if config['mode'] == 'simulation':
-        # Instanciation pour simulation (WebotsComBridge)
-        return ComClass(
-            port=config['port'],
-            baudrate=config['baudrate'],
-            enable_crc=config['enable_crc'],
-            logger=logger
-        )
-    else:
+    effective_logger = _get_effective_logger(logger)
+
+    try:
+        ComClass = get_com_class()
+
+        if config['mode'] == 'simulation':
+            # Instanciation pour simulation (WebotsComBridge)
+            return ComClass(
+                port=config['port'],
+                baudrate=config['baudrate'],
+                enable_crc=config['enable_crc'],
+                logger=effective_logger,
+            )
+
         # Instanciation pour hardware réel (Com)
         return ComClass(
-            logger=logger,
+            logger=effective_logger,
             serial_number=config['serial_number'],
             vid=config['vid'],
             pid=config['pid'],
             baudrate=config['baudrate'],
             enable_crc=config['enable_crc'],
-            enable_dummy=config['enable_dummy']
+            enable_dummy=config['enable_dummy'],
+        )
+
+    except Exception as exc:
+        # Fallback robuste: si aucun port réel/virtuel n'est disponible,
+        # on bascule en dummy pour permettre le démarrage applicatif.
+        effective_logger.warning(
+            "[robot_context] Échec initialisation COM (%s). "
+            "Bascule en mode dummy.",
+            exc,
+        )
+
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from loader import loader
+
+        HardwareCom = loader.load_class('usb_com', 'Com')
+        return HardwareCom(
+            logger=effective_logger,
+            serial_number=18421350,
+            vid=5824,
+            pid=1155,
+            baudrate=int(config.get('baudrate', 115200)),
+            enable_crc=bool(config.get('enable_crc', True)),
+            enable_dummy=True,
         )
 
 

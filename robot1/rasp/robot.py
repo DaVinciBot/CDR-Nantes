@@ -8,11 +8,11 @@ from terrain_jeu import Terrain
 from pathfinder import PathFinder
 from lidar.lidar import LidarInterface
 from lidar.lidar_logic import (
-    set_team_color,              # FIX : chargement balises dès __init__
+    set_team_color,
     update_teensy_pose,
     get_corrected_pose,
     should_send_correction_to_teensy,
-    stop_lidar_runtime,          # FIX : import pour stopper_tout
+    stop_lidar_runtime,
 )
 
 from loader import loader
@@ -35,18 +35,18 @@ class Robot:
         self._last_correction_sent_time = 0.0
 
         # 1. Charger les positions des balises AVANT tout le reste
-        #    (avant LidarInterface, avant start_lidar_thread)
         set_team_color(couleur_equipe)
         self.logger.info(f"Balises LiDAR chargées pour équipe {couleur_equipe}.")
 
         # 2. Terrain et pathfinding
-        self.terrain  = Terrain(couleur_equipe)
-        self.cerveau  = PathFinder(self.terrain)
+        self.terrain = Terrain(couleur_equipe)
+        self.cerveau = PathFinder(self.terrain)
 
-        # 3. Interface LiDAR (démarre le thread d'acquisition en interne)
-        self.lidar    = LidarInterface(team_color=couleur_equipe)
+        # 3. Interface LiDAR
+        self.lidar = LidarInterface(team_color=couleur_equipe)
 
-        self.Messages      = loader.load_class('usb_com', 'Messages')
+        # 4. Communication USB
+        self.Messages       = loader.load_class('usb_com', 'Messages')
         self.com, self.mode = init_robot(self.logger)
 
         self.com.add_callback(
@@ -54,8 +54,50 @@ class Robot:
             self.Messages.UPDATE_ROLLING_BASIS.value,
         )
 
+        # 5. Envoi de la position de départ connue vers la Teensy
+        #    (remplace l'odométrie Teensy à (0,0,0) par la vraie position initiale)
+        self._initialiser_position_depart()
+
+        # 6. Stratégie
         self.strategie = StratManager(couleur_equipe)
         self.logger.info("Robot entièrement initialisé.")
+
+    # ── INITIALISATION ────────────────────────────────────────────────────────
+
+    def _initialiser_position_depart(self) -> None:
+        """
+        Envoie SET_ODOMETRIE à la Teensy avec la position initiale connue
+        (coin de départ selon la couleur d'équipe) et initialise les variables
+        locales de position pour que le LiDAR puisse démarrer avec une pose de
+        référence correcte.
+
+        Doit être appelé APRÈS que self.com est initialisé.
+        """
+        start_x, start_y, start_theta = self.terrain.get_start_position()
+
+        self.logger.info(
+            f"Position de départ [{self.couleur}] : "
+            f"X={start_x:.0f}mm  Y={start_y:.0f}mm  θ={math.degrees(start_theta):.1f}°"
+        )
+
+        # Mise à jour locale immédiate (avant le premier callback Teensy)
+        with self.lock:
+            self.x     = start_x
+            self.y     = start_y
+            self.theta = start_theta
+
+        # Signal au thread LiDAR (fenêtres de prédiction SVD)
+        update_teensy_pose(start_x, start_y, start_theta)
+
+        # Envoi à la Teensy — reset complet de son odométrie ET de sa cible
+        # (set_odometrie() côté Teensy appelle init_holonomic_basis() + target ← même pos)
+        msg  = self.Messages.SET_ODOMETRIE.to_bytes()
+        msg += struct.pack('<ddd', start_x, start_y, start_theta)
+        self.com.send_bytes(msg)
+
+        # Petite attente pour laisser la Teensy traiter le message avant le match
+        time.sleep(0.3)
+        self.logger.info("Position de départ transmise à la Teensy.")
 
     # ── BAS NIVEAU ────────────────────────────────────────────────────────────
 
@@ -67,12 +109,9 @@ class Robot:
                 self.x     = x
                 self.y     = y
                 self.theta = theta
-            # Signal LiDAR thread pour prédiction fenêtres SVD
             update_teensy_pose(x, y, theta)
         else:
-            self.logger.warning(
-                f"Message odométrie trop court: {len(data)} bytes"
-            )
+            self.logger.warning(f"Message odométrie trop court: {len(data)} bytes")
 
     def _envoyer_position_moteurs(
         self, x: float, y: float, theta: float, description: str = ""
@@ -90,17 +129,7 @@ class Robot:
         teensy_y: float,
         lidar_confidence: float,
     ) -> tuple:
-        """
-        Filtre complémentaire adaptatif LiDAR + Teensy.
-
-        Alpha varie avec la confiance :
-          - conf < 0.2 → alpha = 0.85 (85 % Teensy)
-          - conf > 0.8 → alpha = 0.25 (75 % LiDAR)
-          - intermédiaire → transition linéaire
-
-        Returns:
-            (x_fused_mm, y_fused_mm, alpha)
-        """
+        """Filtre complémentaire adaptatif LiDAR + Teensy."""
         if lidar_confidence < 0.2:
             alpha = 0.85
         elif lidar_confidence > 0.8:
@@ -110,7 +139,6 @@ class Robot:
 
         x_fused = (1.0 - alpha) * lidar_x + alpha * teensy_x
         y_fused = (1.0 - alpha) * lidar_y + alpha * teensy_y
-
         return x_fused, y_fused, alpha
 
     def _send_odometry_correction(
@@ -133,7 +161,7 @@ class Robot:
     def attendre_tirette(self) -> None:
         """Met le code en pause jusqu'au retrait de la tirette."""
         self.logger.info("En attente de la tirette...")
-        # TODO: remplacer par lecture GPIO réel
+        # TODO: remplacer par lecture GPIO réel (pin à définir)
         time.sleep(3)
         self.logger.info("Tirette retirée !")
 
@@ -144,8 +172,7 @@ class Robot:
         with self.lock:
             teensy_x, teensy_y, teensy_theta = self.x, self.y, self.theta
 
-        # 2. Signal LiDAR (double appel intentionnel pour le cas où
-        #    _handle_position n'a pas encore été déclenché ce cycle)
+        # 2. Signal LiDAR
         update_teensy_pose(teensy_x, teensy_y, teensy_theta)
 
         # 3. Fusion SVD + filtre complémentaire
@@ -166,43 +193,38 @@ class Robot:
                 f"conf={corrected_pose.confidence:.2f} alpha={alpha:.2f}"
             )
 
-            # Envoi correction vers Teensy si conditions réunies
             if should_send_correction_to_teensy():
                 now = time.time()
                 if now - self._last_correction_sent_time >= 1.0:
                     self._send_odometry_correction(rx, ry, rtheta)
                     self._last_correction_sent_time = now
         else:
-            # Fallback : fusion simple avec ancien wrapper
             rx, ry, rtheta, _ = self.lidar.get_fused_position(
                 teensy_x, teensy_y, teensy_theta
             )
 
-        # 4. Obstacles du terrain (murs, caisses, structures statiques)
-        # Le LiDAR ne détecte que balises (pour SVD) + adversaire (get_opponent)
-        # Les vrais obstacles (terrain) viennent de terrain_jeu
-        obstacles = self.terrain.get_static_obstacles() if hasattr(self.terrain, 'get_static_obstacles') else []
+        # 4. Obstacles dynamiques — format (x, y) tuples pour PathFinder
+        #    Les obstacles statiques sont déjà dans la grille PathFinder (pre-built).
+        obstacles: list = []
 
-        # 5. Adversaire → obstacles (dynamique, détecté via LiDAR)
         opponent_data = self.lidar.get_opponent()
         if opponent_data is not None:
             opp_x, opp_y, opp_conf = opponent_data
             if opp_conf > 0.1:
-                obstacles.append({
-                    'x':            opp_x,
-                    'y':            opp_y,
-                    'type':         'opponent',
-                    'confidence':   opp_conf,
-                    'radius_mm':    110.0,
-                })
+                # ← CORRECTION : tuple (x, y) attendu par create_dynamic_grid()
+                obstacles.append((opp_x, opp_y))
+                self.logger.debug(
+                    f"Adversaire ajouté aux obstacles: ({opp_x:.0f}, {opp_y:.0f}) "
+                    f"conf={opp_conf:.2f}"
+                )
 
-        # 6. Stratégie
+        # 5. Stratégie
         action = self.strategie.get_action_actuelle()
         if action is None:
             self._envoyer_position_moteurs(rx, ry, rtheta, "STOP (fin missions)")
             return
 
-        # 7. Exécution action
+        # 6. Exécution action
         if action.type == TypeAction.DEPLACEMENT:
             objectif          = {'x': action.cible_x, 'y': action.cible_y}
             distance_restante = math.hypot(action.cible_x - rx, action.cible_y - ry)
@@ -215,23 +237,11 @@ class Robot:
                 self.strategie.valider_action_terminee()
                 return
 
-            # Position avec theta pour pathfinding
-            pos = {'x': rx, 'y': ry, 'theta': rtheta}
-            
-            # Debug: vérifier format uniformes
-            self.logger.debug(
-                f"Pathfinding input: pos={{'x':{rx:.1f}, 'y':{ry:.1f}, 'theta':{rtheta:.3f}}}, "
-                f"target={objectif}, "
-                f"obstacles={len(obstacles)} "
-                f"(types={[o.get('type') for o in obstacles][:5]})"
-            )
-            
+            pos    = {'x': rx, 'y': ry, 'theta': rtheta}
             chemin = self.cerveau.get_path(pos, objectif, obstacles)
 
             if chemin and len(chemin) > 1:
-                dist_to_target = math.hypot(
-                    objectif['x'] - rx, objectif['y'] - ry
-                )
+                dist_to_target = math.hypot(objectif['x'] - rx, objectif['y'] - ry)
                 if dist_to_target > 500:
                     lookahead_index = min(4, len(chemin) - 1)
                 elif dist_to_target < 200:
@@ -267,7 +277,6 @@ class Robot:
                 self.x, self.y, self.theta, "ARRÊT MATCH"
             )
 
-        # FIX : utiliser stop_lidar_runtime() et non lidar.arreter()
         self.logger.info("Coupure du LiDAR…")
         stop_lidar_runtime()
 
