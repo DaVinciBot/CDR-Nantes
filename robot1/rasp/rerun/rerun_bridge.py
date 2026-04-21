@@ -365,6 +365,21 @@ def _log_robot(path: str, x: float, y: float, theta: float, color: list) -> None
         origins=[[x, y, ROBOT_H_MM+20]], vectors=[[dx, dy, 0.0]], colors=[color]))
 
 
+def _log_robot_point(path: str, x: float, y: float, theta: float, color: list) -> None:
+    """Affiche le robot comme un simple point avec flèche directionnelle."""
+    # Point au centre du robot
+    rr.log(f"{path}/point", rr.Points3D(
+        positions=[[x, y, 60.0]],
+        colors=[color],
+        radii=[80.0],  # Taille du point (en mm)
+    ))
+    
+    # Flèche de direction
+    dx, dy = ARROW_L_MM * math.cos(theta), ARROW_L_MM * math.sin(theta)
+    rr.log(f"{path}/arrow", rr.Arrows3D(
+        origins=[[x, y, 60.0]], vectors=[[dx, dy, 0.0]], colors=[color]))
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # État partagé thread-safe
 # ─────────────────────────────────────────────────────────────────────────────
@@ -554,8 +569,8 @@ def _log_lidar_polar(pts_cloud: list) -> None:
 
 def _publish(s: _State) -> None:
 
-    # ── Odométrie Teensy (robot bleu) ─────────────────────────────────────────
-    _log_robot("world/robot/odom", s.odom_x, s.odom_y, s.odom_theta, C_ROBOT)
+    # ── Odométrie Teensy (robot bleu — point) ─────────────────────────────────
+    _log_robot_point("world/robot/odom", s.odom_x, s.odom_y, s.odom_theta, C_ROBOT)
 
     # ── Nuage Lidar (projeté en coordonnées monde) ────────────────────────────
     if s.lidar_cloud:
@@ -602,11 +617,11 @@ def _publish(s: _State) -> None:
     else:
         rr.log("world/lidar/beacons_detected", rr.Clear(recursive=False))
 
-    # ── Position calculée par Lidar (robot rouge) ─────────────────────────────
+    # ── Position calculée par Lidar (robot rouge — point) ──────────────────────
     if s.lidar_ok:
-        _log_robot("world/lidar/pose", s.lidar_x, s.lidar_y, s.lidar_theta, C_LIDAR_P)
+        _log_robot_point("world/lidar/pose", s.lidar_x, s.lidar_y, s.lidar_theta, C_LIDAR_P)
     else:
-        rr.log("world/lidar/pose/body",  rr.Clear(recursive=False))
+        rr.log("world/lidar/pose/point",  rr.Clear(recursive=False))
         rr.log("world/lidar/pose/arrow", rr.Clear(recursive=False))
 
     # ── Position fusionnée (robot vert) ───────────────────────────────────────
@@ -687,45 +702,111 @@ def publish_loop(hz: float = 20.0, lidar_poll=None) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def simulation_loop(radius_mm: float = 500.0, speed: float = 0.4) -> None:
-    """Robot en cercle + faux nuage Lidar + trajectoire de test."""
-    t = 0.0
-    logger.info("Simulation — R=%.0f mm", radius_mm)
+    """
+    Simulation réaliste: robot qui se déplace vers les waypoints (au lieu de tourner en cercle).
+    Vitesse constante ~200 mm/s.
+    """
+    logger.info("Simulation — Trajet multi-waypoints")
 
-    update_trajectory([
-        (CX+600, CY), (CX+600, CY+400), (CX-200, CY+400), (CX-200, CY), (CX+600, CY)
-    ])
-    update_target(CX+600, CY+400)
+    # Waypoints de test : parcours rectangulaire
+    waypoints = [
+        (CX+600, CY+400),
+        (CX-200, CY+400),
+        (CX-200, CY-300),
+        (CX+600, CY-300),
+    ]
+    waypoint_idx = 0
+    current_target = waypoints[waypoint_idx]
+    update_target(current_target[0], current_target[1])
+
+    # Position actuelle du robot
+    ox, oy, ot = 1500.0, 1000.0, 0.0  # Centre du terrain
+    update_odom(ox, oy, ot)
+
+    sim_time = 0.0
+    dt = 0.05  # 20 Hz
+    robot_speed = 200.0  # mm/s
 
     while True:
-        a = t * speed
-        ox = CX + radius_mm * math.cos(a)
-        oy = CY + radius_mm * math.sin(a)
-        ot = a + math.pi/2
+        # ─────────────────────────────────────────────────────────
+        # 1. Mouvement vers cible
+        # ─────────────────────────────────────────────────────────
+        dx = current_target[0] - ox
+        dy = current_target[1] - oy
+        dist_to_target = math.hypot(dx, dy)
+
+        # Si cible atteinte, passer à la suivante
+        if dist_to_target < 100.0:
+            waypoint_idx = (waypoint_idx + 1) % len(waypoints)
+            current_target = waypoints[waypoint_idx]
+            update_target(current_target[0], current_target[1])
+            logger.info(f"Waypoint atteint! Nouvelle cible: ({current_target[0]:.0f}, {current_target[1]:.0f})")
+        else:
+            # Avancer vers la cible à vitesse constante
+            move_dist = robot_speed * dt  # distance à parcourir ce cycle
+            if move_dist < dist_to_target:
+                # Pas encore arrivé: avancer
+                ratio = move_dist / dist_to_target
+                ox += dx * ratio
+                oy += dy * ratio
+            else:
+                # Arrivé à la cible
+                ox = current_target[0]
+                oy = current_target[1]
+
+            # Angle du robot vers la cible
+            ot = math.atan2(dy, dx)
+
+        # Publier odométrie brute
         update_odom(ox, oy, ot)
 
-        lx = ox + 20*math.sin(t*2.5)
-        ly = oy + 20*math.cos(t*2.5)
-        conf = 0.85 + 0.1*math.sin(t*0.8)
-        update_lidar_pose(lx, ly, ot+0.03, conf)
-        update_fused(0.6*lx+0.4*ox, 0.6*ly+0.4*oy, ot)
+        # ─────────────────────────────────────────────────────────
+        # 2. Position Lidar (légèrement bruitée)
+        # ─────────────────────────────────────────────────────────
+        noise = 30 * math.sin(sim_time * 2.5)
+        lx = ox + noise * math.cos(sim_time * 0.7)
+        ly = oy + noise * math.sin(sim_time * 0.7)
+        conf = 0.85 + 0.1 * math.sin(sim_time * 0.8)
+        update_lidar_pose(lx, ly, ot + 0.03, conf)
 
-        # Faux nuage (360 points, murs + bruit)
+        # Position fusionnée (filtre complémentaire)
+        alpha = 0.4  # Lidar 60%, Teensy 40%
+        fx = (1.0 - alpha) * lx + alpha * ox
+        fy = (1.0 - alpha) * ly + alpha * oy
+        update_fused(fx, fy, ot)
+
+        # ─────────────────────────────────────────────────────────
+        # 3. Chemin de pathfinding (interpolé vers cible)
+        # ─────────────────────────────────────────────────────────
+        num_waypoints = 6
+        simulated_path = []
+        for i in range(num_waypoints):
+            ratio = i / (num_waypoints - 1)
+            px = ox + ratio * (current_target[0] - ox)
+            py = oy + ratio * (current_target[1] - oy)
+            simulated_path.append((px, py))
+        update_trajectory(simulated_path)
+
+        # ─────────────────────────────────────────────────────────
+        # 4. Faux nuage Lidar (360 points, murs + bruit)
+        # ─────────────────────────────────────────────────────────
         pts = []
         for deg in range(0, 360, 2):
             ar = math.radians(deg)
             ca, sa = math.cos(ar), math.sin(ar)
+            # Distance aux murs depuis position robot
             d = min(
                 abs((W-ox)/ca) if ca > 0.001 else 9999,
                 abs(-ox/ca)    if ca < -0.001 else 9999,
                 abs((H-oy)/sa) if sa > 0.001 else 9999,
                 abs(-oy/sa)    if sa < -0.001 else 9999,
                 3500.0,
-            ) + 30*(np.random.rand()-0.5)
-            pts.append((ar, max(50, d), 8+int(5*np.random.rand())))
+            ) + 30 * (np.random.rand() - 0.5)
+            pts.append((ar, max(50, d), 8 + int(5 * np.random.rand())))
         update_lidar_cloud(pts)
 
-        t += 0.05
-        time.sleep(0.05)
+        sim_time += dt
+        time.sleep(dt)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

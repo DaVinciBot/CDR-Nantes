@@ -13,18 +13,24 @@ FIELD_HEIGHT_MM = 2000
 ROBOT_RADIUS_MM = 120
 
 # --- Positions de départ (mm, rad) -----------------------------------------------
-# Référentiel BLEU (origine bas-gauche). Ajuster selon le placement réel sur table.
-# La position JAUNE est déduite par symétrie : x_jaune = 3000 - x_bleu, θ inversé.
+# Zones de départ CDR 2026 (côté gauche du terrain, symétrie Y)
+# Origine du repère : bas-droite (0,0) = coin bas-droit, (3000,2000) = coin haut-gauche
+# 
+#   Zone Jaune (Bas-Gauche):   X: 2550-3000mm (gauche), Y: 0-600mm,      centre: (2775, 300)
+#   Zone Bleue (Haut-Gauche):  X: 2550-3000mm (gauche), Y: 1400-2000mm,  centre: (2775, 1700)
 #
 #   Table vue de dessus :
-#   (0,2000) ───────────────────── (3000,2000)
-#      │  [ZONE JAUNE]  │  [ZONE BLEUE]  │
+#   (0,3000) ───────────────────── (3000,3000)
+#      │  ZONE BLEUE (1775, 2700)  │
+#   (0,2000) ───────────────────── (3000,2000)  [Grenier y=1550-2000]
+#      │  ZONE JAUNE (1775, 300)   │
 #   (0,0)  ────────────────────── (3000,0)
 #
-# ⚠  À AJUSTER selon le règlement CDR 2026 et le côté de départ retenu.
-_BLUE_START_X     = 200.0    # mm
-_BLUE_START_Y     = 200.0    # mm
-_BLUE_START_THETA = 0.0      # rad  (0 = pointe vers +X)
+# ⚠  Pas de symétrie X (les deux zones sont du même côté) ; symétrie Y uniquement.
+# Référence BLEU → symétrie Y pour JAUNE : y_jaune = 2000 - y_bleu
+_BLUE_START_X     = 2775.0    # mm  (centre X zone gauche)
+_BLUE_START_Y     = 1700.0    # mm  (haut du terrain)
+_BLUE_START_THETA = 0.0       # rad  (0 = pointe vers +X)
 
 START_POSITIONS = {
     "BLUE": (
@@ -33,9 +39,9 @@ START_POSITIONS = {
         _BLUE_START_THETA,
     ),
     "YELLOW": (
-        FIELD_WIDTH_MM - _BLUE_START_X,          # symétrie X
-        _BLUE_START_Y,                            # Y identique
-        (math.pi - _BLUE_START_THETA) % (2 * math.pi),   # angle miroir
+        _BLUE_START_X,                           # même X (pas de symétrie horizontale)
+        FIELD_HEIGHT_MM - _BLUE_START_Y,         # symétrie Y : 2000 - 1700 = 300
+        _BLUE_START_THETA,                       # même angle
     ),
 }
 
@@ -114,7 +120,7 @@ class BeaconLayout:
     BEACON_SIZE_MM = 100.0
 
     # Positions centre des balises (x, y) en mm pour l'équipe BLEUE
-    # Origine = coin bas-gauche du terrain.
+    # Origine = coin bas-droite du terrain.
     BEACONS = {
         1: (3050.0, 1950.0),    # haut droite (hors terrain)
         2: (3050.0,   50.0),    # bas droite  (hors terrain)
@@ -123,13 +129,13 @@ class BeaconLayout:
 
     @classmethod
     def get_beacon(cls, beacon_id: int, team_color: str = "BLUE") -> tuple:
-        """Retourne les coordonnées d'une balise après symétrie si nécessaire."""
+        """Retourne les coordonnées d'une balise après symétrie X si nécessaire."""
         if beacon_id not in cls.BEACONS:
             raise ValueError(f"Balise {beacon_id} non trouvée")
 
         x, y = cls.BEACONS[beacon_id]
 
         if team_color.upper() == "YELLOW":
-            x = FIELD_WIDTH_MM - x   # symétrie axe vertical
+            x = FIELD_WIDTH_MM - x   # symétrie X (gauche ↔ droite)
 
         return (x, y)

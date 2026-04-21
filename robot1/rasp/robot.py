@@ -20,6 +20,42 @@ from utils import init_robot
 from strategy.strategy_actions import TypeAction
 from strategy.strategy_strat_manager import StratManager
 
+# Import optionnel Rerun (pour visualisation monitoring)
+HAS_RERUN = False
+rerun_bridge = None
+REQUIRED_RERUN_FUNCS = (
+    "update_fused",
+    "update_obstacles",
+    "update_target",
+    "update_trajectory",
+)
+
+
+def _is_valid_rerun_bridge(module) -> bool:
+    if module is None:
+        return False
+    return all(callable(getattr(module, fn, None)) for fn in REQUIRED_RERUN_FUNCS)
+
+
+try:
+    import sys
+    # Vérifier si rerun_bridge est déjà chargé (par test_sim_mode)
+    if 'rerun_bridge' in sys.modules and _is_valid_rerun_bridge(sys.modules['rerun_bridge']):
+        rerun_bridge = sys.modules['rerun_bridge']
+        HAS_RERUN = True
+    else:
+        # Essayer de le charger via le loader
+        if hasattr(loader, "load_rerun_bridge"):
+            candidate = loader.load_rerun_bridge()
+        else:
+            candidate = None
+
+        if _is_valid_rerun_bridge(candidate):
+            rerun_bridge = candidate
+            HAS_RERUN = True
+except Exception as e:
+    pass  # Silencieux si Rerun n'est pas disponible
+
 
 class Robot:
     def __init__(self, couleur_equipe: str):
@@ -175,6 +211,13 @@ class Robot:
         # 2. Signal LiDAR
         update_teensy_pose(teensy_x, teensy_y, teensy_theta)
 
+        # Données de visualisation (alimentent Rerun si actif)
+        lidar_vis_x = teensy_x
+        lidar_vis_y = teensy_y
+        lidar_vis_theta = teensy_theta
+        lidar_vis_conf = 0.0
+        lidar_vis_ok = False
+
         # 3. Fusion SVD + filtre complémentaire
         corrected_pose = get_corrected_pose()
 
@@ -187,6 +230,12 @@ class Robot:
                 corrected_pose.confidence,
             )
             rtheta = teensy_theta  # Cap toujours depuis IMU
+
+            lidar_vis_x = corrected_pose.x
+            lidar_vis_y = corrected_pose.y
+            lidar_vis_theta = corrected_pose.theta
+            lidar_vis_conf = corrected_pose.confidence
+            lidar_vis_ok = corrected_pose.is_localized
 
             self.logger.debug(
                 f"Pose fusée (SVD): ({rx:.1f}, {ry:.1f}, {rtheta:.3f}) | "
@@ -202,6 +251,12 @@ class Robot:
             rx, ry, rtheta, _ = self.lidar.get_fused_position(
                 teensy_x, teensy_y, teensy_theta
             )
+            # En simulation, le mock lidar suit la position courante.
+            lidar_vis_x = getattr(self.lidar, "x", rx)
+            lidar_vis_y = getattr(self.lidar, "y", ry)
+            lidar_vis_theta = rtheta
+            lidar_vis_conf = float(getattr(self.lidar, "confidence", 0.0))
+            lidar_vis_ok = lidar_vis_conf > 0.0
 
         # 4. Obstacles dynamiques — format (x, y) tuples pour PathFinder
         #    Les obstacles statiques sont déjà dans la grille PathFinder (pre-built).
@@ -218,10 +273,22 @@ class Robot:
                     f"conf={opp_conf:.2f}"
                 )
 
+        # Publication Rerun — position fusionnée + obstacles
+        if HAS_RERUN:
+            rerun_bridge.update_odom(teensy_x, teensy_y, teensy_theta)
+            rerun_bridge.update_lidar_pose(
+                lidar_vis_x, lidar_vis_y, lidar_vis_theta, lidar_vis_conf, lidar_vis_ok
+            )
+            rerun_bridge.update_fused(rx, ry, rtheta)
+            obs_list = [{"x": ox, "y": oy, "radius": 200} for ox, oy in obstacles]
+            rerun_bridge.update_obstacles(obs_list)
+
         # 5. Stratégie
         action = self.strategie.get_action_actuelle()
         if action is None:
             self._envoyer_position_moteurs(rx, ry, rtheta, "STOP (fin missions)")
+            if HAS_RERUN:
+                rerun_bridge.update_trajectory([])
             return
 
         # 6. Exécution action
@@ -229,16 +296,26 @@ class Robot:
             objectif          = {'x': action.cible_x, 'y': action.cible_y}
             distance_restante = math.hypot(action.cible_x - rx, action.cible_y - ry)
 
+            # Publication Rerun — cible
+            if HAS_RERUN:
+                rerun_bridge.update_target(action.cible_x, action.cible_y)
+
             if distance_restante < 50.0:
                 self.logger.info(
                     f"Objectif ({action.cible_x}, {action.cible_y}) atteint !"
                 )
                 self._envoyer_position_moteurs(rx, ry, rtheta, "STOP (arrivé)")
                 self.strategie.valider_action_terminee()
+                if HAS_RERUN:
+                    rerun_bridge.update_trajectory([])
                 return
 
             pos    = {'x': rx, 'y': ry, 'theta': rtheta}
             chemin = self.cerveau.get_path(pos, objectif, obstacles)
+
+            # Publication Rerun — trajectoire calculée
+            if HAS_RERUN and chemin:
+                rerun_bridge.update_trajectory(chemin)
 
             if chemin and len(chemin) > 1:
                 dist_to_target = math.hypot(objectif['x'] - rx, objectif['y'] - ry)
@@ -257,6 +334,8 @@ class Robot:
             else:
                 self.logger.warning("Chemin bloqué — arrêt d'urgence.")
                 self._envoyer_position_moteurs(rx, ry, rtheta, "STOP (bloqué)")
+                if HAS_RERUN:
+                    rerun_bridge.update_trajectory([])
 
         elif action.type == TypeAction.ACTIONNEUR:
             self.logger.info(f"Actionneur : {action.nom_actionneur}")
