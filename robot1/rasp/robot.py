@@ -300,7 +300,7 @@ class Robot:
             if HAS_RERUN:
                 rerun_bridge.update_target(action.cible_x, action.cible_y)
 
-            if distance_restante < 50.0:
+            if distance_restante < 80.0:  # Couvre la diagonale d'une cellule (50*√2 ≈ 70.7mm)
                 self.logger.info(
                     f"Objectif ({action.cible_x}, {action.cible_y}) atteint !"
                 )
@@ -331,9 +331,20 @@ class Robot:
                 self._envoyer_position_moteurs(
                     cible_x, cible_y, angle_cible, "Esquive IA"
                 )
-            else:
-                self.logger.warning("Chemin bloqué — arrêt d'urgence.")
+            elif not chemin:
+                # Vrai blocage : A* n'a pas trouvé de chemin du tout
+                self.logger.warning(
+                    f"Chemin bloqué — aucun chemin de ({rx:.0f},{ry:.0f}) "
+                    f"vers ({objectif['x']},{objectif['y']}). Arrêt."
+                )
                 self._envoyer_position_moteurs(rx, ry, rtheta, "STOP (bloqué)")
+                if HAS_RERUN:
+                    rerun_bridge.update_trajectory([])
+            else:
+                # len(chemin) == 1 = robot déjà dans la cellule cible → valider
+                self.logger.info("Cellule cible atteinte (path trivial).")
+                self._envoyer_position_moteurs(rx, ry, rtheta, "STOP (arrivé)")
+                self.strategie.valider_action_terminee()
                 if HAS_RERUN:
                     rerun_bridge.update_trajectory([])
 
