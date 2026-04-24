@@ -4,7 +4,7 @@ Point d'entrée principal du robot pour la Coupe de France de Robotique.
 """
 import time
 import logging
-from robot import Robot # On importera votre future grande classe Robot
+from robot import Robot,lire_couleur_equipe # On importera votre future grande classe Robot
 
 # Configuration du logger pour voir ce qui se passe dans la console
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -20,7 +20,7 @@ def main():
     # 1. INITIALISATION (Avant de poser le robot sur la table)
     # =================================================================
     # Idéalement, on lit un switch physique sur le robot pour savoir si on est Bleu ou Jaune
-    couleur_equipe = "YELLOW" 
+    couleur_equipe = lire_couleur_equipe()
     
     # On crée LE robot (qui va lui-même allumer le Lidar, la Teensy, etc.)
     mon_robot = Robot(couleur_equipe)

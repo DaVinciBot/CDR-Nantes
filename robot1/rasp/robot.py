@@ -4,6 +4,8 @@ import logging
 import threading
 import time
 
+from gpiozero import Button
+
 from terrain_jeu import Terrain
 from pathfinder import PathFinder
 from lidar.lidar import LidarInterface
@@ -20,7 +22,11 @@ from utils import init_robot
 from strategy.strategy_actions import TypeAction
 from strategy.strategy_strat_manager import StratManager
 
-# Import optionnel Rerun (pour visualisation monitoring)
+# ── PINS GPIO ─────────────────────────────────────────────────────────────────
+PIN_COULEUR = 26
+PIN_TIRETTE = 19
+
+# ── IMPORT OPTIONNEL RERUN ────────────────────────────────────────────────────
 HAS_RERUN = False
 rerun_bridge = None
 REQUIRED_RERUN_FUNCS = (
@@ -39,22 +45,35 @@ def _is_valid_rerun_bridge(module) -> bool:
 
 try:
     import sys
-    # Vérifier si rerun_bridge est déjà chargé (par test_sim_mode)
     if 'rerun_bridge' in sys.modules and _is_valid_rerun_bridge(sys.modules['rerun_bridge']):
         rerun_bridge = sys.modules['rerun_bridge']
         HAS_RERUN = True
     else:
-        # Essayer de le charger via le loader
         if hasattr(loader, "load_rerun_bridge"):
             candidate = loader.load_rerun_bridge()
         else:
             candidate = None
-
         if _is_valid_rerun_bridge(candidate):
             rerun_bridge = candidate
             HAS_RERUN = True
-except Exception as e:
-    pass  # Silencieux si Rerun n'est pas disponible
+except Exception:
+    pass
+
+
+# ── LECTURE COULEUR (avant instanciation Robot) ───────────────────────────────
+
+def lire_couleur_equipe() -> str:
+    """
+    Lit le switch de couleur et retourne "BLUE" ou "YELLOW".
+    À appeler dans main.py AVANT de créer Robot().
+
+    Switch pressé (pin LOW) → BLUE
+    Switch relâché (pin HIGH) → YELLOW
+    """
+    pin = Button(PIN_COULEUR, pull_up=True)
+    couleur = "BLUE" if pin.is_pressed else "YELLOW"
+    pin.close()
+    return couleur
 
 
 class Robot:
@@ -62,22 +81,25 @@ class Robot:
         self.logger = logging.getLogger("ROBOT")
         self.logger.info(f"Initialisation du robot en mode {couleur_equipe}...")
 
-        self.couleur = couleur_equipe
+        self.couleur = couleur_equipe.upper()
         self.x       = 0.0
         self.y       = 0.0
         self.theta   = 0.0
         self.lock    = threading.Lock()
 
+        # GPIO tirette (kept open pendant tout le match)
+        self._pin_tirette = Button(PIN_TIRETTE, pull_up=True)
+
         # 1. Charger les positions des balises AVANT tout le reste
-        set_team_color(couleur_equipe)
-        self.logger.info(f"Balises LiDAR chargées pour équipe {couleur_equipe}.")
+        set_team_color(self.couleur)
+        self.logger.info(f"Balises LiDAR chargées pour équipe {self.couleur}.")
 
         # 2. Terrain et pathfinding
-        self.terrain = Terrain(couleur_equipe)
+        self.terrain = Terrain(self.couleur)
         self.cerveau = PathFinder(self.terrain)
 
         # 3. Interface LiDAR
-        self.lidar = LidarInterface(team_color=couleur_equipe)
+        self.lidar = LidarInterface(team_color=self.couleur)
 
         # 4. Communication USB
         self.Messages       = loader.load_class('usb_com', 'Messages')
@@ -88,25 +110,16 @@ class Robot:
             self.Messages.UPDATE_ROLLING_BASIS.value,
         )
 
-        # 5. Envoi de la position de départ connue vers la Teensy
-        #    (remplace l'odométrie Teensy à (0,0,0) par la vraie position initiale)
+        # 5. Position de départ
         self._initialiser_position_depart()
 
         # 6. Stratégie
-        self.strategie = StratManager(couleur_equipe)
+        self.strategie = StratManager(self.couleur)
         self.logger.info("Robot entièrement initialisé.")
 
     # ── INITIALISATION ────────────────────────────────────────────────────────
 
     def _initialiser_position_depart(self) -> None:
-        """
-        Envoie SET_ODOMETRIE à la Teensy avec la position initiale connue
-        (coin de départ selon la couleur d'équipe) et initialise les variables
-        locales de position pour que le LiDAR puisse démarrer avec une pose de
-        référence correcte.
-
-        Doit être appelé APRÈS que self.com est initialisé.
-        """
         start_x, start_y, start_theta = self.terrain.get_start_position()
 
         self.logger.info(
@@ -114,24 +127,29 @@ class Robot:
             f"X={start_x:.0f}mm  Y={start_y:.0f}mm  θ={math.degrees(start_theta):.1f}°"
         )
 
-        # Mise à jour locale immédiate (avant le premier callback Teensy)
         with self.lock:
             self.x     = start_x
             self.y     = start_y
             self.theta = start_theta
 
-        # Signal au thread LiDAR (fenêtres de prédiction SVD)
         update_teensy_pose(start_x, start_y, start_theta)
 
-        # Envoi à la Teensy — reset complet de son odométrie ET de sa cible
-        # (set_odometrie() côté Teensy appelle init_holonomic_basis() + target ← même pos)
         msg  = self.Messages.SET_ODOMETRIE.to_bytes()
         msg += struct.pack('<ddd', start_x, start_y, start_theta)
         self.com.send_bytes(msg)
 
-        # Petite attente pour laisser la Teensy traiter le message avant le match
         time.sleep(0.3)
         self.logger.info("Position de départ transmise à la Teensy.")
+
+    # ── TIRETTE ───────────────────────────────────────────────────────────────
+
+    def attendre_tirette(self) -> None:
+        """Boucle bloquante jusqu'au retrait de la tirette."""
+        self.logger.info(
+            f"[{self.couleur}] En attente du retrait de la tirette..."
+        )
+        self._pin_tirette.wait_for_release()
+        self.logger.info("Tirette retirée — MATCH DÉMARRÉ !")
 
     # ── BAS NIVEAU ────────────────────────────────────────────────────────────
 
@@ -145,7 +163,9 @@ class Robot:
                 self.theta = theta
             update_teensy_pose(x, y, theta)
         else:
-            self.logger.warning(f"Message odométrie trop court: {len(data)} bytes")
+            self.logger.warning(
+                f"Message odométrie trop court: {len(data)} bytes"
+            )
 
     def _envoyer_position_moteurs(
         self, x: float, y: float, theta: float, description: str = ""
@@ -170,14 +190,7 @@ class Robot:
             f"Y={corrected_y:.1f}, θ={corrected_theta:.3f}"
         )
 
-    # ── HAUT NIVEAU ───────────────────────────────────────────────────────────
-
-    def attendre_tirette(self) -> None:
-        """Met le code en pause jusqu'au retrait de la tirette."""
-        self.logger.info("En attente de la tirette...")
-        # TODO: remplacer par lecture GPIO réel (pin à définir)
-        time.sleep(3)
-        self.logger.info("Tirette retirée !")
+    # ── BOUCLE PRINCIPALE ─────────────────────────────────────────────────────
 
     def update(self) -> None:
         """Boucle de décision — appelée 20 fois/seconde."""
@@ -194,53 +207,50 @@ class Robot:
             teensy_x, teensy_y, teensy_theta
         )
 
+        # 4. Correction odométrie Teensy si LiDAR suffisamment confiant
         corrected_pose = get_corrected_pose()
-
-        # 4. Correction odométrie Teensy (timer géré dans should_send_correction)
         if should_send_correction_to_teensy() and corrected_pose is not None:
             self._send_odometry_correction(
                 corrected_pose.x, corrected_pose.y, corrected_pose.theta
             )
 
-        # 4. Obstacles dynamiques — format (x, y) tuples pour PathFinder
-        #    Les obstacles statiques sont déjà dans la grille PathFinder (pre-built).
+        # 5. Obstacles dynamiques (adversaire détecté par LiDAR)
         obstacles: list = []
-
         opponent_data = self.lidar.get_opponent()
         if opponent_data is not None:
             opp_x, opp_y, opp_conf = opponent_data
             if opp_conf > 0.1:
-                # ← CORRECTION : tuple (x, y) attendu par create_dynamic_grid()
                 obstacles.append((opp_x, opp_y))
                 self.logger.debug(
-                    f"Adversaire ajouté aux obstacles: ({opp_x:.0f}, {opp_y:.0f}) "
-                    f"conf={opp_conf:.2f}"
+                    f"Adversaire: ({opp_x:.0f}, {opp_y:.0f}) conf={opp_conf:.2f}"
                 )
 
-        # Publication Rerun — position fusionnée + obstacles
+        # 6. Publication Rerun
         if HAS_RERUN:
-            lidar_vis_x = teensy_x
-            lidar_vis_y = teensy_y
+            lidar_vis_x     = teensy_x
+            lidar_vis_y     = teensy_y
             lidar_vis_theta = teensy_theta
-            lidar_vis_conf = 0.0
-            lidar_vis_ok = False
+            lidar_vis_conf  = 0.0
+            lidar_vis_ok    = False
 
             if corrected_pose is not None:
-                lidar_vis_x = corrected_pose.x
-                lidar_vis_y = corrected_pose.y
+                lidar_vis_x     = corrected_pose.x
+                lidar_vis_y     = corrected_pose.y
                 lidar_vis_theta = corrected_pose.theta
-                lidar_vis_conf = corrected_pose.confidence
-                lidar_vis_ok = corrected_pose.is_localized
+                lidar_vis_conf  = corrected_pose.confidence
+                lidar_vis_ok    = corrected_pose.is_localized
 
             rerun_bridge.update_odom(teensy_x, teensy_y, teensy_theta)
             rerun_bridge.update_lidar_pose(
-                lidar_vis_x, lidar_vis_y, lidar_vis_theta, lidar_vis_conf, lidar_vis_ok
+                lidar_vis_x, lidar_vis_y, lidar_vis_theta,
+                lidar_vis_conf, lidar_vis_ok,
             )
             rerun_bridge.update_fused(rx, ry, rtheta)
-            obs_list = [{"x": ox, "y": oy, "radius": 200} for ox, oy in obstacles]
-            rerun_bridge.update_obstacles(obs_list)
+            rerun_bridge.update_obstacles(
+                [{"x": ox, "y": oy, "radius": 200} for ox, oy in obstacles]
+            )
 
-        # 5. Stratégie
+        # 7. Stratégie
         action = self.strategie.get_action_actuelle()
         if action is None:
             self._envoyer_position_moteurs(rx, ry, rtheta, "STOP (fin missions)")
@@ -248,16 +258,15 @@ class Robot:
                 rerun_bridge.update_trajectory([])
             return
 
-        # 6. Exécution action
+        # 8. Exécution action
         if action.type == TypeAction.DEPLACEMENT:
             objectif          = {'x': action.cible_x, 'y': action.cible_y}
             distance_restante = math.hypot(action.cible_x - rx, action.cible_y - ry)
 
-            # Publication Rerun — cible
             if HAS_RERUN:
                 rerun_bridge.update_target(action.cible_x, action.cible_y)
 
-            if distance_restante < 80.0:  # Couvre la diagonale d'une cellule (50*√2 ≈ 70.7mm)
+            if distance_restante < 80.0:
                 self.logger.info(
                     f"Objectif ({action.cible_x}, {action.cible_y}) atteint !"
                 )
@@ -270,7 +279,6 @@ class Robot:
             pos    = {'x': rx, 'y': ry, 'theta': rtheta}
             chemin = self.cerveau.get_path(pos, objectif, obstacles)
 
-            # Publication Rerun — trajectoire calculée
             if HAS_RERUN and chemin:
                 rerun_bridge.update_trajectory(chemin)
 
@@ -288,8 +296,8 @@ class Robot:
                 self._envoyer_position_moteurs(
                     cible_x, cible_y, angle_cible, "Esquive IA"
                 )
+
             elif not chemin:
-                # Vrai blocage : A* n'a pas trouvé de chemin du tout
                 self.logger.warning(
                     f"Chemin bloqué — aucun chemin de ({rx:.0f},{ry:.0f}) "
                     f"vers ({objectif['x']},{objectif['y']}). Arrêt."
@@ -297,8 +305,9 @@ class Robot:
                 self._envoyer_position_moteurs(rx, ry, rtheta, "STOP (bloqué)")
                 if HAS_RERUN:
                     rerun_bridge.update_trajectory([])
+
             else:
-                # len(chemin) == 1 = robot déjà dans la cellule cible → valider
+                # len(chemin) == 1 → robot déjà dans la cellule cible
                 self.logger.info("Cellule cible atteinte (path trivial).")
                 self._envoyer_position_moteurs(rx, ry, rtheta, "STOP (arrivé)")
                 self.strategie.valider_action_terminee()
@@ -307,7 +316,6 @@ class Robot:
 
         elif action.type == TypeAction.ACTIONNEUR:
             self.logger.info(f"Actionneur : {action.nom_actionneur}")
-            # TODO: feedback réel via callback Teensy
             self.strategie.valider_action_terminee()
 
         elif action.type == TypeAction.ATTENTE:
@@ -315,6 +323,8 @@ class Robot:
                 self.logger.info(f"Attente {action.temps_attente}s…")
             elif self.strategie.chrono_ecoule(action.temps_attente):
                 self.strategie.valider_action_terminee()
+
+    # ── ARRÊT ─────────────────────────────────────────────────────────────────
 
     def stopper_tout(self) -> None:
         """Procédure de sécurité fin de match."""
@@ -327,11 +337,11 @@ class Robot:
         self.logger.info("Coupure du LiDAR…")
         stop_lidar_runtime()
 
+        self._pin_tirette.close()
+
         if hasattr(self, 'actionneurs'):
             try:
                 self.actionneurs.ranger_bras()
                 self.logger.info("Bras replié.")
             except Exception as e:
                 self.logger.error(f"Erreur fermeture bras: {e}")
-        else:
-            self.logger.warning("Module actionneurs non chargé.")
