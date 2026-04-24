@@ -68,8 +68,6 @@ class Robot:
         self.theta   = 0.0
         self.lock    = threading.Lock()
 
-        self._last_correction_sent_time = 0.0
-
         # 1. Charger les positions des balises AVANT tout le reste
         set_team_color(couleur_equipe)
         self.logger.info(f"Balises LiDAR chargées pour équipe {couleur_equipe}.")
@@ -157,26 +155,6 @@ class Robot:
         self.com.send_bytes(msg)
         self.logger.debug(f"{description}: X={x:.1f}, Y={y:.1f}, θ={theta:.2f}")
 
-    def _apply_complementary_filter(
-        self,
-        lidar_x: float,
-        lidar_y: float,
-        teensy_x: float,
-        teensy_y: float,
-        lidar_confidence: float,
-    ) -> tuple:
-        """Filtre complémentaire adaptatif LiDAR + Teensy."""
-        if lidar_confidence < 0.2:
-            alpha = 0.85
-        elif lidar_confidence > 0.8:
-            alpha = 0.25
-        else:
-            alpha = 0.85 - (lidar_confidence - 0.2) / 0.6 * 0.60
-
-        x_fused = (1.0 - alpha) * lidar_x + alpha * teensy_x
-        y_fused = (1.0 - alpha) * lidar_y + alpha * teensy_y
-        return x_fused, y_fused, alpha
-
     def _send_odometry_correction(
         self,
         corrected_x: float,
@@ -211,52 +189,18 @@ class Robot:
         # 2. Signal LiDAR
         update_teensy_pose(teensy_x, teensy_y, teensy_theta)
 
-        # Données de visualisation (alimentent Rerun si actif)
-        lidar_vis_x = teensy_x
-        lidar_vis_y = teensy_y
-        lidar_vis_theta = teensy_theta
-        lidar_vis_conf = 0.0
-        lidar_vis_ok = False
+        # 3. Fusion via LidarInterface (source unique)
+        rx, ry, rtheta, _ = self.lidar.get_fused_position(
+            teensy_x, teensy_y, teensy_theta
+        )
 
-        # 3. Fusion SVD + filtre complémentaire
         corrected_pose = get_corrected_pose()
 
-        if corrected_pose is not None and corrected_pose.is_localized:
-            rx, ry, alpha = self._apply_complementary_filter(
-                corrected_pose.x,
-                corrected_pose.y,
-                teensy_x,
-                teensy_y,
-                corrected_pose.confidence,
+        # 4. Correction odométrie Teensy (timer géré dans should_send_correction)
+        if should_send_correction_to_teensy() and corrected_pose is not None:
+            self._send_odometry_correction(
+                corrected_pose.x, corrected_pose.y, corrected_pose.theta
             )
-            rtheta = teensy_theta  # Cap toujours depuis IMU
-
-            lidar_vis_x = corrected_pose.x
-            lidar_vis_y = corrected_pose.y
-            lidar_vis_theta = corrected_pose.theta
-            lidar_vis_conf = corrected_pose.confidence
-            lidar_vis_ok = corrected_pose.is_localized
-
-            self.logger.debug(
-                f"Pose fusée (SVD): ({rx:.1f}, {ry:.1f}, {rtheta:.3f}) | "
-                f"conf={corrected_pose.confidence:.2f} alpha={alpha:.2f}"
-            )
-
-            if should_send_correction_to_teensy():
-                now = time.time()
-                if now - self._last_correction_sent_time >= 1.0:
-                    self._send_odometry_correction(rx, ry, rtheta)
-                    self._last_correction_sent_time = now
-        else:
-            rx, ry, rtheta, _ = self.lidar.get_fused_position(
-                teensy_x, teensy_y, teensy_theta
-            )
-            # En simulation, le mock lidar suit la position courante.
-            lidar_vis_x = getattr(self.lidar, "x", rx)
-            lidar_vis_y = getattr(self.lidar, "y", ry)
-            lidar_vis_theta = rtheta
-            lidar_vis_conf = float(getattr(self.lidar, "confidence", 0.0))
-            lidar_vis_ok = lidar_vis_conf > 0.0
 
         # 4. Obstacles dynamiques — format (x, y) tuples pour PathFinder
         #    Les obstacles statiques sont déjà dans la grille PathFinder (pre-built).
@@ -275,6 +219,19 @@ class Robot:
 
         # Publication Rerun — position fusionnée + obstacles
         if HAS_RERUN:
+            lidar_vis_x = teensy_x
+            lidar_vis_y = teensy_y
+            lidar_vis_theta = teensy_theta
+            lidar_vis_conf = 0.0
+            lidar_vis_ok = False
+
+            if corrected_pose is not None:
+                lidar_vis_x = corrected_pose.x
+                lidar_vis_y = corrected_pose.y
+                lidar_vis_theta = corrected_pose.theta
+                lidar_vis_conf = corrected_pose.confidence
+                lidar_vis_ok = corrected_pose.is_localized
+
             rerun_bridge.update_odom(teensy_x, teensy_y, teensy_theta)
             rerun_bridge.update_lidar_pose(
                 lidar_vis_x, lidar_vis_y, lidar_vis_theta, lidar_vis_conf, lidar_vis_ok

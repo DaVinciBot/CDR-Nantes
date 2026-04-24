@@ -25,20 +25,6 @@ except ImportError:
         OpponentState,
     )
 
-# Navigation bridge for pathfinding integration
-try:
-    from .lidar_navigation_bridge import (
-        LidarNavigationBridge,
-        OpponentTrack,
-        PathfindingState,
-    )
-except ImportError:
-    from lidar_navigation_bridge import (
-        LidarNavigationBridge,
-        OpponentTrack,
-        PathfindingState,
-    )
-
 try:
     from .lidar import LidarInterface
 except ImportError:
@@ -66,9 +52,6 @@ __all__ = [
     "PoseState",
     "OpponentState",
     "LidarInterface",
-    "LidarNavigationBridge",
-    "OpponentTrack",
-    "PathfindingState",
     "LidarApp",
     "run_gui",
 ]

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 main.py
 Point d'entrée principal du robot pour la Coupe de France de Robotique.

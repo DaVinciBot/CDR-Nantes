@@ -74,7 +74,7 @@ BAUDRATE  = 256000
 TIMEOUT   = 3
 MIN_DIST  = 50
 MAX_DIST  = 12000
-MIN_QUAL  = 1
+MIN_QUAL  = 2
 
 SCAN_MAX_BUF_MEAS   = 1500
 SCAN_MIN_LEN        = 20
@@ -908,9 +908,8 @@ def lidar_thread(console_callback, status_callback):
             beacon_cands = _extract_beacon_candidates_fast(merged_data)
 
             with lock:
-                scan_write_buf        = merged_data
-                scan_read_buf, scan_write_buf = scan_write_buf, scan_read_buf
-                merged_count          = len(scan_read_buf)
+                scan_read_buf = list(merged_data)
+                merged_count  = len(scan_read_buf)
 
             with beacon_lock:
                 beacon_candidates_buf = beacon_cands
@@ -940,8 +939,7 @@ def lidar_thread(console_callback, status_callback):
                         )
                         if corrected_pose is not None:
                             with _corrected_pose_lock:
-                                _corrected_pose       = corrected_pose
-                                _last_correction_time = time.time()
+                                _corrected_pose = corrected_pose
                     except Exception as e:
                         logger.debug(f"SVD correction error: {e}")
 
@@ -1005,6 +1003,7 @@ def should_send_correction_to_teensy() -> bool:
     if time.time() - _last_correction_time < POSE_SEND_BACK_INTERVAL_S:
         return False
 
+    _last_correction_time = time.time()
     return True
 
 

@@ -13,7 +13,7 @@ FIELD_HEIGHT_MM = 2000
 ROBOT_RADIUS_MM = 120
 
 # --- Positions de départ (mm, rad) -----------------------------------------------
-# Zones de départ CDR 2026 (côté gauche du terrain, symétrie Y)
+# Zones de départ CDR 2026 (symétrie X)
 # Origine du repère : bas-droite (0,0) = coin bas-droit, (3000,2000) = coin haut-gauche
 # 
 #   Zone Jaune (Bas-Gauche):   X: 2550-3000mm (gauche), Y: 0-600mm,      centre: (2775, 300)
@@ -26,8 +26,7 @@ ROBOT_RADIUS_MM = 120
 #      │  ZONE JAUNE (1775, 300)   │
 #   (0,0)  ────────────────────── (3000,0)
 #
-# ⚠  Pas de symétrie X (les deux zones sont du même côté) ; symétrie Y uniquement.
-# Référence BLEU → symétrie Y pour JAUNE : y_jaune = 2000 - y_bleu
+# Référence BLEU → symétrie X pour JAUNE : x_jaune = 3000 - x_bleu
 _BLUE_START_X     = 2775.0    # mm  (centre X zone gauche)
 _BLUE_START_Y     = 1700.0    # mm  (haut du terrain)
 _BLUE_START_THETA = 0.0       # rad  (0 = pointe vers +X)
@@ -39,9 +38,9 @@ START_POSITIONS = {
         _BLUE_START_THETA,
     ),
     "YELLOW": (
-        _BLUE_START_X,                           # même X (pas de symétrie horizontale)
-        FIELD_HEIGHT_MM - _BLUE_START_Y,         # symétrie Y : 2000 - 1700 = 300
-        _BLUE_START_THETA,                       # même angle
+        FIELD_WIDTH_MM - _BLUE_START_X,          # symétrie X : 3000 - 2775 = 225
+        _BLUE_START_Y,                           # Y inchangé
+        math.pi - _BLUE_START_THETA,             # angle miroir
     ),
 }
 
@@ -85,7 +84,6 @@ class Terrain:
         final_y = y_blue
         if self.team == TeamColor.YELLOW:
             final_x = self.WIDTH  - (x_blue + width)
-            final_y = self.HEIGHT - (y_blue + height)
 
         self.obstacles.append(Obstacle(name, final_x, final_y, width, height))
 
