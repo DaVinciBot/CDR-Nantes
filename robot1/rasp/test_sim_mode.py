@@ -323,97 +323,99 @@ def patch_robot_for_sim(robot_class):
 # ─────────────────────────────────────────────────────────────────────────────
 # Main simulation
 # ─────────────────────────────────────────────────────────────────────────────
-
 def main_sim(with_rerun=False):
     """Lance main.py en mode simulation."""
-    
-    # Si Rerun demandé, le charger AVANT d'importer robot
+
+    # ── Rerun AVANT inject_mocks ──────────────────────────────────────────────
     if with_rerun:
         try:
             logger.info("Initialisation de Rerun Bridge...")
-            
-            # Importer le loader pour charger rerun_bridge
-            from loader import loader as app_loader
-            rerun_bridge_module = app_loader.load_rerun_bridge()
-            
-            if rerun_bridge_module is not None:
-                logger.info(f"✓ rerun_bridge chargé ({len(dir(rerun_bridge_module))} attributs)")
-                logger.info(f"  update_fused disponible: {hasattr(rerun_bridge_module, 'update_fused')}")
-                
-                # Initialiser Rerun
-                rerun_bridge_module.rr.init("eurobot_2026", spawn=True)
-                rerun_bridge_module.rr.send_blueprint(rerun_bridge_module.create_blueprint())
-                rerun_bridge_module.log_static_map()
-                
-                # Lancer la boucle de publication en thread
-                threading.Thread(
-                    target=rerun_bridge_module.publish_loop,
-                    kwargs={"hz": 20.0, "lidar_poll": None},
-                    daemon=True
-                ).start()
-                
-                logger.info("✓ Rerun Bridge initialisé (même processus)")
-            else:
-                logger.warning("⚠️  rerun_bridge non disponible")
-                with_rerun = False
+
+            # Chercher rerun_bridge.py
+            candidates = [
+                Path(__file__).parent / "rerun" / "rerun_bridge.py",
+                Path(__file__).parent / "rerun_bridge.py",
+            ]
+            bridge_path = next((p for p in candidates if p.exists()), None)
+            if bridge_path is None:
+                raise FileNotFoundError("rerun_bridge.py introuvable dans rerun/ et ./")
+
+            spec   = importlib.util.spec_from_file_location("rerun_bridge", bridge_path)
+            rb     = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(rb)
+
+            # Injecter dans sys.modules → robot.py détecte HAS_RERUN = True
+            sys.modules["rerun_bridge"] = rb
+
+            # Init Rerun local (spawn viewer sur cette machine)
+            rb.rr.init("eurobot_2026")
+            rb.rr.spawn()                              # ouvre le viewer
+            rb.rr.send_blueprint(rb.create_blueprint())
+            rb.log_static_map()
+
+            # Boucle publication 20 Hz en thread daemon
+            threading.Thread(
+                target=rb.publish_loop,
+                kwargs={"hz": 20.0, "lidar_poll": None},
+                daemon=True,
+            ).start()
+
+            logger.info("✓ Rerun Bridge opérationnel (viewer spawné)")
+
         except Exception as e:
-            logger.warning(f"⚠️  Erreur Rerun: {e}")
-            import traceback
-            traceback.print_exc()
-            logger.warning("   Continuant sans visualisation...")
+            logger.warning(f"⚠  Rerun désactivé : {e}")
+            import traceback; traceback.print_exc()
             with_rerun = False
-    
-    # Injection des mocks
+
+    # ── Injection des mocks ───────────────────────────────────────────────────
     inject_mocks()
-    
-    # Patcher Robot
+
+    # ── Patch Robot ───────────────────────────────────────────────────────────
     from robot import Robot
     patch_robot_for_sim(Robot)
+
     logger.info("\n" + "="*70)
     logger.info("LANCEMENT DU MAIN.PY EN MODE SIMULATION")
     logger.info("="*70 + "\n")
-    
-    import time as time_module
-    from robot import Robot
-    
-    TEMPS_MATCH_SECONDES = 30.0  # 30 sec pour test au lieu de 90
-    
+
+    TEMPS_MATCH_SECONDES = 30.0
+
     logger.info("Démarrage du système...")
     couleur_equipe = "BLUE"
     mon_robot = Robot(couleur_equipe)
-    
+
     logger.info(f"Robot initialisé pour l'équipe {couleur_equipe}.")
-    logger.info("⏱️  Simulation sans tirette - démarrage immédiat...")
-    
-    heure_debut = time_module.time()
+    logger.info("⏱️  Simulation sans tirette — démarrage immédiat...")
+
+    heure_debut = time.time()
     logger.info("🚀 SIMULATION LANCÉE !\n")
-    
+
     try:
         iteration = 0
         while True:
-            temps_ecoule = time_module.time() - heure_debut
-            
+            temps_ecoule = time.time() - heure_debut
+
             if temps_ecoule >= TEMPS_MATCH_SECONDES:
                 logger.info("\n✓ FIN DE LA SIMULATION !")
                 break
-            
+
             mon_robot.update()
             iteration += 1
-            
-            if iteration % 20 == 0:  # Log tous les 1 sec (20*0.05)
+
+            if iteration % 20 == 0:
                 logger.info(f"[SIM] Temps écoulé: {temps_ecoule:.1f}s / {TEMPS_MATCH_SECONDES}s")
-            
-            time_module.sleep(0.05)
-    
+
+            time.sleep(0.05)
+
     except KeyboardInterrupt:
         logger.warning("\n⚠️  Arrêt d'urgence (Ctrl+C)")
-    
+
     finally:
         logger.info("\nDésactivation des systèmes...")
         mon_robot.stopper_tout()
         logger.info("✓ Simulation terminée.")
 
-
+        
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description="Test simulation complet")
     p.add_argument("--sim", action="store_true", help="Mode simulation", required=True)
