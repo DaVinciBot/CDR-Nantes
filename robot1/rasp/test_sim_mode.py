@@ -323,7 +323,7 @@ def patch_robot_for_sim(robot_class):
 # ─────────────────────────────────────────────────────────────────────────────
 # Main simulation
 # ─────────────────────────────────────────────────────────────────────────────
-def main_sim(with_rerun=False):
+def main_sim(with_rerun=False, rerun_mode="local", rerun_port=9876):
     """Lance main.py en mode simulation."""
 
     # ── Rerun AVANT inject_mocks ──────────────────────────────────────────────
@@ -347,9 +347,19 @@ def main_sim(with_rerun=False):
             # Injecter dans sys.modules → robot.py détecte HAS_RERUN = True
             sys.modules["rerun_bridge"] = rb
 
-            # Init Rerun local (spawn viewer sur cette machine)
+            # Init Rerun
             rb.rr.init("eurobot_2026")
-            rb.rr.spawn()                              # ouvre le viewer
+            
+            if rerun_mode == "serve":
+                # Mode serveur (Rasp → PC)
+                rb.rr.serve_grpc(grpc_port=rerun_port, server_memory_limit="200MB")
+                logger.info(f"✓ Rerun serveur lancé sur port {rerun_port}")
+                logger.info(f"   Sur le PC : rerun --connect rerun+http://localhost:{rerun_port}/proxy")
+            else:
+                # Mode local (viewer spawné sur cette machine)
+                rb.rr.spawn()                          # ouvre le viewer
+                logger.info("✓ Rerun viewer spawné localement")
+            
             rb.rr.send_blueprint(rb.create_blueprint())
             rb.log_static_map()
 
@@ -360,7 +370,7 @@ def main_sim(with_rerun=False):
                 daemon=True,
             ).start()
 
-            logger.info("✓ Rerun Bridge opérationnel (viewer spawné)")
+            logger.info("✓ Rerun Bridge opérationnel")
 
         except Exception as e:
             logger.warning(f"⚠  Rerun désactivé : {e}")
@@ -415,12 +425,24 @@ def main_sim(with_rerun=False):
         mon_robot.stopper_tout()
         logger.info("✓ Simulation terminée.")
 
-        
+
 if __name__ == "__main__":
-    p = argparse.ArgumentParser(description="Test simulation complet")
+    p = argparse.ArgumentParser(
+        description="Test simulation complet",
+        epilog="""
+Exemples:
+  python test_sim_mode.py --sim
+  python test_sim_mode.py --sim --with-rerun
+  python test_sim_mode.py --sim --with-rerun --mode serve --port 9876
+        """
+    )
     p.add_argument("--sim", action="store_true", help="Mode simulation", required=True)
     p.add_argument("--with-rerun", action="store_true", help="Avec Rerun visualization")
+    p.add_argument("--mode", choices=["local", "serve"], default="local",
+                   help="Mode Rerun (local=spawn viewer | serve=stream gRPC vers PC distant)")
+    p.add_argument("--port", type=int, default=9876,
+                   help="Port gRPC pour mode serve (défaut: 9876)")
     args = p.parse_args()
     
     if args.sim:
-        main_sim(with_rerun=args.with_rerun)
+        main_sim(with_rerun=args.with_rerun, rerun_mode=args.mode, rerun_port=args.port)
