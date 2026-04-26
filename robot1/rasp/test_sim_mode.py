@@ -342,10 +342,10 @@ def main_sim(with_rerun=False, rerun_mode="local", rerun_port=9876):
 
             spec   = importlib.util.spec_from_file_location("rerun_bridge", bridge_path)
             rb     = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(rb)
-
-            # Injecter dans sys.modules → robot.py détecte HAS_RERUN = True
+            
+            # IMPORTANT: injecter dans sys.modules AVANT exec_module pour que @dataclass trouve le module
             sys.modules["rerun_bridge"] = rb
+            spec.loader.exec_module(rb)
 
             # Init Rerun
             rb.rr.init("eurobot_2026")
