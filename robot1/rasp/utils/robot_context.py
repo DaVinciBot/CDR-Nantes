@@ -164,7 +164,7 @@ def create_com(logger=None):
         HardwareCom = loader.load_class('usb_com', 'Com')
         return HardwareCom(
             logger=effective_logger,
-            serial_number=18421350,
+            serial_number=17795370,
             vid=5824,
             pid=1155,
             baudrate=int(config.get('baudrate', 115200)),
