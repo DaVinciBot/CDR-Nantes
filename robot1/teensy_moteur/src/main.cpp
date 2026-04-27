@@ -84,6 +84,9 @@ void interruption_compute() {
     
     // 4. Signaler que loop() doit lire les encodeurs (rafale synchronisée)
     holonomic_basis_ptr->need_read_encoders = true;
+    
+    // 5. Signaler que loop() doit lire l'IMU
+    holonomic_basis_ptr->need_read_imu = true;
 }
 
 void setup() {
@@ -128,6 +131,12 @@ void loop() {
             holonomic_basis_ptr->need_read_encoders = false;
         }
         // Si timeout : retry au prochain loop()
+    }
+
+    // Lecture IMU (~0.5ms I2C non-bloquant)
+    if (holonomic_basis_ptr->need_read_imu) {
+        holonomic_basis_ptr->read_imu_nonblocking();
+        holonomic_basis_ptr->need_read_imu = false;
     }
     
     // Envoi commandes vitesse aux MKS (~0.3ms fire & forget avec setSpeedsSynced)

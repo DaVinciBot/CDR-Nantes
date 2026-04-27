@@ -33,12 +33,22 @@
 #define PIN_SCL 19
 #define BNO085_RESET_PIN -1  // -1 si relié au Reset de la Teensy ou non utilisé
 
+
+// ── Capteur optique PAA5100JE 
+#define OPTICAL_SCALE       0.0423   // Counts → mm (à calibrer sur terrain réel)
+
 // Capteur optique PAA5100/PMW3901 (SPI)
 #define PAA5100_CS_PIN 10
 // MOSI = 11, MISO = 12, SCK = 13 (Obligatoire, géré par le matériel)
 
 #define HAUTEUR_MM 25.0   // Hauteur du capteur par rapport au sol (mm)
 #define SEUIL_BRUIT 2     // Seuil de bruit pour filtrage capteur optique
+
+
+// ── Debug verbose ─────────────────────────────────────────────────────────────
+// Décommenter pour activer tous les printf de debug
+// #define DEBUG_VERBOSE
+// #define DEBUG_RS485
 
 // MKS CONFIGURATION 
 #define MKS_BAUDRATE 115200

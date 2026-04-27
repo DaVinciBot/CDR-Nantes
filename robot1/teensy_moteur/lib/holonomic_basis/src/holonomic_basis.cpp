@@ -9,12 +9,12 @@
 // Fonction utilitaire pour normaliser l'angle entre -PI et PI
 double normalizeAngle(double theta) {
     // shift by +PI, take modulo 2*PI, remap to [0,2*PI)
-    theta = fmodf(theta + PI, 2.0f * PI);
-    if (theta < 0.0f) {
-        theta += 2.0f * PI;
+    theta = fmod(theta + M_PI, 2.0 * M_PI);
+    if (theta < 0.0) {
+        theta += 2.0 * M_PI;
     }
     // shift back to [-PI, +PI)
-    return theta - PI;
+    return theta - M_PI;
 }
 
 // Constructor
@@ -315,9 +315,14 @@ void Holonomic_Basis::update_odometry() {
     // Au lieu d'appeler RS485 ici (qui bloquerait l'ISR 50ms), on lit les buffers pré-remplis
     // par read_encoders_nonblocking() exécutée dans loop()
     
-    int64_t enc1 = odo_data.buffered_enc1;
-    int64_t enc2 = odo_data.buffered_enc2;
-    int64_t enc3 = odo_data.buffered_enc3;
+    int64_t enc1, enc2, enc3;
+    {
+        noInterrupts();
+        enc1 = odo_data.buffered_enc1;
+        enc2 = odo_data.buffered_enc2;
+        enc3 = odo_data.buffered_enc3;
+        interrupts();
+    }
     
     // Si les buffers n'ont jamais été remplis, garder dernière valeur
     // (update_odometry() gère le fallback gracieux)
@@ -365,9 +370,7 @@ void Holonomic_Basis::update_odometry() {
         
         // Détection rotation pure : pattern encodeurs (3 roues même sens/vitesse)
         // Rotation pure si d1 ≈ d2 ≈ d3 (toutes tournent ensemble)
-        #ifdef WEBOTS_SIMULATION
         bool is_pure_rotation = false;
-        #endif
         if (abs(omega_temp) > 0.005) { // Rotation détectée (> 0.005 rad = 0.3°)
             // Vérifier si les 3 roues tournent dans le même sens
             double d1_abs = abs(d1);
@@ -386,9 +389,7 @@ void Holonomic_Basis::update_odometry() {
                 
                 // Rotation pure = même signe ET vitesses similaires (<20% écart)
                 if (same_sign && d1_diff < 0.2 && d2_diff < 0.2 && d3_diff < 0.2) {
-                    #ifdef WEBOTS_SIMULATION
                     is_pure_rotation = true;
-                    #endif
                 }
             }
         }
@@ -396,35 +397,25 @@ void Holonomic_Basis::update_odometry() {
         // En simulation: GPS ground truth TOUJOURS prioritaire (même si delta=0)
         // SAUF pendant rotations pures (filtrage mouvements parasites)
         // En réel: seuil à 0.01mm pour éviter bruit capteur
-        #ifdef WEBOTS_SIMULATION
-            if (is_pure_rotation) {
-                // Rotation pure détectée : IGNORER mouvements X/Y optiques (glissement)
-                // On garde uniquement theta de l'IMU
-                dx_optical_world = 0.0;
-                dy_optical_world = 0.0;
-                optical_active = false;  // Fallback encodeurs (qui devraient aussi être ≈0)
-                
-                static uint32_t pure_rot_debug = 0;
-                if (++pure_rot_debug >= 50) { // Log toutes les 0.5s
-                    pure_rot_debug = 0;
-                    //printf(" ROTATION PURE: Filtrage X/Y optique (ω=%.3f rad, GPS filtré=[%.1f,%.1f]mm)\n",
-                    //       omega_temp, diff_opt_x, diff_opt_y);
+        if (is_pure_rotation) {
+            // Rotation pure : ignorer X/Y optique dans les deux modes
+            dx_optical_world = 0.0;
+            dy_optical_world = 0.0;
+            optical_active   = false;
+        } else {
+            #ifdef WEBOTS_SIMULATION
+                dx_optical_world = diff_opt_x;
+                dy_optical_world = diff_opt_y;
+                optical_active   = true;
+            #else
+                const double OPTICAL_THRESHOLD = 0.01;
+                if (abs(diff_opt_x) > OPTICAL_THRESHOLD || abs(diff_opt_y) > OPTICAL_THRESHOLD) {
+                    dx_optical_world = diff_opt_x;
+                    dy_optical_world = diff_opt_y;
+                    optical_active   = true;
                 }
-            } else {
-                // Mouvement normal : GPS Mock prioritaire
-                dx_optical_world = diff_opt_x;
-                dy_optical_world = diff_opt_y;
-                optical_active = true;  // Jamais de fallback encodeurs !
-            }
-        #else
-            // Robot réel: filtrer le bruit du capteur optique
-            const double OPTICAL_THRESHOLD = 0.01; // 10 microns
-            if (abs(diff_opt_x) > OPTICAL_THRESHOLD || abs(diff_opt_y) > OPTICAL_THRESHOLD) {
-                dx_optical_world = diff_opt_x;
-                dy_optical_world = diff_opt_y;
-                optical_active = true;
-            }
-        #endif
+            #endif
+        }
     }
 
     // Ne pas skipper même au repos : permet le logging optique continu
@@ -486,79 +477,48 @@ void Holonomic_Basis::update_odometry() {
     double dx_final_world, dy_final_world;
     
     if (optical_active && odo_data.optical_valid_count > 0) {
-        // FILTRE COMPLÉMENTAIRE CONSTANT - OPTIQUE MAJORITAIRE
+        // FILTRE COMPLÉMENTAIRE ADAPTATIF - Validation buffer age
         
-        const float ALPHA = 0.20f;  // 20% encodeurs + 80% optique (OPTIQUE ULTRA-DOMINANT)
-        
+        // Si buffer encodeur trop vieux (> 50ms = 5 cycles manqués), on ne fait pas confiance
+        const uint32_t ENCODER_BUFFER_MAX_AGE_MS = 50;
+        bool encoder_buffer_fresh = (millis() - odo_data.buffer_timestamp) < ENCODER_BUFFER_MAX_AGE_MS;
+
+        const float ALPHA = encoder_buffer_fresh ? 0.20f : 0.0f; // 0% enc si périmé → 100% optique
         dx_final_world = ALPHA * dx_enc_world + (1.0f - ALPHA) * dx_optical_world;
         dy_final_world = ALPHA * dy_enc_world + (1.0f - ALPHA) * dy_optical_world;
-        
-        // Debug périodique
-        static uint32_t fusion_debug = 0;
-        if (++fusion_debug >= 50) {
-            fusion_debug = 0;
-            //printf(" FUSION CONSTANTE: α=%.2f (%.0f%% enc + %.0f%% opt) | dx=%.2fmm dy=%.2fmm\n",
-            //       ALPHA, ALPHA*100, (1.0f-ALPHA)*100, dx_final_world, dy_final_world);
+
+        #ifdef DEBUG_VERBOSE
+        if (!encoder_buffer_fresh) {
+            Serial.printf("[WARN] Buffer encodeur périmé (%ums) → 100%% optique\n",
+                          millis() - odo_data.buffer_timestamp);
         }
+        #endif
     } else {
         // Fallback encodeurs si capteur optique inactif
         dx_final_world = dx_enc_world;
         dy_final_world = dy_enc_world;
     }
     
-    // Méthode 3 : IMU BNO085  
+    // Méthode 3 : IMU BNO085 - Consommer le buffer (rempli par loop())
     bool theta_updated = false;
-    if (use_imu && bno085 && odo_data.imu_calibrated) {
+    if (use_imu && odo_data.imu_calibrated && odo_data.buffered_imu_valid) {
+        noInterrupts();
+        double yaw = odo_data.buffered_imu_yaw;
+        interrupts();
+
         #ifdef WEBOTS_SIMULATION
-            // SIMULATION : Utiliser getSensorEvent
-            sh2_SensorValue_t sv;
-            if (bno085->getSensorEvent(&sv) && sv.sensorId == SH2_GAME_ROTATION_VECTOR) {
-                theta_updated = true;
-                float r = sv.un.gameRotationVector.real;
-                float i = sv.un.gameRotationVector.i;
-                float j = sv.un.gameRotationVector.j;
-                float k = sv.un.gameRotationVector.k;
-                
-                // Conversion quaternion -> yaw
-                double yaw = atan2(2.0f * (r * k + i * j), 1.0f - 2.0f * (j * j + k * k));
-                
-                static bool is_imu_first_run = true;      // Marqueur pour la 1ère fois
-                static double loop_yaw_offset = 0.0;      // Pour mémoriser l'angle "tordu" de départ
-
-                if (is_imu_first_run) {
-                    loop_yaw_offset = yaw; // On capture l'angle actuel (ex: -1.26 rad) comme référence
-                    is_imu_first_run = false;
-                    //printf(" IMU: Re-Tare au début de boucle (Offset dynamique = %.3f rad)\n", loop_yaw_offset);
-                }
-                
-                this->THETA = normalizeAngle(yaw - loop_yaw_offset);
-
-                
-                static uint32_t imu_debug = 0;
-                if (++imu_debug >= 50) {
-                    imu_debug = 0;
-                    //printf(" IMU: quat[%.3f,%.3f,%.3f,%.3f] → yaw=%.3frad (%.1f°)\n",
-                    //       r, i, j, k, yaw, yaw * 180.0 / M_PI);
-                }
+            static bool is_imu_first_run = true;
+            static double loop_yaw_offset = 0.0;
+            if (is_imu_first_run) {
+                loop_yaw_offset = yaw;
+                is_imu_first_run = false;
             }
+            this->THETA = normalizeAngle(yaw - loop_yaw_offset);
         #else
-            // ROBOT RÉEL : Utiliser getSensorEvent avec GAME_ROTATION_VECTOR
-            sh2_SensorValue_t sv;
-            if (bno085->getSensorEvent(&sv) && sv.sensorId == SH2_GAME_ROTATION_VECTOR) {
-                theta_updated = true;
-                float r = sv.un.gameRotationVector.real;
-                float i = sv.un.gameRotationVector.i;
-                float j = sv.un.gameRotationVector.j;
-                float k = sv.un.gameRotationVector.k;
-                
-                // Conversion quaternion -> yaw
-                double yaw = atan2(2.0f * (r * k + i * j), 1.0f - 2.0f * (j * j + k * k));
-                
-                // Appliquer offset si défini
-                this->THETA = yaw - odo_data.imu_yaw_offset;
-
-            }
+            this->THETA = normalizeAngle(yaw - odo_data.imu_yaw_offset);
         #endif
+
+        theta_updated = true;
     }
     
     // Fallback encodeurs si IMU non disponible
@@ -566,9 +526,6 @@ void Holonomic_Basis::update_odometry() {
         this->THETA = normalizeAngle(this->THETA + omega_enc);
     }
     
-    // Normalisation θ ∈ [-π, +π]
-    while (this->THETA >  M_PI) this->THETA -= 2.0 * M_PI;
-    while (this->THETA < -M_PI) this->THETA += 2.0 * M_PI;
     double theta_moyen = (last_theta_enc + this->THETA) / 2.0;
     //Intégration position X,Y
     if (optical_active) {
@@ -801,4 +758,29 @@ bool Holonomic_Basis::send_movement_commands_nonblocking() {
     #endif
     
     return true;  // On considère OK même si timeout silencieux (moteur peut fonctionner)
+}
+
+// Lire l'IMU DEPUIS loop() - I2C non-bloquant ~0.5ms
+bool Holonomic_Basis::read_imu_nonblocking() {
+    if (!bno085 || !odo_data.imu_calibrated) return false;
+
+    sh2_SensorValue_t sv;
+    if (!bno085->getSensorEvent(&sv)) return false;
+    if (sv.sensorId != SH2_GAME_ROTATION_VECTOR)  return false;
+
+    float r = sv.un.gameRotationVector.real;
+    float i = sv.un.gameRotationVector.i;
+    float j = sv.un.gameRotationVector.j;
+    float k = sv.un.gameRotationVector.k;
+
+    double yaw = atan2(2.0 * (r * k + i * j),
+                       1.0 - 2.0 * (j * j + k * k));
+
+    noInterrupts();
+    odo_data.buffered_imu_yaw       = yaw;
+    odo_data.buffered_imu_valid     = true;
+    odo_data.imu_buffer_timestamp   = millis();
+    interrupts();
+
+    return true;
 }

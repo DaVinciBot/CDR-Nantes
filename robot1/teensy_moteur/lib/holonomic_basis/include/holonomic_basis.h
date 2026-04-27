@@ -1,5 +1,6 @@
 #pragma once
 #include <Arduino.h>
+#include <atomic>
 #include <config.h>
 #include "../../MKSServo/mks_servo.h"
 #include "../../MKSServo/mks_group.h"
@@ -32,8 +33,6 @@ class Holonomic_Basis {
     bool use_imu = false;            
     bool use_pid_control = false;    
 
-
-    const double OPTICAL_SCALE = 1.0; // 1.0 Pour webots sinon 0.0423 ( a redefinir) pour réel
     const double OPTICAL_OFFSET_X = 0.0; // mm
     const double OPTICAL_OFFSET_Y = 0.0; // mm
     const double OPTICAL_MOUNT_ANGLE = 0.0; // rad
@@ -118,9 +117,13 @@ class Holonomic_Basis {
     // Envoi vitesses vers MKS (RS485 bloquant 10ms x3) - À APPELER DEPUIS loop()
     bool send_movement_commands_nonblocking();
     
-    // Flag pour que loop() sache quand il faut lire/envoyer (volatile: accès depuis ISR)
-    volatile bool need_read_encoders = false;
-    volatile bool need_send_movement = false;
+    // Lecture IMU (I2C bloquant ~0.5ms) - À APPELER DEPUIS loop()
+    bool read_imu_nonblocking();
+    
+    // Flags pour que loop() sache quand il faut lire/envoyer (atomic: accès depuis ISR + loop)
+    std::atomic<bool> need_read_encoders{false};
+    std::atomic<bool> need_send_movement{false};
+    std::atomic<bool> need_read_imu{false};
 
    private:
     struct OdometryData {
@@ -140,6 +143,11 @@ class Holonomic_Basis {
         // Calibration IMU
         double imu_yaw_offset = 0.0;
         bool imu_calibrated = false;
+
+        // ===== BUFFER IMU (lu depuis loop(), consommé dans update_odometry()) =====
+        double  buffered_imu_yaw   = 0.0;
+        bool    buffered_imu_valid = false;
+        uint32_t imu_buffer_timestamp = 0;
 
         // Capteur optique PAA5100
         double optical_x_acc = 0.0;
