@@ -15,10 +15,9 @@
         }
     },
     "serial_config": {
-        "port": "COM1",
-        "serial_number": null,
-        "vid": null,
-        "pid": null,
+        "serial_number": 17795370,
+        "vid": 5824,
+        "pid": 1155,
         "baudrate": 115200,
         "enable_crc": true,
         "enable_dummy": false

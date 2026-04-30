@@ -36,7 +36,7 @@ from common.teensy.base_teensy import BaseTeensy
 from common.usb_com.python.messages import Messages
 
 # Connexion à la Teensy
-teensy = BaseTeensy(serial_number=18421350, baudrate=115200)
+teensy = BaseTeensy(serial_number=17795370, baudrate=115200)
 
 # Envoyer une commande
 teensy.send_message(Messages.SET_TARGET_POSITION, data)
@@ -66,7 +66,7 @@ Gestion avancée des GPIO pour contrôle des actuateurs et lecture des capteurs.
 from common.teensy.gpio_teensy import GPIOTeensy
 
 # Initialisation
-gpio = GPIOTeensy(serial_number=18421350)
+gpio = GPIOTeensy(serial_number=17795370)
 
 # Configurer un servo
 gpio.set_servo_angle(pin=14, angle=90, max_angle=180)

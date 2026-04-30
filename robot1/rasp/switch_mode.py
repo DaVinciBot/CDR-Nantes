@@ -54,7 +54,7 @@ HARDWARE_CONFIG = {
         }
     },
     "serial_config": {
-        "serial_number": 18421350,
+        "serial_number": 17795370,
         "vid": 5824,
         "pid": 1155,
         "baudrate": 115200,
@@ -123,7 +123,7 @@ def main():
         with open(config_path, 'w') as f:
             json.dump(config, f, indent=4)
         print(" Mode HARDWARE activé (Teensy USB)")
-        print("   Serial: 18421350, VID: 5824, PID: 1155")
+        print(f"   Serial: {config['serial_config']['serial_number']}, VID: {config['serial_config']['vid']}, PID: {config['serial_config']['pid']}")
 
 if __name__ == '__main__':
     main()

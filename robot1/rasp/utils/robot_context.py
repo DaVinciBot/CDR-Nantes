@@ -83,7 +83,7 @@ def get_com_config() -> dict:
         return {
             'mode': 'hardware',
             'port': None,  # Détection automatique
-            'serial_number': 18421350,
+            'serial_number': 17795370,
             'vid': 5824,
             'pid': 1155,
             'baudrate': 115200,
@@ -191,13 +191,13 @@ def init_robot(logger=None):
     """
     mode_str = "SIMULATION" if is_simulation() else "HARDWARE"
     if logger:
-        logger.info(f"🤖 Mode détecté : {mode_str}")
+        logger.info(f"Mode détecté : {mode_str}")
         logger.info("=" * 70)
     
     com = create_com(logger=logger)
     
     if logger:
-        logger.info("✅ Connexion établie!")
+        logger.info(" Connexion établie!")
         logger.info("=" * 70)
     
     return com, mode_str

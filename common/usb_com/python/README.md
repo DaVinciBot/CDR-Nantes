@@ -34,7 +34,7 @@ from common.usb_com.python.messages import Messages
 com = Com(
     port="COM5",                    # Port détecté automatiquement
     baudrate=115200,
-    serial_number=18421350,         # Numéro de série de la Teensy
+    serial_number=17795370,         # Numéro de série de la Teensy
     use_crc=True
 )
 
