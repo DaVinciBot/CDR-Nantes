@@ -36,23 +36,35 @@ def send_position(x, y, theta, com, description=""):
     com.send_bytes(msg)
     logger.info(f" {description}: X={x}mm, Y={y}mm, θ={theta}rad")
 
+
+def send_reset_odometry(com):
+    """Remet l'odométrie à zéro et stoppe le robot proprement."""
+    msg = Messages.SET_ODOMETRIE.to_bytes()
+    msg += struct.pack('<ddd', 0.0, 0.0, 0.0)
+    com.send_bytes(msg)
+    logger.info(" Odométrie remise à zéro (0, 0, 0) → robot IDLE")
+
+
 com.add_callback(handle_position, Messages.UPDATE_ROLLING_BASIS.value)
 
 # Test avec quelques points seulement
 positions = [
-    #(200, 0, 0, "Origine"),
+    (200, 0, 0, "Origine"),
     #(0, 200, 1.57, "Déplacement diagonal"),
-    #(0,200,0, "Retour origine"),
-    
-
-   
-    
+    #(0,200,0, "Retour origine"),    
 ]
 
-for x, y, theta, desc in positions:
-    send_position(x, y, theta, com, desc)
-    time.sleep(5)  # Attendre 10 secondes entre chaque commande
+try:
+    for x, y, theta, desc in positions:
+        send_position(x, y, theta, com, desc)
+        time.sleep(5)
 
-logger.info("=" * 70)
-logger.info(" Test terminé ! Attente des derniers messages...")
-time.sleep(3)
+except KeyboardInterrupt:
+    logger.warning("  Interruption clavier détectée")
+
+finally:
+    # Toujours exécuté : reset propre même si Ctrl+C ou exception
+    logger.info("=" * 70)
+    logger.info(" Fin du test — reset odométrie et arrêt robot")
+    send_reset_odometry(com)
+    time.sleep(0.5)  # Laisser le message partir avant fermeture du port
