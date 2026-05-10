@@ -60,7 +60,7 @@
 #define COUNTS_TO_MM ((WHEEL_DIAMETER * PI) / MKS_COUNTS_PER_REV)
 
 // Vitesse max utile en RPM (consigne logicielle)
-#define MAX_SPEED_RPM 1500.0
+#define MAX_SPEED_RPM 100.0
 
 //  ROBOT GEOMETRY 
 #define ROBOT_RADIUS 156.9  // mm - Distance du centre aux roues
@@ -97,3 +97,10 @@
 //  COMMUNICATION 
 // Com baudrate
 #define BAUDRATE 115200
+
+// WATCHDOG & TIMEOUT MOUVEMENT
+#define WATCHDOG_TIMEOUT_MS     3000   // 3s sans message = crash Python
+#define ROBOT_MAX_SPEED_MM_S    200.0  // Vitesse max réelle estimée (mm/s)
+#define ROBOT_MAX_RAD_S         2.0    // Vitesse angulaire max (rad/s)
+#define MOVEMENT_TIMEOUT_MARGIN 2.0    // Multiplicateur sécurité (x2 le temps théorique)
+#define MOVEMENT_TIMEOUT_MIN_MS 2000   // Minimum 2s même pour petits déplacements
