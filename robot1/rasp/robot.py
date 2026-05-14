@@ -8,14 +8,7 @@ from gpiozero import Button
 
 from terrain_jeu import Terrain
 from pathfinder import PathFinder
-from lidar.lidar import LidarInterface
-from lidar.lidar_logic import (
-    set_team_color,
-    update_teensy_pose,
-    get_corrected_pose,
-    should_send_correction_to_teensy,
-    stop_lidar_runtime,
-)
+import lidar.lidar_detection as lidar
 
 from loader import loader
 from utils import init_robot
@@ -90,16 +83,12 @@ class Robot:
         # GPIO tirette (kept open pendant tout le match)
         self._pin_tirette = Button(PIN_TIRETTE, pull_up=True)
 
-        # 1. Charger les positions des balises AVANT tout le reste
-        set_team_color(self.couleur)
-        self.logger.info(f"Balises LiDAR chargées pour équipe {self.couleur}.")
-
-        # 2. Terrain et pathfinding
+        # 1. Terrain et pathfinding
         self.terrain = Terrain(self.couleur)
         self.cerveau = PathFinder(self.terrain)
 
-        # 3. Interface LiDAR
-        self.lidar = LidarInterface(team_color=self.couleur)
+        # 2. Démarrer LiDAR (détection adversaire)
+        lidar.start()
 
         # 4. Communication USB
         self.Messages       = loader.load_class('usb_com', 'Messages')
@@ -132,7 +121,7 @@ class Robot:
             self.y     = start_y
             self.theta = start_theta
 
-        update_teensy_pose(start_x, start_y, start_theta)
+        lidar.update_robot_pose(start_x, start_y, start_theta)
 
         msg  = self.Messages.SET_ODOMETRIE.to_bytes()
         msg += struct.pack('<ddd', start_x, start_y, start_theta)
@@ -161,7 +150,7 @@ class Robot:
                 self.x     = x
                 self.y     = y
                 self.theta = theta
-            update_teensy_pose(x, y, theta)
+            lidar.update_robot_pose(x, y, theta)
         else:
             self.logger.warning(
                 f"Message odométrie trop court: {len(data)} bytes"
@@ -199,24 +188,15 @@ class Robot:
         with self.lock:
             teensy_x, teensy_y, teensy_theta = self.x, self.y, self.theta
 
-        # 2. Signal LiDAR
-        update_teensy_pose(teensy_x, teensy_y, teensy_theta)
+        # 2. Mise à jour pose pour LiDAR
+        lidar.update_robot_pose(teensy_x, teensy_y, teensy_theta)
 
-        # 3. Fusion via LidarInterface (source unique)
-        rx, ry, rtheta, _ = self.lidar.get_fused_position(
-            teensy_x, teensy_y, teensy_theta
-        )
+        # 3. Position finale = odométrie Teensy (pas de correction LiDAR)
+        rx, ry, rtheta = teensy_x, teensy_y, teensy_theta
 
-        # 4. Correction odométrie Teensy si LiDAR suffisamment confiant
-        corrected_pose = get_corrected_pose()
-        if should_send_correction_to_teensy() and corrected_pose is not None:
-            self._send_odometry_correction(
-                corrected_pose.x, corrected_pose.y, corrected_pose.theta
-            )
-
-        # 5. Obstacles dynamiques (adversaire détecté par LiDAR)
+        # 4. Obstacles dynamiques (adversaire détecté par LiDAR)
         obstacles: list = []
-        opponent_data = self.lidar.get_opponent()
+        opponent_data = lidar.get_opponent()
         if opponent_data is not None:
             opp_x, opp_y, opp_conf = opponent_data
             if opp_conf > 0.1:
@@ -225,32 +205,19 @@ class Robot:
                     f"Adversaire: ({opp_x:.0f}, {opp_y:.0f}) conf={opp_conf:.2f}"
                 )
 
-        # 6. Publication Rerun
+        # 5. Publication Rerun
         if HAS_RERUN:
-            lidar_vis_x     = teensy_x
-            lidar_vis_y     = teensy_y
-            lidar_vis_theta = teensy_theta
-            lidar_vis_conf  = 0.0
-            lidar_vis_ok    = False
-
-            if corrected_pose is not None:
-                lidar_vis_x     = corrected_pose.x
-                lidar_vis_y     = corrected_pose.y
-                lidar_vis_theta = corrected_pose.theta
-                lidar_vis_conf  = corrected_pose.confidence
-                lidar_vis_ok    = corrected_pose.is_localized
-
             rerun_bridge.update_odom(teensy_x, teensy_y, teensy_theta)
             rerun_bridge.update_lidar_pose(
-                lidar_vis_x, lidar_vis_y, lidar_vis_theta,
-                lidar_vis_conf, lidar_vis_ok,
+                teensy_x, teensy_y, teensy_theta,
+                0.0, False,  # pas de correction LiDAR
             )
             rerun_bridge.update_fused(rx, ry, rtheta)
             rerun_bridge.update_obstacles(
                 [{"x": ox, "y": oy, "radius": 200} for ox, oy in obstacles]
             )
 
-        # 7. Stratégie
+        # 6. Stratégie
         action = self.strategie.get_action_actuelle()
         if action is None:
             self._envoyer_position_moteurs(rx, ry, rtheta, "STOP (fin missions)")
@@ -258,7 +225,7 @@ class Robot:
                 rerun_bridge.update_trajectory([])
             return
 
-        # 8. Exécution action
+        # 7. Exécution action
         if action.type == TypeAction.DEPLACEMENT:
             objectif          = {'x': action.cible_x, 'y': action.cible_y}
             distance_restante = math.hypot(action.cible_x - rx, action.cible_y - ry)
@@ -334,8 +301,8 @@ class Robot:
                 self.x, self.y, self.theta, "ARRÊT MATCH"
             )
 
-        self.logger.info("Coupure du LiDAR…")
-        stop_lidar_runtime()
+        self.logger.info("Arrêt du LiDAR…")
+        lidar.stop()
 
         self._pin_tirette.close()
 
