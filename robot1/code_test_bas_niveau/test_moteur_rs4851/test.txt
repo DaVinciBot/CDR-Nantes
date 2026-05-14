@@ -1,0 +1,254 @@
+#include <Arduino.h>
+
+#define MKS_BAUD        115200
+#define MKS_ADDR        1     // Adresse fixe — 1 moteur par port série
+
+#define SERIAL_M1       Serial1   // TX=1  RX=0
+#define SERIAL_M2       Serial2   // TX=8  RX=7
+#define SERIAL_M3       Serial6   // TX=24 RX=25 
+
+// ── CRC ──
+uint8_t computeCRC(uint8_t* data, uint8_t len) {
+    uint16_t sum = 0;
+    for (uint8_t i = 0; i < len; i++) sum += data[i];
+    return sum & 0xFF;
+}
+
+// ── Envoi paquet ──
+void sendPacket(HardwareSerial& serial, uint8_t* pkt, uint8_t len) {
+    pkt[len - 1] = computeCRC(pkt, len - 1);
+    
+    while (serial.available()) serial.read();
+    serial.write(pkt, len);
+    serial.flush();
+    
+}
+
+// ── Lecture réponse ──
+uint8_t readResponse(HardwareSerial& serial, uint8_t* buf, uint8_t expected, uint32_t timeout_ms = 500) {
+    uint8_t n = 0;
+    uint32_t t = millis();
+    while (n < expected && millis() - t < timeout_ms) {
+        if (serial.available()) {
+            buf[n++] = serial.read();
+            t = millis();
+        }
+    }
+    return n;
+}
+
+// ── Test communication ──
+bool testCom(HardwareSerial& serial, uint8_t motor_num) {
+    Serial.printf("\n--- TEST COM Moteur %d ---\n", motor_num);
+
+    uint8_t pkt[4] = {250, MKS_ADDR, 49, 0};
+    sendPacket(serial, pkt, 4);
+
+    uint8_t resp[10];
+    uint8_t n = readResponse(serial, resp, 10, 500);
+
+    Serial.printf("  Reponse : %d byte(s) — ", n);
+    for (uint8_t i = 0; i < n; i++) Serial.printf("0x%02X ", resp[i]);
+    Serial.println();
+
+    if (n >= 9 && resp[0] == 0xFB && resp[1] == MKS_ADDR && resp[2] == 0x31) {
+        Serial.printf("  RESULTAT : OK ✓\n");
+        return true;
+    } else if (n == 0) {
+        Serial.printf("  RESULTAT : ECHEC — Aucune reponse\n");
+        return false;
+    } else {
+        Serial.printf("  RESULTAT : PARTIEL — Reponse incorrecte\n");
+        return false;
+    }
+}
+
+// ── Enable moteur ──
+void enableMotor(HardwareSerial& serial, uint8_t motor_num) {
+    uint8_t pkt[5] = {250, MKS_ADDR, 243, 1, 0};
+    sendPacket(serial, pkt, 5);
+
+    uint8_t resp[4];
+    uint8_t n = readResponse(serial, resp, 4, 500);
+
+    if (n >= 3 && resp[2] == 243) {
+        Serial.printf("  M%d enable : %s\n", motor_num, resp[3] == 1 ? "OK ✓" : "ECHEC");
+    } else {
+        Serial.printf("  M%d enable : pas de reponse\n", motor_num);
+    }
+}
+
+// ── Spin moteur ──
+void spinMotor(HardwareSerial& serial, uint8_t motor_num, uint8_t dir, uint16_t rpm, uint8_t accel) {
+    // rpm max = 3000
+    // Byte 4 combine la direction (bit 7) et les 4 bits de poids fort de la vitesse
+    uint8_t byte4 = (dir << 7) | ((rpm >> 8) & 0x0F); 
+    uint8_t byte5 = (rpm & 0xFF);
+    
+    uint8_t pkt[7] = { 250, MKS_ADDR, 246, byte4, byte5, accel, 0 };
+    sendPacket(serial, pkt, 7); // Envoyer 7 octets seulement
+
+    uint8_t resp[5];
+    uint8_t n = readResponse(serial, resp, 5, 500);
+
+    if (n >= 4 && resp[2] == 0xF6) {
+        Serial.printf("  M%d : Statut -> %s\n", motor_num, resp[3] == 1 ? "OK ✓" : "REFUSE (0x00)");
+    }
+}
+
+// ── Stop moteur ──
+void stopMotor(HardwareSerial& serial, uint8_t motor_num) {
+    uint8_t pkt[7] = {250, MKS_ADDR, 246, 0, 0, 0, 0};
+    sendPacket(serial, pkt, 7);
+
+    uint8_t resp[4];
+    readResponse(serial, resp, 4, 500);
+    Serial.printf("  M%d : stop\n", motor_num);
+}
+
+// ── Lecture encodeur ──
+int64_t readEncoder(HardwareSerial& serial, uint8_t motor_num) {
+    uint8_t pkt[4] = {250, MKS_ADDR, 49, 0};
+    sendPacket(serial, pkt, 4);
+
+    uint8_t resp[10];
+    uint8_t n = readResponse(serial, resp, 10, 500);
+
+    if (n >= 9 && resp[0] == 0xFB && resp[1] == MKS_ADDR && resp[2] == 0x31) {
+        int64_t val = 0;
+        for (int i = 0; i < 6; i++) val = (val << 8) | (int64_t)resp[3 + i];
+        if (val & (1LL << 47)) val |= (int64_t)0xFFFF000000000000LL;
+        return val;
+    }
+    return INT64_MIN;
+}
+
+// ── Affichage encodeurs des 3 moteurs ──
+void printEncoders() {
+    int64_t e1 = readEncoder(SERIAL_M1, 1);
+    int64_t e2 = readEncoder(SERIAL_M2, 2);
+    int64_t e3 = readEncoder(SERIAL_M3, 3);
+
+    Serial.print("ENC — ");
+    if (e1 != INT64_MIN) Serial.printf("M1: %lld  ", e1);
+    else                  Serial.print("M1: N/A   ");
+    if (e2 != INT64_MIN) Serial.printf("M2: %lld  ", e2);
+    else                  Serial.print("M2: N/A   ");
+    if (e3 != INT64_MIN) Serial.printf("M3: %lld", e3);
+    else                  Serial.print("M3: N/A");
+    Serial.println();
+}
+
+// ── Variables globales pour les tests répétés ──
+bool g_motors_ok[4] = {false, false, false, false};
+uint32_t g_last_test = 0;
+uint32_t g_test_interval = 30000;  // 30 secondes entre les tests
+uint32_t g_last_encoder = 0;
+
+// ── Fonction test de mouvement répétable ──
+void runMotorTests() {
+    Serial.println("\n╔════════════════════════════════════════╗");
+    Serial.println("║   TEST DE MOUVEMENT (cycle répété)     ║");
+    Serial.println("╚════════════════════════════════════════╝");
+
+    // ── Tests de communication ──
+    Serial.println("\n=== TESTS DE COMMUNICATION ===");
+    bool ok1 = testCom(SERIAL_M1, 1);
+    bool ok2 = testCom(SERIAL_M2, 2);
+    bool ok3 = testCom(SERIAL_M3, 3);
+
+    g_motors_ok[1] = ok1;
+    g_motors_ok[2] = ok2;
+    g_motors_ok[3] = ok3;
+
+    Serial.println("\n=== BILAN ===");
+    Serial.printf("  M1 : %s\n", ok1 ? "OK ✓" : "ECHEC ✗");
+    Serial.printf("  M2 : %s\n", ok2 ? "OK ✓" : "ECHEC ✗");
+    Serial.printf("  M3 : %s\n", ok3 ? "OK ✓" : "ECHEC ✗");
+
+    if (!ok1 && !ok2 && !ok3) {
+        Serial.println("\nAucun moteur ne repond — verifier alimentation et config SR/baud");
+        return;
+    }
+
+    // ── Enable ──
+    Serial.println("\n=== ENABLE ===");
+    enableMotor(SERIAL_M1, 1);
+    enableMotor(SERIAL_M2, 2);
+    enableMotor(SERIAL_M3, 3);
+    delay(2000);
+
+    // ── Rotation CW 60 RPM ──
+    Serial.println("\n=== ROTATION CW 60 RPM (3 sec) ===");
+    spinMotor(SERIAL_M1, 1, 0, 60, 5);
+    spinMotor(SERIAL_M2, 2, 0, 60, 5);
+    spinMotor(SERIAL_M3, 3, 0, 60, 5);
+    delay(3000);
+
+    // ── Stop ──
+    Serial.println("\n=== STOP ===");
+    stopMotor(SERIAL_M1, 1);
+    stopMotor(SERIAL_M2, 2);
+    stopMotor(SERIAL_M3, 3);
+    delay(1000);
+
+    // ── Rotation CCW 60 RPM ──
+    Serial.println("\n=== ROTATION CCW 60 RPM (3 sec) ===");
+    spinMotor(SERIAL_M1, 1, 1, 60, 5);
+    spinMotor(SERIAL_M2, 2, 1, 60, 5);
+    spinMotor(SERIAL_M3, 3, 1, 60, 5);
+    delay(3000);
+
+    // ── Stop ──
+    Serial.println("\n=== STOP ===");
+    stopMotor(SERIAL_M1, 1);
+    stopMotor(SERIAL_M2, 2);
+    stopMotor(SERIAL_M3, 3);
+    delay(1000);
+
+    g_last_test = millis();
+}
+
+// ─────────────────────────────────────────────
+void setup() {
+    Serial.begin(115200);
+    while (!Serial && millis() < 2000);
+
+    Serial.println("========================================");
+    Serial.println("  TEST 3 MOTEURS MKS RS485 — 9600 bauds");
+    Serial.println("  M1: Serial1 TX=1  RX=0");
+    Serial.println("  M2: Serial2 TX=8  RX=7");
+    Serial.println("  M3: Serial3 TX=14 RX=15");
+    Serial.println("  Adresse fixe : 1");
+    Serial.println("  Interval test : 30 sec");
+    Serial.println("========================================\n");
+
+    SERIAL_M1.begin(MKS_BAUD);
+    delay(200);  // Stabilisation Serial1
+    SERIAL_M2.begin(MKS_BAUD);
+    delay(200);  // Stabilisation Serial2 (critique)
+    SERIAL_M3.begin(MKS_BAUD);
+    delay(200);  // Stabilisation Serial3
+    delay(500);  // Délai global additionnel
+
+    // Premier test au démarrage
+    runMotorTests();
+
+    Serial.println("\n=== ENCODEURS EN CONTINU ===");
+    g_last_encoder = millis();
+}
+
+void loop() {
+    uint32_t now = millis();
+
+    // Lire encodeurs toutes les 500ms
+    if (now - g_last_encoder >= 500) {
+        printEncoders();
+        g_last_encoder = now;
+    }
+
+    // Relancer les tests toutes les 30 secondes
+    if (now - g_last_test >= g_test_interval) {
+        runMotorTests();
+    }
+}

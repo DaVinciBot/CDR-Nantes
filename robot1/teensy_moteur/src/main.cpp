@@ -1,246 +1,197 @@
-// External libraries used: Arduino
-#include <Arduino.h>      // Arduino framework
-#include <holonomic_basis.h>  // Holonomic Basis with MKS RS485
-#include <config.h>           // Configuration file
+/**
+ * test_logique_complete.cpp
+ */
 
-// PID Controllers
-PID x_pid(KP_X, KI_X, KD_X, -MAX_SPEED_RPM, MAX_SPEED_RPM, 5.0);
-PID y_pid(KP_Y, KI_Y, KD_Y, -MAX_SPEED_RPM, MAX_SPEED_RPM, 5.0);
+#include <Arduino.h>
+#include <holonomic_basis.h>
+#include <config.h>
+
+// ===== PID =====
+PID x_pid    (KP_X,     KI_X,     KD_X,     -MAX_SPEED_RPM, MAX_SPEED_RPM, 5.0);
+PID y_pid    (KP_Y,     KI_Y,     KD_Y,     -MAX_SPEED_RPM, MAX_SPEED_RPM, 5.0);
 PID theta_pid(KP_THETA, KI_THETA, KD_THETA, -MAX_SPEED_RPM, MAX_SPEED_RPM, 2.0);
 
-Holonomic_Basis* holonomic_basis_ptr = new Holonomic_Basis(
-    ROBOT_RADIUS,
-    WHEEL_DIAMETER,
-    MAX_SPEED_RPM,
-    x_pid,
-    y_pid,
-    theta_pid
+Holonomic_Basis* hb = new Holonomic_Basis(
+    ROBOT_RADIUS, WHEEL_DIAMETER, MAX_SPEED_RPM,
+    x_pid, y_pid, theta_pid
 );
 
-Com* com;
-Point target_position(START_X, START_Y, START_THETA);
+enum TestState {
+    TEST_INIT,
+    TEST_X_600MM,
+    TEST_DONE
+};
 
-IntervalTimer timer_compute;
+TestState state = TEST_INIT;
+uint32_t state_start_time = 0;
+Point target(0, 0, 0);
+int64_t enc1_start = 0, enc2_start = 0, enc3_start = 0;
 
-// ===== ÉTAT MACHINE =====
-enum RobotState { IDLE, MOVING };
-RobotState robot_state = IDLE;
+IntervalTimer compute_timer;
 
-// ===== WATCHDOG & TIMEOUT =====
-uint32_t last_message_timestamp = 0;
-uint32_t movement_start_ms      = 0;
-uint32_t movement_timeout_ms    = 0;
-
-// ===== UTILITAIRE : angle normalisé =====
-// (déjà défini dans holonomic_basis.cpp mais on en a besoin ici aussi)
-double normalizeAngle_main(double theta) {
-    theta = fmod(theta + M_PI, 2.0 * M_PI);
-    if (theta < 0.0) theta += 2.0 * M_PI;
-    return theta - M_PI;
-}
-
-// ===== CALCUL TIMEOUT DYNAMIQUE =====
-uint32_t compute_movement_timeout(double from_x, double from_y, double from_theta,
-                                  double to_x,   double to_y,   double to_theta) {
-    double dist_mm   = sqrt(pow(to_x - from_x, 2) + pow(to_y - from_y, 2));
-    double angle_rad = fabs(normalizeAngle_main(to_theta - from_theta));
-
-    double t_trans_s = dist_mm   / ROBOT_MAX_SPEED_MM_S;
-    double t_rot_s   = angle_rad / ROBOT_MAX_RAD_S;
-    double t_total_s = (t_trans_s + t_rot_s) * MOVEMENT_TIMEOUT_MARGIN;
-
-    uint32_t timeout_ms = (uint32_t)(t_total_s * 1000.0);
-    if (timeout_ms < MOVEMENT_TIMEOUT_MIN_MS) timeout_ms = MOVEMENT_TIMEOUT_MIN_MS;
-
-    return timeout_ms;
-}
-
-// ===== CALLBACKS =====
-
-void set_target_position(byte* msg, byte size) {
-    last_message_timestamp = millis();
-
-    msg_set_target_position* target_msg = (msg_set_target_position*)msg;
-
-    // Calculer timeout AVANT d'écraser target_position
-    Point current = holonomic_basis_ptr->get_current_position();
-    movement_timeout_ms = compute_movement_timeout(
-        current.x, current.y, current.theta,
-        target_msg->target_position_x,
-        target_msg->target_position_y,
-        target_msg->target_position_theta
-    );
-
-    target_position.x     = target_msg->target_position_x;
-    target_position.y     = target_msg->target_position_y;
-    target_position.theta = target_msg->target_position_theta;
-
-    movement_start_ms = millis();
-    robot_state       = MOVING;
-}
-
-void set_pid(byte* msg, byte size) {
-    last_message_timestamp = millis();
-
-    msg_set_pid* pid_msg = (msg_set_pid*)msg;
-    PID* pid = nullptr;
-    
-    switch (pid_msg->pid_type) {
-        case X_PID_ID: pid = &holonomic_basis_ptr->x_pid; break;
-        case Y_PID_ID: pid = &holonomic_basis_ptr->y_pid; break;
-        case THETA_PID_ID: pid = &holonomic_basis_ptr->theta_pid; break;
-    }
-    
-    if (pid) {
-        pid->updateParameters(pid_msg->kp, pid_msg->ki, pid_msg->kd);
-    }
-}
-
-void set_odometrie(byte* msg, byte size) {
-    last_message_timestamp = millis();
-
-    msg_set_odometrie* odo = (msg_set_odometrie*)msg;
-    
-    holonomic_basis_ptr->init_holonomic_basis(odo->x, odo->y, odo->theta);
-
-    target_position.x = odo->x;
-    target_position.y = odo->y;
-    target_position.theta = odo->theta;
-
-    // Arrêt propre + reset état machine
-    robot_state = IDLE;
-    holonomic_basis_ptr->emergency_stop();
-}
-
-void reset_teensy(byte* msg, byte size) {
-    void(*reboot)(void) = 0;
-    reboot();
-}
-
-void (*callback_functions[256])(byte* msg, byte size);
-
-void initialize_callback_functions() {
-    callback_functions[SET_TARGET_POSITION] = &set_target_position;
-    callback_functions[SET_PID] = &set_pid;
-    callback_functions[SET_ODOMETRIE] = &set_odometrie;
-    callback_functions[RESET_TEENSY] = &reset_teensy;
-}
-
-
-// [TIMER LENT] - 100 Hz (10ms)
-// Gère l'intelligence : PID, Cinématique
-void interruption_compute() {
-    // 1. Fusion de capteurs (GPS/IMU + Dead Reckoning)
-    holonomic_basis_ptr->update_odometry();
-
-    // 2. Calcul PID uniquement si on est en mouvement
-    if (robot_state == MOVING) {
-        holonomic_basis_ptr->handle(target_position, com);
-
-        // 3. Vérifier si cible atteinte (zone morte)
-        Point current = holonomic_basis_ptr->get_current_position();
-        double xerr = target_position.x - current.x;
-        double yerr = target_position.y - current.y;
-        double terr = fabs(normalizeAngle_main(target_position.theta - current.theta));
-
-        if (sqrt(xerr*xerr + yerr*yerr) < 1.0 && terr < 0.02) {
-            robot_state = IDLE;
-            holonomic_basis_ptr->emergency_stop();
-            Serial.println("[DONE] Cible atteinte → IDLE");
-        }
-    }
-
-    // 4. Signaux pour loop() — RS485 uniquement si nécessaire
-    holonomic_basis_ptr->need_send_movement = (robot_state == MOVING);
-    holonomic_basis_ptr->need_read_encoders = true;
-    
-    // 5. Signaler que loop() doit lire l'IMU
-    holonomic_basis_ptr->need_read_imu = true;
+void compute_loop() {
+    hb->update_odometry();
+    hb->handle(target, nullptr);
+    hb->need_send_movement = true;
+    hb->need_read_encoders = true;
 }
 
 void setup() {
-    // Initialisation communication
-    com = new Com(&Serial, BAUDRATE);
+    Serial.begin(115200);
+    delay(1000);
 
-    // Configuration des moteurs RS485
-    holonomic_basis_ptr->define_wheel1(W1_SERIAL, W1_ADDR);
-    holonomic_basis_ptr->define_wheel2(W2_SERIAL, W2_ADDR);
-    holonomic_basis_ptr->define_wheel3(W3_SERIAL, W3_ADDR);
-    
-    // Initialisation moteurs et base holonome
-    holonomic_basis_ptr->init_motors();
-    holonomic_basis_ptr->init_holonomic_basis(START_X, START_Y, START_THETA);
-    
-    // Initialisation des capteurs (PMW3901, BNO085)
-    //holonomic_basis_ptr->init_sensors();
+    Serial.println("\n╔══════════════════════════════════════════════════╗");
+    Serial.println("║       TEST X+ 600mm AVEC COMPTAGE D'ENCODEURS    ║");
+    Serial.println("╚══════════════════════════════════════════════════╝\n");
 
-    // Initialisation des callbacks BEFORE starting timer
-    initialize_callback_functions();
+    hb->define_wheel1(W1_SERIAL, W1_ADDR);
+    hb->define_wheel2(W2_SERIAL, W2_ADDR);
+    hb->define_wheel3(W3_SERIAL, W3_ADDR);
+    hb->init_motors();
+    hb->init_holonomic_basis(0.0, 0.0, 0.0);
 
-    // Démarrage des Timers (AFTER callbacks are set)
-    timer_compute.begin(interruption_compute, ASSERVISSEMENT_FREQUENCY); 
-    
-    delay(100);
+    hb->use_encoders     = true;
+    hb->use_optical_flow = false;
+    hb->use_imu          = false;
+    hb->use_pid_control  = false;
+
+    Serial.println("╔══════════════════════════════════════════════════╗");
+    Serial.println("║              CONFIGURATION                       ║");
+    Serial.println("╠══════════════════════════════════════════════════╣");
+    Serial.println("║  Mode : Proportionnel simple (handle)            ║");
+    Serial.println("║  Odométrie : Encodeurs RS485 ACTIFS              ║");
+    Serial.println("║  Fréquence : 100 Hz                              ║");
+    Serial.println("║                                                  ║");
+    Serial.println("║  TEST UNIQUE : Translation X+ = 600 mm           ║");
+    Serial.println("║    → Démarrage : comptage encodeurs              ║");
+    Serial.println("║    → Mouvement complet                           ║");
+    Serial.println("║    → Arrêt : comptage encodeurs final            ║");
+    Serial.println("║    → Calcul delta et vérification                ║");
+    Serial.println("╚══════════════════════════════════════════════════╝\n");
+
+    delay(3000);
+
+    hb->enable_motors();
+    delay(500);
+
+    compute_timer.begin(compute_loop, ASSERVISSEMENT_FREQUENCY);
+    state_start_time = millis();
 }
 
+// ===== AFFICHAGE =====
+static uint32_t last_display_ms = 0;
+void display_odometry() {
+    uint32_t now = millis();
+    if (now - last_display_ms < 500) return;
+    last_display_ms = now;
 
-uint_fast32_t counter = 0;
-static bool motors_enabled = false;
+    int64_t e1, e2, e3;
+    hb->get_raw_encoders(e1, e2, e3);
+    Point pos = hb->get_current_position();
+
+    // Récupérer les RPM envoyés aux moteurs
+    double w1 = hb->filtered_wheel1_rpm;
+    double w2 = hb->filtered_wheel2_rpm;
+    double w3 = hb->filtered_wheel3_rpm;
+
+    Serial.printf("[POS] X=%+7.1f Y=%+7.1f Θ=%+.3f  | [CMD] W1=%+6.0f W2=%+6.0f W3=%+6.0f RPM\n",
+                  pos.x, pos.y, pos.theta,
+                  w1, w2, w3);
+}
 
 void loop() {
     uint32_t now = millis();
 
-    // ===== ÉTAPE 0: WATCHDOG & TIMEOUT =====
-    if (robot_state == MOVING) {
-        // Timeout dynamique : mouvement trop long (odo fausse, robot bloqué)
-        if ((now - movement_start_ms) > movement_timeout_ms) {
-            robot_state = IDLE;
-            holonomic_basis_ptr->emergency_stop();
-            Serial.printf("[TIMEOUT] Mouvement > %ums → IDLE\n", movement_timeout_ms);
+    if (hb->need_read_encoders) {
+        hb->read_encoders_nonblocking();
+        hb->need_read_encoders = false;
+    }
+
+    if (hb->need_send_movement) {
+        hb->send_movement_commands_nonblocking();
+        hb->need_send_movement = false;
+    }
+
+    display_odometry();
+
+    uint32_t elapsed = now - state_start_time;
+
+    switch (state) {
+
+        // ──────────────────────────────────────────────────────────────────
+        case TEST_INIT:
+            if (elapsed > 1000) {
+                Serial.println("\n╔══════════════════════════════════════════════════╗");
+                Serial.println("║         TEST : Translation X+ 600mm               ║");
+                Serial.println("╠══════════════════════════════════════════════════╣");
+                Serial.println("║  Cible : target.x = +600mm (60cm)                ║");
+                Serial.println("║  Attendu : robot avance en LIGNE DROITE vers +X  ║");
+                Serial.println("╠══════════════════════════════════════════════════╣");
+                
+                // Capturer les encodeurs de départ
+                hb->get_raw_encoders(enc1_start, enc2_start, enc3_start);
+                Serial.printf("║  [DÉPART] Enc1=%lld  Enc2=%lld  Enc3=%lld          ║\n", 
+                              enc1_start, enc2_start, enc3_start);
+                Serial.println("╚══════════════════════════════════════════════════╝\n");
+
+                target.x     = 200.0;
+                target.y     = 0.0;
+                target.theta = 0.0;
+
+                state = TEST_X_600MM;
+                state_start_time = now;
+            }
+            break;
+
+        // ──────────────────────────────────────────────────────────────────
+        case TEST_X_600MM: {
+            Point pos = hb->get_current_position();
+            double dist_to_target = 600.0 - pos.x;
+            
+            // Affichage du progrès toutes les secondes
+            static uint32_t last_progress = 0;
+            if (now - last_progress > 1000) {
+                last_progress = now;
+                Serial.printf("[MOUVEMENT] X = %.1f mm / 600 mm   Reste = %.1f mm\n", pos.x, dist_to_target);
+            }
+            
+            // Arrêt quand la cible est atteinte
+            if (dist_to_target <= 10.0 || elapsed > 30000) {  // 30s timeout
+                Serial.println("\n[TEST TERMINÉ] Arrêt robot...\n");
+                
+                // Capturer les encodeurs finaux
+                int64_t enc1_end, enc2_end, enc3_end;
+                hb->get_raw_encoders(enc1_end, enc2_end, enc3_end);
+                
+                Serial.println("╔══════════════════════════════════════════════════╗");
+                Serial.println("║          RÉSULTATS : COMPTAGE D'ENCODEURS        ║");
+                Serial.println("╠══════════════════════════════════════════════════╣");
+                Serial.printf("║  DÉPART : E1=%lld  E2=%lld  E3=%lld\n", enc1_start, enc2_start, enc3_start);
+                Serial.printf("║  FIN    : E1=%lld  E2=%lld  E3=%lld\n", enc1_end, enc2_end, enc3_end);
+                Serial.println("╠══════════════════════════════════════════════════╣");
+                Serial.printf("║  ΔE1 = %lld counts\n", enc1_end - enc1_start);
+                Serial.printf("║  ΔE2 = %lld counts\n", enc2_end - enc2_start);
+                Serial.printf("║  ΔE3 = %lld counts\n", enc3_end - enc3_start);
+                Serial.println("╠══════════════════════════════════════════════════╣");
+                Serial.println("║  Position finale (odométrie) :");
+                Serial.printf("║    X = %.1f mm (attendu : 600 mm)\n", pos.x);
+                Serial.printf("║    Y = %.1f mm (attendu : 0 mm)\n", pos.y);
+                Serial.printf("║    Θ = %.3f rad (attendu : 0 rad)\n", pos.theta);
+                Serial.println("╚══════════════════════════════════════════════════╝\n");
+                
+                target = {0, 0, 0};
+                delay(3000);  // Pause pour qu'il s'immobilise
+                
+                hb->emergency_stop();
+                hb->disable_motors();
+                
+                state = TEST_DONE;
+            }
+            break;
         }
-        // Watchdog : Python a crashé en plein mouvement
-        else if ((now - last_message_timestamp) > WATCHDOG_TIMEOUT_MS) {
-            robot_state = IDLE;
-            holonomic_basis_ptr->emergency_stop();
-            Serial.println("[WATCHDOG] Python injoignable → IDLE");
-        }
-    }
 
-    // ===== ÉTAPE 1: MESSAGES USB =====
-    com->handle_callback(callback_functions);
-
-    // ===== ÉTAPE 2: RS485 NON-BLOQUANT =====
-    if (holonomic_basis_ptr->need_read_encoders) {
-        if (holonomic_basis_ptr->read_encoders_nonblocking())
-            holonomic_basis_ptr->need_read_encoders = false;
-    }
-
-    if (holonomic_basis_ptr->need_read_imu) {
-        holonomic_basis_ptr->read_imu_nonblocking();
-        holonomic_basis_ptr->need_read_imu = false;
-    }
-
-    if (holonomic_basis_ptr->need_send_movement) {
-        if (holonomic_basis_ptr->send_movement_commands_nonblocking())
-            holonomic_basis_ptr->need_send_movement = false;
-    }
-
-    // ===== ÉTAPE 3: ENABLE MOTEURS (une seule fois) =====
-    if (!motors_enabled) {
-        holonomic_basis_ptr->enable_motors();
-        motors_enabled = true;
-    }
-
-    // ===== ÉTAPE 4: TÉLÉMÉTRIE VERS PI =====
-    if (counter++ > 50000) {
-        msg_update_rolling_basis odo_msg;
-        Point current = holonomic_basis_ptr->get_current_position();
-        
-        odo_msg.x = current.x;
-        odo_msg.y = current.y;
-        odo_msg.theta = current.theta;
-
-        com->send_msg((byte*)&odo_msg, sizeof(msg_update_rolling_basis));
-        counter = 0;
+        // ──────────────────────────────────────────────────────────────────
+        case TEST_DONE:
+            break;
     }
 }

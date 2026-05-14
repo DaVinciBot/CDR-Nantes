@@ -298,12 +298,12 @@ void Holonomic_Basis::update_optical_odometry(double dtheta_robot) {
         // Filtre de bruit pour logs uniquement (pas d'impact sur accumulation)
         bool is_display_noise = (abs(dx_mm) < 0.1 && abs(dy_mm) < 0.1);
         if (is_display_noise) {
-            //printf("📷 OPTIQUE: [FILTRÉ AFFICHAGE] raw=[%4d,%4d]mm → %.3f,%.3f < 0.1mm | pos=[%7.1f,%7.1f]mm\n", 
+            //printf("OPTIQUE: [FILTRÉ AFFICHAGE] raw=[%4d,%4d]mm → %.3f,%.3f < 0.1mm | pos=[%7.1f,%7.1f]mm\n", 
             //       deltaX, deltaY, dx_mm, dy_mm,
             //       odo_data.optical_x_acc, odo_data.optical_y_acc);
         } else {
             //double movement_magnitude = sqrt(dx_world*dx_world + dy_world*dy_world);
-            //printf("📷 OPTIQUE: raw=[%4d,%4d]mm | robot=[%6.2f,%6.2f]mm | world=[%6.2f,%6.2f]mm (%.2fmm) | pos=[%7.1f,%7.1f]mm\n",
+            //printf("OPTIQUE: raw=[%4d,%4d]mm | robot=[%6.2f,%6.2f]mm | world=[%6.2f,%6.2f]mm (%.2fmm) | pos=[%7.1f,%7.1f]mm\n",
             //       deltaX, deltaY, dx_robot, dy_robot, dx_world, dy_world, movement_magnitude,
             //       odo_data.optical_x_acc, odo_data.optical_y_acc);
         }
@@ -341,7 +341,7 @@ void Holonomic_Basis::update_odometry() {
     double d1 = double(enc1 - odo_data.last_enc1);
     double d2 = double(enc2 - odo_data.last_enc2);
     double d3 = double(enc3 - odo_data.last_enc3);
-    const double ENCODER_NOISE_THRESHOLD = 5.0; // counts
+    const double ENCODER_NOISE_THRESHOLD = 16.0; // counts
     if (abs(d1) < ENCODER_NOISE_THRESHOLD) d1 = 0.0;
     if (abs(d2) < ENCODER_NOISE_THRESHOLD) d2 = 0.0;
     if (abs(d3) < ENCODER_NOISE_THRESHOLD) d3 = 0.0;
@@ -443,16 +443,11 @@ void Holonomic_Basis::update_odometry() {
     // ==================================================================================
 
     // Vitesse X (longitudinale - vers l'avant robot)
-    double dx_enc = (2.0 * w3_mm - w1_mm - w2_mm) / 3.0;
+    // W1=120°, W2=240°, W3=0°
+    double dx_enc = (-w1_mm - w2_mm + 2.0*w3_mm) / 3.0;
+    double dy_enc  = (w1_mm - w2_mm) / sqrt(3.0);
+    double omega_enc = -(w1_mm + w2_mm + w3_mm) / (3.0 * robot_radius);
 
-    // Vitesse Y (latérale - vers la gauche robot)
-    double dy_enc = (w1_mm - w2_mm) / sqrt(3.0);  // 1.73205... = sqrt(3)
-
-    // Rotation angulaire (en radians) : ω*R = (w1+w2+w3)/3, donc ω = (w1+w2+w3)/(3*R)
-    // Note: les w_mm contiennent déjà la contribution (ω*R) de la cinématique inverse
-    double omega_enc = (w1_mm + w2_mm + w3_mm) / (3.0 * robot_radius);
-    
-    
     static uint32_t enc_debug_counter = 0;
         if (++enc_debug_counter >= 20) {  // Affichage toutes les 0.2s au lieu de 2s
             enc_debug_counter = 0;
@@ -528,18 +523,24 @@ void Holonomic_Basis::update_odometry() {
     
     double theta_moyen = (last_theta_enc + this->THETA) / 2.0;
     //Intégration position X,Y
-    if (optical_active) {
-        this->X += dx_final_world;
-        this->Y += dy_final_world;
-    } else if (use_encoders) {
-        //  Encodeurs en fallback uniquement
-        double cos_theta = cos(theta_moyen);     
-        double sin_theta = sin(theta_moyen);     
-        
-        this->X += dx_enc * cos_theta - dy_enc * sin_theta;
-        this->Y += dx_enc * sin_theta + dy_enc * cos_theta;
-        
-    }
+    #ifdef MODE_ODO_FIXE
+        // Mode test : position figée à (0,0,0)
+        this->X = 0.0;
+        this->Y = 0.0;
+    #else
+        if (optical_active) {
+            this->X += dx_final_world;
+            this->Y += dy_final_world;
+        } else if (use_encoders) {
+            //  Encodeurs en fallback uniquement
+            double cos_theta = cos(theta_moyen);     
+            double sin_theta = sin(theta_moyen);     
+            
+            this->X += dx_enc * cos_theta - dy_enc * sin_theta;
+            this->Y += dx_enc * sin_theta + dy_enc * cos_theta;
+            
+        }
+    #endif
     last_theta_enc = this->THETA;
     // Sauvegarder pour prochaine itération
     odo_data.last_enc1 = enc1;
@@ -551,9 +552,17 @@ void Holonomic_Basis::update_odometry() {
 // Calcul de la boucle d'asservissement (PID + Cinématique Inverse)
 void Holonomic_Basis::handle(Point target_position, Com* com) {
     // 1. Calcul des erreurs dans le référentiel Monde
-    double xerr = target_position.x - this->X;
-    double yerr = target_position.y - this->Y;
-    double theta_error = normalizeAngle(target_position.theta - this->THETA);
+    #ifdef MODE_ODO_FIXE
+        // Mode test : ignore la position réelle, erreur = cible directement
+        double xerr        = target_position.x;
+        double yerr        = target_position.y;
+        double theta_error = normalizeAngle(target_position.theta);
+    #else
+        // Mode normal : erreur = cible - position réelle
+        double xerr        = target_position.x - this->X;
+        double yerr        = target_position.y - this->Y;
+        double theta_error = normalizeAngle(target_position.theta - this->THETA);
+    #endif
 
     #ifdef WEBOTS_SIMULATION
     static uint32_t debug_err = 0;
@@ -566,7 +575,7 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     double vx_world, vy_world, omega;
     if (!this->use_pid_control) {
         // Mode simple proportionnel sans PID
-    double gain_translation = 2.0; // Gain pour la translation (ajustable)
+    double gain_translation = 1.0; // Gain pour la translation (ajustable)
     double gain_rotation = 1.0;    // Gain pour la rotation (ajustable)
 
      vx_world = gain_translation * xerr;
@@ -591,7 +600,7 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     double angle_error = fabs(theta_error);
     
     // Zone morte
-    if (distance_error < 1.0 && angle_error < 0.02) {  // 1mm et ~1.15°
+    if (distance_error < 10.0 && angle_error < 0.15) {  // 1mm et ~1.15°
         vx_world = 0.0;
         vy_world = 0.0;
         omega = 0.0;
@@ -625,12 +634,9 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     
     //Equation de mouvements
     // Roue 1 avec axe à 120° : cos(120°) = -0.5, sin(120°) = +0.866
-    double w1 = -(0.5 * vx_rpm - sqrt(3.0)/2.0 * vy_rpm - omega_rpm);
-    // Roue 2 avec axe à 240° : cos(240°) = -0.5, sin(240°) = -0.866
-    double w2 = -(0.5 * vx_rpm +sqrt(3.0)/2.0 * vy_rpm -omega_rpm);
-    // Roue 3 avec axe à 0° : cos(0°) = +1.0, sin(0°) = 0
-    double w3 = 1.0*vx_rpm + omega_rpm;
-
+    double w1 = -0.5*vx_rpm + 0.866*vy_rpm - omega_rpm;
+    double w2 = -0.5*vx_rpm - 0.866*vy_rpm - omega_rpm;
+    double w3 = +1.0*vx_rpm + 0.0*vy_rpm   - omega_rpm;
     // DEBUG: Affichage des vitesses calculées
     
     // Normalisation proportionnelle pour préserver la direction du mouvement
@@ -664,13 +670,15 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     }
 
     static int i = 0;
-    if (i++ > 100) {  // ~1 seconde
-        //printf(" PID: Target[%.1f,%.1f,%.2f] Actual[%.1f,%.1f,%.2f] Err[%.1f,%.1f,%.2f]\n",
-        //       target_position.x, target_position.y, target_position.theta,
-        //       this->X, this->Y, this->THETA,
-        //       xerr, yerr, theta_error);
-        //printf(" Cmds: Vx=%.1f Vy=%.1f ω=%.2f -> W1=%.0f W2=%.0f W3=%.0f RPM (filtered)\n",
-         //      vx_world, vy_world, omega, filtered_wheel1_rpm, filtered_wheel2_rpm, filtered_wheel3_rpm);
+    if (i++ > 50) {  // ~0.5 seconde à 100Hz
+        #ifdef MODE_ODO_FIXE
+            Serial.printf("[HANDLE/FIXE] Target[%+6.0f,%+6.0f,%+.2f] Err[%+6.0f,%+6.0f,%+.2f] CMD[W1=%+6.0f W2=%+6.0f W3=%+6.0f]\n",
+        #else
+            Serial.printf("[HANDLE/ENC]  Target[%+6.0f,%+6.0f,%+.2f] Err[%+6.0f,%+6.0f,%+.2f] CMD[W1=%+6.0f W2=%+6.0f W3=%+6.0f]\n",
+        #endif
+                          target_position.x, target_position.y, target_position.theta,
+                          xerr, yerr, theta_error,
+                          filtered_wheel1_rpm, filtered_wheel2_rpm, filtered_wheel3_rpm);
         i = 0;
     }
 
@@ -783,4 +791,4 @@ bool Holonomic_Basis::read_imu_nonblocking() {
     interrupts();
 
     return true;
-}
+} 

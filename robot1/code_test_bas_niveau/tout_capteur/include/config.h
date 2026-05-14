@@ -27,15 +27,13 @@
 #define W3_RX_PIN       25
 #define W3_ADDR         0x01
 
+#define MKS_ADDR         1
+
 //  SENSORS PINS 
-// IMU BNO085 (I2C)  
+// IMU BNO085 (I2C)
 #define PIN_SDA 18
 #define PIN_SCL 19
 #define BNO085_RESET_PIN -1  // -1 si relié au Reset de la Teensy ou non utilisé
-
-
-// ── Capteur optique PAA5100JE 
-#define OPTICAL_SCALE       0.0423   // Counts → mm (à calibrer sur terrain réel)
 
 // Capteur optique PAA5100/PMW3901 (SPI)
 #define PAA5100_CS_PIN 10
@@ -44,26 +42,20 @@
 #define HAUTEUR_MM 25.0   // Hauteur du capteur par rapport au sol (mm)
 #define SEUIL_BRUIT 2     // Seuil de bruit pour filtrage capteur optique
 
-
-// ── Debug verbose ─────────────────────────────────────────────────────────────
-// Décommenter pour activer tous les printf de debug
-// #define DEBUG_VERBOSE
-// #define DEBUG_RS485
-
 // MKS CONFIGURATION 
 #define MKS_BAUDRATE 115200
 #define MKS_MSTEP 32
-#define MKS_MAX_RPM 100.0
+#define MKS_MAX_RPM 3000.0
 #define MKS_ACC 5
 #define MKS_COUNTS_PER_REV 16384.0
 
 #define COUNTS_TO_MM ((WHEEL_DIAMETER * PI) / MKS_COUNTS_PER_REV)
 
 // Vitesse max utile en RPM (consigne logicielle)
-#define MAX_SPEED_RPM 100.0
+#define MAX_SPEED_RPM 1500.0
 
 //  ROBOT GEOMETRY 
-#define ROBOT_RADIUS 160.0  // mm - Distance du centre aux roues
+#define ROBOT_RADIUS 156.9  // mm - Distance du centre aux roues
 #define WHEEL_DIAMETER  60.0 // mm - Diameter effectif (28mm main + 2mm rouleaux)
 
 //  PID CONTROLLERS 
@@ -98,9 +90,7 @@
 // Com baudrate
 #define BAUDRATE 115200
 
-// WATCHDOG & TIMEOUT MOUVEMENT
-#define WATCHDOG_TIMEOUT_MS     3000   // 3s sans message = crash Python
-#define ROBOT_MAX_SPEED_MM_S    200.0  // Vitesse max réelle estimée (mm/s)
-#define ROBOT_MAX_RAD_S         2.0    // Vitesse angulaire max (rad/s)
-#define MOVEMENT_TIMEOUT_MARGIN 2.0    // Multiplicateur sécurité (x2 le temps théorique)
-#define MOVEMENT_TIMEOUT_MIN_MS 2000   // Minimum 2s même pour petits déplacements
+// ── Timing ───────────────────────────────────────────────────────────────────
+#define SENSOR_INTERVAL_MS       150      // 50Hz
+#define ENCODER_INTERVAL_MS      500     // 2Hz
+#define MOTOR_TEST_INTERVAL_MS   30000   // 30sec

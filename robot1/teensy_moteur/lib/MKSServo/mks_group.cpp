@@ -105,13 +105,13 @@ bool MKSGroup::readAllEncodersSynced(int64_t& enc1, int64_t& enc2, int64_t& enc3
     // Phase 2 : Lire 3 réponses (timeout = 50ms par servo, mais réponses en //è)
     bool ok = true;
     if (wheel1) {
-        ok = wheel1->readEncoderResponse(enc1, 5) && ok;
+        ok = wheel1->readEncoderResponse(enc1, 50) && ok;
     }
     if (wheel2) {
-        ok = wheel2->readEncoderResponse(enc2, 5) && ok;
+        ok = wheel2->readEncoderResponse(enc2, 50) && ok;
     }
     if (wheel3) {
-        ok = wheel3->readEncoderResponse(enc3, 5) && ok;
+        ok = wheel3->readEncoderResponse(enc3, 50) && ok;
     }
     
     return ok;

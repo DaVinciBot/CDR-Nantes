@@ -9,6 +9,10 @@
 #include "structures.h"
 #include <com.h>
 
+// ===== MODE DE TEST =====
+#define MODE_ODO_FIXE    // Tester cinématique inverse sans odométrie (position fixe)
+// #define MODE_ODO_ENC  // Utiliser les encodeurs RS485 pour l'odométrie
+
 #ifdef WEBOTS_SIMULATION
     // Mode simulation : Mocks
     #include "Mock_PAA5100.h"
@@ -124,6 +128,15 @@ class Holonomic_Basis {
     std::atomic<bool> need_read_encoders{false};
     std::atomic<bool> need_send_movement{false};
     std::atomic<bool> need_read_imu{false};
+
+    // Getter pour les encodeurs bruts (thread-safe avec interrupts)
+    void get_raw_encoders(int64_t& e1, int64_t& e2, int64_t& e3) {
+        noInterrupts();
+        e1 = odo_data.buffered_enc1;
+        e2 = odo_data.buffered_enc2;
+        e3 = odo_data.buffered_enc3;
+        interrupts();
+    }
 
    private:
     struct OdometryData {
