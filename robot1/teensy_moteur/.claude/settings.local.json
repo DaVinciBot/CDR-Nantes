@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh api *)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(ls \"c:\\\\Users\\\\comew\\\\OneDrive\\\\Documents\\\\GitHub\\\\CDR-Nantes\\\\robot1\\\\code_test_bas_niveau\\\\capteur_opt_Robotronik\")",
+      "Read(//c/Users/comew/OneDrive/Documents/GitHub/CDR-Nantes/robot1/code_test_bas_niveau/capteur_opt_Robotronik/**)"
+    ]
+  }
+}

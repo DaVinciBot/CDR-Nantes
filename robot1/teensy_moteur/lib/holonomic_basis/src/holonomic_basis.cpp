@@ -43,8 +43,12 @@ Holonomic_Basis::Holonomic_Basis(double robot_radius,
     wheel2 = nullptr;
     wheel3 = nullptr;
     mksGroup = nullptr;
+    #ifdef WEBOTS_SIMULATION
     pmw3901 = nullptr;
-    bno085 = nullptr;  
+    #else
+    otos = nullptr;
+    #endif
+    bno085 = nullptr;
 
     odo_data.last_enc1 = 0;
     odo_data.last_enc2 = 0;
@@ -61,7 +65,11 @@ Holonomic_Basis::~Holonomic_Basis() {
     delete wheel2;
     delete wheel3;
     delete mksGroup;
+    #ifdef WEBOTS_SIMULATION
     delete pmw3901;
+    #else
+    delete otos;
+    #endif
     // Adafruit_BNO08x expose une classe polymorphique sans destructeur virtuel.
     // Eviter delete ici pour ne pas déclencher -Wdelete-non-virtual-dtor.
     bno085 = nullptr;
@@ -91,12 +99,20 @@ void Holonomic_Basis::init_holonomic_basis(double x, double y, double theta) {
     this->Y = y;
     this->THETA = theta;
 
-    if (pmw3901) {
-        #ifdef WEBOTS_SIMULATION
-            ((PAA5100*)pmw3901)->reset(); 
-        #endif
-        
+    #ifdef WEBOTS_SIMULATION
+    if (pmw3901) pmw3901->reset();
+    #else
+    if (otos) otos->resetTracking();
+    #endif
+}
+
+void Holonomic_Basis::calibrate_imu_origin() {
+    if (use_imu && odo_data.buffered_imu_valid) {
+        noInterrupts();
+        odo_data.imu_yaw_offset = odo_data.buffered_imu_yaw;
+        interrupts();
     }
+    this->THETA = 0.0;
 }
 
 // === GESTION ÉTAT MOTEURS ===
@@ -115,20 +131,32 @@ void Holonomic_Basis::disable_motors() {
 
 // === ODOMÉTRIE & PID ===
 void Holonomic_Basis::init_sensors() {
-    // === CAPTEUR OPTIQUE PAA5100JE ===
+    // === CAPTEUR OPTIQUE QWIIC OTOS ===
     #ifdef WEBOTS_SIMULATION
         pmw3901 = new PAA5100();
         if (pmw3901) {
             pmw3901->begin();
         }
     #else
-        // ROBOT RÉEL - Bitcraze PMW3901
-        pmw3901 = new Bitcraze_PMW3901(PAA5100_CS_PIN);
-        if (pmw3901) {
-            // Timeout short: if sensor doesn't respond in 100ms, move on
+        // ROBOT RÉEL - SparkFun Qwiic OTOS (I2C)
+        otos = new QwiicOTOS();
+        if (otos) {
             uint32_t sensorStart = millis();
-            while (!pmw3901->begin() && (millis() - sensorStart) < 100) {
-                delay(10);
+            bool ok = false;
+            while (!ok && (millis() - sensorStart) < 500) {
+                ok = otos->begin();
+                if (!ok) delay(10);
+            }
+            if (!ok) {
+                Serial.println("[OPT] ERREUR: OTOS init I2C échoué — vérifier câblage SDA/SCL");
+                delete otos;
+                otos = nullptr;
+            } else {
+                otos->setLinearUnit(kSfeOtosLinearUnitMeters);
+                otos->setAngularUnit(kSfeOtosAngularUnitRadians);
+                otos->calibrateImu();
+                otos->resetTracking();
+                Serial.println("[OPT] OTOS initialisé OK");
             }
         }
     #endif
@@ -188,30 +216,56 @@ Point Holonomic_Basis::get_current_position() {
 
 // FONCTION PRINCIPALE - ODOMÉTRIE OPTIQUE
 void Holonomic_Basis::update_optical_odometry(double dtheta_robot) {
+    #ifdef WEBOTS_SIMULATION
     if (!pmw3901) return;
-    
-    int16_t deltaX = 0, deltaY = 0;
+    #else
+    if (!otos) return;
+    #endif
+
     double dx_mm = 0.0, dy_mm = 0.0;
-    
+
     // LECTURE CAPTEUR (API différente selon le mode)
     #ifdef WEBOTS_SIMULATION
+        int16_t deltaX = 0, deltaY = 0;
         // Mock Webots : retourne directement en mm
         pmw3901->readMotion(deltaX, deltaY);
         dx_mm = (double)deltaX;
         dy_mm = (double)deltaY;
     #else
-        // Vrai capteur : retourne des counts
-        pmw3901->readMotionCount(&deltaX, &deltaY);
-        dx_mm = deltaX * OPTICAL_SCALE;  // Conversion counts → mm
-        dy_mm = deltaY * OPTICAL_SCALE;
+        // OTOS : position absolue en mètres depuis resetTracking()
+        sfe_otos_pose2d_t currentPose;
+        otos->getPosition(currentPose);
+        static sfe_otos_pose2d_t lastPose = {0.0f, 0.0f, 0.0f};
+        dx_mm = (currentPose.x - lastPose.x) * 1000.0;  // m → mm
+        dy_mm = (currentPose.y - lastPose.y) * 1000.0;
+        lastPose = currentPose;
     #endif
-    
+
     // Ignore la première lecture (souvent aberrante)
     static bool is_first_run_opt = true;
     if (is_first_run_opt) {
         is_first_run_opt = false;
-        return; 
+        return;
     }
+
+    // ROBOT RÉEL (OTOS) : delta déjà en repère monde (IMU interne) — pas de rotation robot→monde
+    #ifndef WEBOTS_SIMULATION
+    {
+        double magnitude = sqrt(dx_mm*dx_mm + dy_mm*dy_mm);
+        if (magnitude > 15.0) {
+            odo_data.optical_outlier_count++;
+        } else {
+            double dx_world = (magnitude >= 2.0) ? dx_mm : 0.0;
+            double dy_world = (magnitude >= 2.0) ? dy_mm : 0.0;
+            odo_data.optical_x_acc += dx_world;
+            odo_data.optical_y_acc += dy_world;
+            if (dx_world != 0.0 || dy_world != 0.0) odo_data.optical_valid_count++;
+        }
+        return;
+    }
+    #endif
+
+    // ── Suite : chemin simulation Webots uniquement ──────────────────────────
 
     // Debug périodique AVANT filtre (pour voir fréquence réelle d'appel)
     static uint32_t debug_cnt = 0;
@@ -286,10 +340,13 @@ void Holonomic_Basis::update_optical_odometry(double dtheta_robot) {
         }
     #else
         // Robot réel : accumulation avec filtrage outliers
+        // valid_count n'incrémente que si un mouvement réel est détecté (pas bruit zéro)
         if (!is_outlier) {
             odo_data.optical_x_acc += dx_world;
             odo_data.optical_y_acc += dy_world;
-            odo_data.optical_valid_count++;
+            if (dx_world != 0.0 || dy_world != 0.0) {
+                odo_data.optical_valid_count++;
+            }
         }
     #endif
     
@@ -338,9 +395,11 @@ void Holonomic_Basis::update_odometry() {
         return; // On sort ! Pas de calcul de mouvement au démarrage.
     }
 
-    double d1 = double(enc1 - odo_data.last_enc1);
-    double d2 = double(enc2 - odo_data.last_enc2);
-    double d3 = double(enc3 - odo_data.last_enc3);
+    // Encoder counts increase in the opposite direction to commanded RPM on all 3 motors.
+    // Negate so that positive d = forward wheel rotation = positive velocity contribution.
+    double d1 = -double(enc1 - odo_data.last_enc1);
+    double d2 = -double(enc2 - odo_data.last_enc2);
+    double d3 = -double(enc3 - odo_data.last_enc3);
     const double ENCODER_NOISE_THRESHOLD = 16.0; // counts
     if (abs(d1) < ENCODER_NOISE_THRESHOLD) d1 = 0.0;
     if (abs(d2) < ENCODER_NOISE_THRESHOLD) d2 = 0.0;
@@ -350,7 +409,11 @@ void Holonomic_Basis::update_odometry() {
     bool optical_active = false;
     double dx_optical_world = 0.0;
     double dy_optical_world = 0.0;
+    #ifdef WEBOTS_SIMULATION
     if (use_optical_flow && pmw3901) {
+    #else
+    if (use_optical_flow && otos) {
+    #endif
         double prev_acc_x = odo_data.optical_x_acc;
         double prev_acc_y = odo_data.optical_y_acc;
         
@@ -575,12 +638,12 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     double vx_world, vy_world, omega;
     if (!this->use_pid_control) {
         // Mode simple proportionnel sans PID
-    double gain_translation = 1.0; // Gain pour la translation (ajustable)
-    double gain_rotation = 1.0;    // Gain pour la rotation (ajustable)
-
-     vx_world = gain_translation * xerr;
-    vy_world = gain_translation * yerr;
-    omega = gain_rotation * theta_error;
+        double gain_translation = 1.0; // Gain pour la translation (ajustable)
+        double gain_rotation = 1.0;    // Gain pour la rotation (ajustable)
+        
+        vx_world = gain_translation * xerr;
+        vy_world = gain_translation * yerr;
+        omega = gain_rotation * theta_error;
 
     double max_linear_speed = 100.0; // Limite la vitesse linéaire
     double max_angular_speed = 1.0;   // Limite la vitesse angulaire

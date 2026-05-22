@@ -10,8 +10,8 @@
 #include <com.h>
 
 // ===== MODE DE TEST =====
-#define MODE_ODO_FIXE    // Tester cinématique inverse sans odométrie (position fixe)
-// #define MODE_ODO_ENC  // Utiliser les encodeurs RS485 pour l'odométrie
+//#define MODE_ODO_FIXE    // Tester cinématique inverse sans odométrie (position fixe)
+#define MODE_ODO_ENC  // Utiliser les encodeurs RS485 pour l'odométrie
 
 #ifdef WEBOTS_SIMULATION
     // Mode simulation : Mocks
@@ -20,7 +20,7 @@
     // Les encodeurs MKS sont gérés par fake_stepper.cpp
 #else
     // Mode robot réel : Vraies librairies
-    #include <Bitcraze_PMW3901.h>      // Capteur optique
+    #include <SparkFun_Qwiic_OTOS_Arduino_Library.h>  // Capteur optique
     #include <Adafruit_BNO08x.h>      // IMU
     #include <Adafruit_Sensor.h> 
 #endif
@@ -58,8 +58,8 @@ class Holonomic_Basis {
         PAA5100* pmw3901 = nullptr; // On garde le Mock en simu
         Adafruit_BNO08x* bno085 = nullptr;
     #else
-        // Objet réel Bitcraze
-        Bitcraze_PMW3901* pmw3901 = nullptr; 
+        // Objet réel OTOS
+        QwiicOTOS* otos = nullptr;
         Adafruit_BNO08x* bno085 = nullptr;
     #endif
 
@@ -95,6 +95,7 @@ class Holonomic_Basis {
 
     void init_motors();
     void init_holonomic_basis(double x, double y, double theta);
+    void calibrate_imu_origin();
     void enable_motors();
     void disable_motors();
 
@@ -135,6 +136,15 @@ class Holonomic_Basis {
         e1 = odo_data.buffered_enc1;
         e2 = odo_data.buffered_enc2;
         e3 = odo_data.buffered_enc3;
+        interrupts();
+    }
+
+    void get_optical_data(double& opt_x, double& opt_y, uint32_t& valid_count, uint32_t& outlier_count) {
+        noInterrupts();
+        opt_x         = odo_data.optical_x_acc;
+        opt_y         = odo_data.optical_y_acc;
+        valid_count   = odo_data.optical_valid_count;
+        outlier_count = odo_data.optical_outlier_count;
         interrupts();
     }
 

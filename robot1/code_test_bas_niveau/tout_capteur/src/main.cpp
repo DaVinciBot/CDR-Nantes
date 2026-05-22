@@ -18,6 +18,8 @@ bool bno085_ok  = false;
 bool paa5100_ok = false;
 long totalX = 0;
 long totalY = 0;
+float yaw_offset = 0.0f;
+float last_yaw   = 0.0f;
 
 // ── Timers ────────────────────────────────────────────────────────────────────
 uint32_t g_last_sensor  = 0;
@@ -130,9 +132,13 @@ void loop() {
 
     // --- Gestion Reset via Console ---
     if (Serial.available()) {
-        if (Serial.read() == 'r') {
+        char cmd = Serial.read();
+        if (cmd == 'r') {
             totalX = 0; totalY = 0;
             Serial.println("\n[RESET] Distances optiques remises a zero\n");
+        } else if (cmd == 'z') {
+            yaw_offset = last_yaw;
+            Serial.printf("\n[ZERO] Angle 0 defini a %.2f deg\n", yaw_offset);
         }
     }
 
@@ -147,8 +153,12 @@ void loop() {
                 float qi = sensorValue.un.rotationVector.i;
                 float qj = sensorValue.un.rotationVector.j;
                 float qk = sensorValue.un.rotationVector.k;
-                float yaw = atan2(2.0f*(qr*qk + qi*qj), 1.0f-2.0f*(qj*qj + qk*qk)) * 180.0f / PI;
-                Serial.printf("[IMU] Yaw: %.2f°  ", yaw);
+                float yaw_raw = atan2(2.0f*(qr*qk + qi*qj), 1.0f-2.0f*(qj*qj + qk*qk)) * 180.0f / PI;
+                last_yaw = yaw_raw;
+                float yaw = yaw_raw - yaw_offset;
+                if (yaw >  180.0f) yaw -= 360.0f;
+                if (yaw < -180.0f) yaw += 360.0f;
+                Serial.printf("[IMU] Yaw: %.2f deg  ", yaw);
             }
         }
 

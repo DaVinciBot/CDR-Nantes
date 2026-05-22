@@ -5,6 +5,7 @@
 #include <Arduino.h>
 #include <holonomic_basis.h>
 #include <config.h>
+#include <tirette.h>
 
 // ===== PID =====
 PID x_pid    (KP_X,     KI_X,     KD_X,     -MAX_SPEED_RPM, MAX_SPEED_RPM, 5.0);
@@ -18,7 +19,7 @@ Holonomic_Basis* hb = new Holonomic_Basis(
 
 enum TestState {
     TEST_INIT,
-    TEST_X_600MM,
+    TEST_Y_100MM,
     TEST_DONE
 };
 
@@ -41,7 +42,7 @@ void setup() {
     delay(1000);
 
     Serial.println("\n╔══════════════════════════════════════════════════╗");
-    Serial.println("║       TEST X+ 600mm AVEC COMPTAGE D'ENCODEURS    ║");
+    Serial.println("║       TEST Y- 100mm  ENC+OPT+PID                ║");
     Serial.println("╚══════════════════════════════════════════════════╝\n");
 
     hb->define_wheel1(W1_SERIAL, W1_ADDR);
@@ -49,30 +50,50 @@ void setup() {
     hb->define_wheel3(W3_SERIAL, W3_ADDR);
     hb->init_motors();
     hb->init_holonomic_basis(0.0, 0.0, 0.0);
+    hb->init_sensors();
 
-    hb->use_encoders     = true;
+    hb->use_encoders     = false;
     hb->use_optical_flow = false;
     hb->use_imu          = false;
-    hb->use_pid_control  = false;
+    hb->use_pid_control  = true;
 
     Serial.println("╔══════════════════════════════════════════════════╗");
     Serial.println("║              CONFIGURATION                       ║");
     Serial.println("╠══════════════════════════════════════════════════╣");
-    Serial.println("║  Mode : Proportionnel simple (handle)            ║");
-    Serial.println("║  Odométrie : Encodeurs RS485 ACTIFS              ║");
+    Serial.println("║  Mode      : PID                                 ║");
+    Serial.println("║  Odométrie : Encodeurs RS485 + Optique PAA5100   ║");
     Serial.println("║  Fréquence : 100 Hz                              ║");
     Serial.println("║                                                  ║");
-    Serial.println("║  TEST UNIQUE : Translation X+ = 600 mm           ║");
-    Serial.println("║    → Démarrage : comptage encodeurs              ║");
-    Serial.println("║    → Mouvement complet                           ║");
-    Serial.println("║    → Arrêt : comptage encodeurs final            ║");
-    Serial.println("║    → Calcul delta et vérification                ║");
+    Serial.println("║  TEST : Translation Y- = 100 mm                  ║");
+    Serial.println("║    → Cible  : target.y = -100 mm                ║");
+    Serial.println("║    → Attendu: ligne droite en -Y, X stable       ║");
     Serial.println("╚══════════════════════════════════════════════════╝\n");
 
-    delay(3000);
+    // ╔══════════════ TEST TIRETTE (temporaire) ══════════════╗
+    tirette_init();
+    Serial.println("[TEST TIRETTE] Lecture GPIO 31 pendant 8s...");
+    Serial.println("[TEST TIRETTE] Insere/retire le cable pour voir l'etat changer.");
+    for (int i = 0; i < 40; i++) {
+        Serial.printf("[TEST TIRETTE] GPIO 34 = %s\n",
+            tirette_is_inserted() ? "HIGH  (cable en place)" : "LOW   (cable retire)");
+        delay(200);
+    }
+    Serial.println("[TEST TIRETTE] Fin du test. Attente retrait tirette pour demarrage...");
+    tirette_wait_for_start();
+    // ╚══════════════════════════════════════════════════════╝
+
+    hb->calibrate_imu_origin();
+    Serial.println("[ZERO] Angle 0 defini sur l'orientation actuelle (X+)");
 
     hb->enable_motors();
     delay(500);
+
+    // Pre-fill encoder buffers with real motor positions before the ISR starts.
+    // buffered_enc initializes to 0, but MKS servos retain absolute position.
+    // Without this, the first ISR call captures last_enc=0, the second sees the
+    // full absolute position as a delta → phantom position jump of hundreds of mm.
+    hb->read_encoders_nonblocking();
+    delay(50);  // ensure buffers are written before ISR first fires
 
     compute_timer.begin(compute_loop, ASSERVISSEMENT_FREQUENCY);
     state_start_time = millis();
@@ -85,17 +106,23 @@ void display_odometry() {
     if (now - last_display_ms < 500) return;
     last_display_ms = now;
 
-    int64_t e1, e2, e3;
-    hb->get_raw_encoders(e1, e2, e3);
     Point pos = hb->get_current_position();
-
-    // Récupérer les RPM envoyés aux moteurs
     double w1 = hb->filtered_wheel1_rpm;
     double w2 = hb->filtered_wheel2_rpm;
     double w3 = hb->filtered_wheel3_rpm;
 
-    Serial.printf("[POS] X=%+7.1f Y=%+7.1f Θ=%+.3f  | [CMD] W1=%+6.0f W2=%+6.0f W3=%+6.0f RPM\n",
-                  pos.x, pos.y, pos.theta,
+    double opt_x, opt_y;
+    uint32_t opt_valid, opt_outliers;
+    hb->get_optical_data(opt_x, opt_y, opt_valid, opt_outliers);
+
+    double dist = fabs(pos.y + 100.0);
+
+    Serial.println("─────────────────────────────────────────────────────────────");
+    Serial.printf("[POS]  X=%+7.1fmm  Y=%+7.1fmm  θ=%+6.3frad  |  Reste=%.1fmm\n",
+                  pos.x, pos.y, pos.theta, dist);
+    Serial.printf("[OPT]  accX=%+7.1fmm  accY=%+7.1fmm  valid=%-5u  outliers=%u\n",
+                  opt_x, opt_y, opt_valid, opt_outliers);
+    Serial.printf("[CMD]  W1=%+6.0fRPM  W2=%+6.0fRPM  W3=%+6.0fRPM\n",
                   w1, w2, w3);
 }
 
@@ -122,10 +149,10 @@ void loop() {
         case TEST_INIT:
             if (elapsed > 1000) {
                 Serial.println("\n╔══════════════════════════════════════════════════╗");
-                Serial.println("║         TEST : Translation X+ 600mm               ║");
+                Serial.println("║         TEST : Translation Y- 100mm               ║");
                 Serial.println("╠══════════════════════════════════════════════════╣");
-                Serial.println("║  Cible : target.x = +600mm (60cm)                ║");
-                Serial.println("║  Attendu : robot avance en LIGNE DROITE vers +X  ║");
+                Serial.println("║  Cible : target.y = -100mm  target.theta = 0     ║");
+                Serial.println("║  Attendu : ligne droite en -Y, X et θ stables    ║");
                 Serial.println("╠══════════════════════════════════════════════════╣");
                 
                 // Capturer les encodeurs de départ
@@ -134,29 +161,22 @@ void loop() {
                               enc1_start, enc2_start, enc3_start);
                 Serial.println("╚══════════════════════════════════════════════════╝\n");
 
-                target.x     = 200.0;
-                target.y     = 0.0;
+                target.x     = 0.0;
+                target.y     = -600.0;
                 target.theta = 0.0;
 
-                state = TEST_X_600MM;
+                state = TEST_Y_100MM;
                 state_start_time = now;
             }
             break;
 
         // ──────────────────────────────────────────────────────────────────
-        case TEST_X_600MM: {
+        case TEST_Y_100MM: {
             Point pos = hb->get_current_position();
-            double dist_to_target = 600.0 - pos.x;
-            
-            // Affichage du progrès toutes les secondes
-            static uint32_t last_progress = 0;
-            if (now - last_progress > 1000) {
-                last_progress = now;
-                Serial.printf("[MOUVEMENT] X = %.1f mm / 600 mm   Reste = %.1f mm\n", pos.x, dist_to_target);
-            }
-            
+            double dist_to_target = fabs(pos.y + 100.0);  // Distance restante vers Y=-100mm
+
             // Arrêt quand la cible est atteinte
-            if (dist_to_target <= 10.0 || elapsed > 30000) {  // 30s timeout
+            if (dist_to_target <= 10.0 || elapsed > 15000) {  // 15s timeout
                 Serial.println("\n[TEST TERMINÉ] Arrêt robot...\n");
                 
                 // Capturer les encodeurs finaux
@@ -174,8 +194,8 @@ void loop() {
                 Serial.printf("║  ΔE3 = %lld counts\n", enc3_end - enc3_start);
                 Serial.println("╠══════════════════════════════════════════════════╣");
                 Serial.println("║  Position finale (odométrie) :");
-                Serial.printf("║    X = %.1f mm (attendu : 600 mm)\n", pos.x);
-                Serial.printf("║    Y = %.1f mm (attendu : 0 mm)\n", pos.y);
+                Serial.printf("║    X = %.1f mm (attendu :    0 mm)\n", pos.x);
+                Serial.printf("║    Y = %.1f mm (attendu : -100 mm)\n", pos.y);
                 Serial.printf("║    Θ = %.3f rad (attendu : 0 rad)\n", pos.theta);
                 Serial.println("╚══════════════════════════════════════════════════╝\n");
                 
