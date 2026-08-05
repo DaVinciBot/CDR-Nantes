@@ -5,7 +5,6 @@
 #include <Arduino.h>
 #include <holonomic_basis.h>
 #include <config.h>
-#include <tirette.h>
 
 // ===== PID =====
 PID x_pid    (KP_X,     KI_X,     KD_X,     -MAX_SPEED_RPM, MAX_SPEED_RPM, 5.0);
