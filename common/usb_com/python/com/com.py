@@ -7,12 +7,12 @@ import time
 from functools import wraps
 from typing import TYPE_CHECKING, Any
 
-import crc8
 from serial import Serial
 from serial.tools.list_ports import comports
 
 from usb_com.python.com.dummy import DummySerial
 from usb_com.python.com.exceptions import ComError
+from usb_com.python.com.framing import decode_frame, encode_frame
 from usb_com.python.messages import END_BYTES_SIGNATURE, Messages
 
 NACK_ID = 127
@@ -64,7 +64,12 @@ class Com:
 
         # Initialize usb com variables
         self._device: Serial | DummySerial = self._get_serial()
-        self._crc8: crc8.crc8 = crc8.crc8()
+
+        # send_bytes() is called both by the receiver thread (to answer a NACK)
+        # and by the caller thread, so every write to the port must be
+        # serialized. The CRC state is no longer shared at all: framing.py
+        # builds a fresh hasher per call.
+        self._tx_lock = threading.Lock()
 
         self.last_message: bytes | None = None
         self.message_id_callback: dict[int, Callable[[bytes], None]] = {}
@@ -129,47 +134,45 @@ class Com:
         """
         while True:
             try:
-                msg = self.read_bytes()
+                raw = self.read_bytes()
 
-                if self.enable_crc:
-                    crc = msg[-5:-4]
-                    msg = msg[:-5]
-                    self._crc8.reset()
-                    self._crc8.update(msg)
-                    if self._crc8.digest() != crc:
-                        self.logger.warning(f"Invalid CRC8, sending NACK ... [{crc}]")
-                        self.send_bytes(Messages.NACK.to_bytes())  # send NACK
-                        self._crc8.reset()
-                        continue
-                    self._crc8.reset()
-
-                else:
-                    msg = msg[:-4]
-
-                len_msg = msg[-1]
-
-                if len_msg > len(msg):
-                    self.logger.warning(
-                        "Received Teensy message that does not match declared length "
-                        f"{msg.hex(sep=' ')}",
-                    )
+                # An empty or truncated read happens on disconnection or on a
+                # read timeout. Without this guard the code below sliced an
+                # empty buffer, always failed the CRC check and NACK-flooded
+                # the link in a tight 100 % CPU loop.
+                if not raw:
+                    time.sleep(0.01)
                     continue
+
+                frame = decode_frame(raw, enable_crc=self.enable_crc)
+
+                if frame is None:
+                    self.logger.warning(
+                        f"Invalid frame, sending NACK ... [{raw.hex(sep=' ')}]",
+                    )
+                    # record=False: a NACK must not become the message we
+                    # resend the next time the Teensy NACKs us.
+                    self.send_bytes(Messages.NACK.to_bytes(), record=False)
+                    continue
+
+                message_id, data = frame
+
                 try:
-                    if msg[0] == NACK_ID:
+                    if message_id == NACK_ID:
                         self.logger.warning("Received a NACK")
                         if self.last_message is not None:
-                            self.send_bytes(self.last_message)
+                            self.send_bytes(self.last_message, record=False)
                             self.logger.info(
                                 f"Sending back message : {self.last_message[0]}",
                             )
                             self.last_message = None
                     else:
                         self.message_id_callback.get(
-                            msg[0],
+                            message_id,
                             lambda x: self.logger.error(
                                 f"Unknown message type ! msg: {x}",
                             ),
-                        )(msg[1:-1])
+                        )(data)
 
                 except Exception as e:  # noqa: BLE001
                     self.logger.error(f"Received message handling crashed :\n{e}")
@@ -212,25 +215,28 @@ class Com:
 
         return wrapper
 
-    def send_bytes(self, data: bytes) -> None:
+    def send_bytes(self, data: bytes, *, record: bool = True) -> None:
         """Sends bytes over the serial connection.
 
         Args:
             data (bytes): Data to be transmitted.
+            record (bool, optional): Keep this message as the one to resend on
+                the next NACK. Pass ``False`` for NACKs and retransmissions,
+                otherwise a NACK overwrites the real payload and we end up
+                resending a NACK. Defaults to ``True``.
         """
-        self.last_message = data
+        frame = encode_frame(data, enable_crc=self.enable_crc)
 
-        self._device.reset_output_buffer()
-        msg = data + bytes([len(data)])
-        if self.enable_crc:
-            self._crc8.reset()
-            self._crc8.update(msg)
-            msg += self._crc8.digest()
-            self._crc8.reset()
+        # The receiver thread also sends (NACKs, retransmissions), so the write
+        # must be atomic. The former reset_output_buffer() call was dropped: it
+        # discarded bytes the other thread was still sending.
+        with self._tx_lock:
+            if record:
+                self.last_message = data
 
-        self._device.write(msg + END_BYTES_SIGNATURE)
-        while self._device.out_waiting:
-            pass
+            self._device.write(frame)
+            while self._device.out_waiting:
+                pass
 
     def read_bytes(self) -> bytes:
         """Reads bytes from the serial connection until the END_BYTES_SIGNATURE.

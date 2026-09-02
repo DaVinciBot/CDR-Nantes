@@ -12,8 +12,8 @@
  * in case of a NACK (Negative Acknowledgment).
  */
 struct last_message {
-    byte size;      ///< Size of the message in bytes
-    byte msg[256];  ///< Content of the message
+    byte size = 0;        ///< Size of the message in bytes
+    byte msg[256] = {0};  ///< Content of the message
 };
 
 /**
@@ -32,6 +32,15 @@ class Com {
                         ///< END_BYTES_SIGNATURE) initialized in the constructor
     byte pointer = 0;   ///< Pointer for tracking the buffer position
     Stream* stream;     ///< Pointer to the serial stream (USB or Hardware)
+
+    /// Static storage for the last sent message. Previously `last_msg` was
+    /// reallocated with `new` on every `send_msg()` and released with `free()`
+    /// (undefined behaviour), i.e. dynamic allocation at ~100 Hz on the Teensy.
+    last_message _last_msg_storage;
+
+    /// Static scratch buffer used to compute the CRC (message + size byte).
+    /// Replaces a `new byte[size + 1]` performed on every send.
+    byte _crc_buffer[257];
 
    public:
     /**
@@ -108,8 +117,9 @@ class Com {
     void print(char* text);
 
     last_message* last_msg =
-        new last_message();  ///< Pointer to the last sent message for
-                             ///< retransmission
+        &_last_msg_storage;  ///< Pointer to the last sent message for
+                             ///< retransmission (static storage, never
+                             ///< reallocated)
 };
 
 #endif // COM_H
