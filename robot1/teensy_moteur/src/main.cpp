@@ -60,26 +60,13 @@ void setup() {
     Serial.println("║              CONFIGURATION                       ║");
     Serial.println("╠══════════════════════════════════════════════════╣");
     Serial.println("║  Mode      : PID                                 ║");
-    Serial.println("║  Odométrie : Encodeurs RS485 + Optique PAA5100   ║");
+    Serial.println("║  Odométrie : Encodeurs RS485                     ║");
     Serial.println("║  Fréquence : 100 Hz                              ║");
     Serial.println("║                                                  ║");
     Serial.println("║  TEST : Translation Y- = 100 mm                  ║");
     Serial.println("║    → Cible  : target.y = -100 mm                ║");
     Serial.println("║    → Attendu: ligne droite en -Y, X stable       ║");
     Serial.println("╚══════════════════════════════════════════════════╝\n");
-
-    // ╔══════════════ TEST TIRETTE (temporaire) ══════════════╗
-    tirette_init();
-    Serial.println("[TEST TIRETTE] Lecture GPIO 31 pendant 8s...");
-    Serial.println("[TEST TIRETTE] Insere/retire le cable pour voir l'etat changer.");
-    for (int i = 0; i < 40; i++) {
-        Serial.printf("[TEST TIRETTE] GPIO 34 = %s\n",
-            tirette_is_inserted() ? "HIGH  (cable en place)" : "LOW   (cable retire)");
-        delay(200);
-    }
-    Serial.println("[TEST TIRETTE] Fin du test. Attente retrait tirette pour demarrage...");
-    tirette_wait_for_start();
-    // ╚══════════════════════════════════════════════════════╝
 
     hb->calibrate_imu_origin();
     Serial.println("[ZERO] Angle 0 defini sur l'orientation actuelle (X+)");

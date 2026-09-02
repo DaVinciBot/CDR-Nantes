@@ -131,36 +131,6 @@ void Holonomic_Basis::disable_motors() {
 
 // === ODOMÉTRIE & PID ===
 void Holonomic_Basis::init_sensors() {
-    // === CAPTEUR OPTIQUE QWIIC OTOS ===
-    #ifdef WEBOTS_SIMULATION
-        pmw3901 = new PAA5100();
-        if (pmw3901) {
-            pmw3901->begin();
-        }
-    #else
-        // ROBOT RÉEL - SparkFun Qwiic OTOS (I2C)
-        otos = new QwiicOTOS();
-        if (otos) {
-            uint32_t sensorStart = millis();
-            bool ok = false;
-            while (!ok && (millis() - sensorStart) < 500) {
-                ok = otos->begin();
-                if (!ok) delay(10);
-            }
-            if (!ok) {
-                Serial.println("[OPT] ERREUR: OTOS init I2C échoué — vérifier câblage SDA/SCL");
-                delete otos;
-                otos = nullptr;
-            } else {
-                otos->setLinearUnit(kSfeOtosLinearUnitMeters);
-                otos->setAngularUnit(kSfeOtosAngularUnitRadians);
-                otos->calibrateImu();
-                otos->resetTracking();
-                Serial.println("[OPT] OTOS initialisé OK");
-            }
-        }
-    #endif
-
     // === IMU BNO085 ===
     #ifdef WEBOTS_SIMULATION
         bno085 = new Adafruit_BNO08x();
