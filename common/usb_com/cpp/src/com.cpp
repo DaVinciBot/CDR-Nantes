@@ -33,6 +33,10 @@ Com::Com(usb_serial_class* stream, uint32_t baudrate) {
  * @param baudrate Baud rate for serial communication.
  */
 Com::Com(HardwareSerial* stream, uint32_t baudrate) {
+    // Without this memcpy, `signature` stays uninitialized: outgoing frames
+    // carry a garbage signature and are never recognized by the peer.
+    memcpy(this->signature, END_BYTES_SIGNATURE, sizeof(this->signature));
+
     this->stream = stream;
     stream->begin(baudrate);
 
@@ -71,14 +75,30 @@ byte Com::handle() {
         // Extract message size
         byte msg_size = this->buffer[pointer - 6];
 
-        if (this->pointer >= msg_size + 6) {
+        // The size byte is located relative to the END of the frame, but the
+        // CRC below is checked relative to the START of the buffer. Those two
+        // conventions only agree when the frame begins exactly at index 0, so
+        // realign it first: any leading noise (line garbage, tail of a frame
+        // that was rejected earlier) would otherwise make the CRC read the
+        // wrong bytes and NACK a perfectly valid frame.
+        int frame_start = (int)this->pointer - 6 - (int)msg_size;
+
+        if (frame_start >= 0) {
+            if (frame_start > 0) {
+                // Move [msg | size | crc] to the start of the buffer
+                memmove(this->buffer, this->buffer + frame_start, msg_size + 2);
+            }
+
             CRC crc;
             byte crc_b = crc.digest(this->buffer, msg_size + 1);
 
             // Validate CRC
             if (crc_b != this->buffer[msg_size + 1]) {
                 byte invalid_crc_msg = NACK;
-                send_msg(&invalid_crc_msg, 1);
+                // is_nack = true: a NACK must never overwrite the stored
+                // message, otherwise a NACK from the peer makes us resend
+                // a NACK instead of the real payload.
+                send_msg(&invalid_crc_msg, 1, true);
                 this->pointer = 0;
                 continue;
             }
@@ -131,8 +151,11 @@ void Com::handle_callback(void (*functions[256])(byte* msg, byte size)) {
             msg_unknown_msg_type error_message;
             error_message.type_id = msg_id;
 
-            // Send a response indicating an unknown message type
-            this->send_msg((byte*)&error_message, sizeof(msg_unknown_msg_type));
+            // Send a response indicating an unknown message type.
+            // is_nack = true: this is an error report, not a payload worth
+            // storing for retransmission.
+            this->send_msg((byte*)&error_message, sizeof(msg_unknown_msg_type),
+                           true);
         }
     }
 }
@@ -157,25 +180,27 @@ byte* Com::read_buffer() {
  * @param is_nack Indicates if the message is a retransmission due to a NACK.
  */
 void Com::send_msg(byte* msg, byte size, bool is_nack) {
-    if (!is_nack)
-        free(this->last_msg);
-
-    this->last_msg = new last_message();
-    this->last_msg->size = size;
-
     CRC crc;
 
-    // Prepare the full message with size and CRC
-    byte* full_msg = new byte[size + 1];
-    for (byte i = 0; i < size; i++) {
-        full_msg[i] = msg[i];
-        if (!is_nack)
-            last_msg->msg[i] = msg[i];
+    // Prepare the full message with size, used only to compute the CRC.
+    // `_crc_buffer` is a fixed member: no heap allocation on the send path,
+    // which runs at ~100 Hz.
+    for (byte i = 0; i < size; i++)
+        this->_crc_buffer[i] = msg[i];
+    this->_crc_buffer[size] = size;
+
+    // Store the message for retransmission, unless this send is itself a
+    // retransmission or an error report. Both `size` and `msg` must be kept
+    // in sync: writing `size` alone would leave a stored message whose
+    // content is stale or empty.
+    if (!is_nack) {
+        this->last_msg->size = size;
+        for (byte i = 0; i < size; i++)
+            this->last_msg->msg[i] = msg[i];
     }
-    full_msg[size] = size;
 
     // Compute CRC
-    byte crc_b = crc.digest(full_msg, size + 1);
+    byte crc_b = crc.digest(this->_crc_buffer, size + 1);
 
     // Send the message
     this->stream->write(msg, size);
@@ -183,8 +208,6 @@ void Com::send_msg(byte* msg, byte size, bool is_nack) {
     this->stream->write(crc_b);
     this->stream->write(this->signature, 4);
     this->stream->flush();
-
-    delete[] full_msg;
 }
 
 /**
