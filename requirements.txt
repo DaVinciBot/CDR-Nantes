@@ -1,14 +1,18 @@
 # Core communication
-pyserial==3.5
+pyserial==3.5          # module `serial` (+ serial.tools.list_ports)
 crc8==0.1.0
 loggerplusplus==1.7.0
 pyusb==1.2.1
 
 # Lidar and visualization
 numpy>=1.26
-matplotlib>=3.8
-rplidar-roboticia==0.9.5
-rerun-sdk>=0.31.0
+matplotlib>=3.8        # pyplot, animation, backends.backend_tkagg (needs Tk, see below)
+rplidar-roboticia==0.9.5   # module `rplidar` (RPLidar)
+rerun-sdk>=0.31.0      # modules `rerun`, `rerun.blueprint`
+pillow>=10.0           # module `PIL` (playmat texture, rerun map exporter)
 
 # GLB generation (terrain model)
 pygltflib>=0.7.0
+
+# Raspberry Pi only (GPIO buttons in robot.py) - not installable on dev machines
+gpiozero>=2.0
