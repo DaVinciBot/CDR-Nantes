@@ -44,12 +44,6 @@ const byte END_BYTES_SIGNATURE[4] = {0xBA, 0xDD, 0x1C, 0xC5};
 // Actuators
 #define SWITCH_STATE_RETURN 129
 
-// Sensors (Simulation)
-#define LIDAR_SCAN_PART1 130  // Angles 0-89
-#define LIDAR_SCAN_PART2 131  // Angles 90-179
-#define LIDAR_SCAN_PART3 132  // Angles 180-269
-#define LIDAR_SCAN_PART4 133  // Angles 270-359 + timestamp
-
 // Common (Rolling Basis + Actuators)
 #define PRINT 254
 #define UNKNOWN_MSG_TYPE 255
@@ -147,7 +141,7 @@ struct msg_switch_state_return {
     bool state;  // switch state
 };
 
-// Sensors (Simulation)
+// Sensors
 // LIDAR data: 360 points divisés en 4 messages (90 points chacun)
 // Chaque point = distance en mm (0-12000), 0 = pas de détection
 struct msg_lidar_scan_part1 {

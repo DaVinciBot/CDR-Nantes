@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Programme de test simplifié - compatible simulation et hardware."""
+"""Programme de test simplifié - lien USB Teensy."""
 import struct
 import math
 import logging
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 Messages = loader.load_class('usb_com', 'Messages')
 
 #A mettre partout dans les codes python
-# Initialisation automatique (simulation ou hardware)
+# Initialisation du lien Com (mode lu dans ROBOT_MODE)
 sys.path.insert(0, str(Path(__file__).parent))
 from utils import init_robot
 

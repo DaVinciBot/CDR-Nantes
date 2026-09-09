@@ -13,17 +13,9 @@
 //#define MODE_ODO_FIXE    // Tester cinématique inverse sans odométrie (position fixe)
 #define MODE_ODO_ENC  // Utiliser les encodeurs RS485 pour l'odométrie
 
-#ifdef WEBOTS_SIMULATION
-    // Mode simulation : Mocks
-    #include "Mock_PAA5100.h"
-    #include "Mock_BNO085.h"
-    // Les encodeurs MKS sont gérés par fake_stepper.cpp
-#else
-    // Mode robot réel : Vraies librairies
-    #include <SparkFun_Qwiic_OTOS_Arduino_Library.h>  // Capteur optique
-    #include <Adafruit_BNO08x.h>      // IMU
-    #include <Adafruit_Sensor.h> 
-#endif
+#include <SparkFun_Qwiic_OTOS_Arduino_Library.h>  // Capteur optique
+#include <Adafruit_BNO08x.h>      // IMU
+#include <Adafruit_Sensor.h>
 
 class Holonomic_Basis {
    public:
@@ -54,14 +46,8 @@ class Holonomic_Basis {
     MKSServo* wheel3;  // Back wheel (0°)
     MKSGroup* mksGroup;
     // Capteurs
-    #ifdef WEBOTS_SIMULATION
-        PAA5100* pmw3901 = nullptr; // On garde le Mock en simu
-        Adafruit_BNO08x* bno085 = nullptr;
-    #else
-        // Objet réel OTOS
-        QwiicOTOS* otos = nullptr;
-        Adafruit_BNO08x* bno085 = nullptr;
-    #endif
+    QwiicOTOS* otos = nullptr;
+    Adafruit_BNO08x* bno085 = nullptr;
 
     // Robot parameters
     double robot_radius;      // Distance from center to wheels (mm)

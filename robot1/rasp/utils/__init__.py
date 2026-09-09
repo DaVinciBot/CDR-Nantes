@@ -1,34 +1,21 @@
 #!/usr/bin/env python3
-"""
-Utilitaires pour le robot - Imports simplifiés
+"""Robot utilities: simplified imports.
 
-Regroupe robot_context et webots_com pour un accès facile.
-switch_mode reste dans le dossier parent pour compatibilité.
+Exposes the robot_context API: mode selection and Com link creation.
 """
 
 from .robot_context import (
-    is_simulation,
     create_com,
+    get_com_class,
     get_com_config,
-    get_config,
+    get_mode,
     init_robot,
-    RobotContext
-)
-
-from .webots_com import (
-    WebotsComBridge,
-    Com
 )
 
 __all__ = [
-    'is_simulation',
     'create_com',
+    'get_com_class',
     'get_com_config',
-    'get_config',
-    'init_robot',
-    'RobotContext',
-    'WebotsComBridge',
-    'Com'
+    'get_mode',
+    'init_robot'
 ]
-
-
