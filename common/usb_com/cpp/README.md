@@ -108,10 +108,6 @@ enum class Messages : byte {
     // Teensy → RPI (128-255)
     UPDATE_ROLLING_BASIS = 128,
     SWITCH_STATE_RETURN = 129,
-    LIDAR_SCAN_PART1 = 130,
-    LIDAR_SCAN_PART2 = 131,
-    LIDAR_SCAN_PART3 = 132,
-    LIDAR_SCAN_PART4 = 133,
     
     PRINT = 254,
     UNKNOWN_MSG_TYPE = 255

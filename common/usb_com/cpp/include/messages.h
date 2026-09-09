@@ -141,30 +141,6 @@ struct msg_switch_state_return {
     bool state;  // switch state
 };
 
-// Sensors
-// LIDAR data: 360 points divisés en 4 messages (90 points chacun)
-// Chaque point = distance en mm (0-12000), 0 = pas de détection
-struct msg_lidar_scan_part1 {
-    byte command = LIDAR_SCAN_PART1;
-    uint16_t distances[90];  // Angles 0° à 89°
-};
-
-struct msg_lidar_scan_part2 {
-    byte command = LIDAR_SCAN_PART2;
-    uint16_t distances[90];  // Angles 90° à 179°
-};
-
-struct msg_lidar_scan_part3 {
-    byte command = LIDAR_SCAN_PART3;
-    uint16_t distances[90];  // Angles 180° à 269°
-};
-
-struct msg_lidar_scan_part4 {
-    byte command = LIDAR_SCAN_PART4;
-    uint16_t distances[90];  // Angles 270° à 359°
-    uint32_t timestamp;      // Horodatage millisecondes
-};
-
 // Common (Rolling Basis + Actuators)
 struct msg_unknown_msg_type {
     byte command = UNKNOWN_MSG_TYPE;

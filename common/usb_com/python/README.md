@@ -106,7 +106,6 @@ Liste complète de tous les messages du protocole.
 |----|-----|-------------|
 | 128 | `UPDATE_ROLLING_BASIS` | Position courante (x, y, θ) |
 | 129 | `SWITCH_STATE_RETURN` | État d'un switch |
-| 130-133 | `LIDAR_SCAN_PART1-4` | Données LIDAR (4 paquets) |
 | 254 | `PRINT` | Message texte de debug |
 | 255 | `UNKNOWN_MSG_TYPE` | Type de message inconnu |
 
