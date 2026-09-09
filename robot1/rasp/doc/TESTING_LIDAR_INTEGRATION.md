@@ -1,5 +1,11 @@
 # Guide de Test: LiDAR + Correction d'Odométrie
 
+> PARTIELLEMENT PERIME (avril 2026). Le script `test_lidar_correction_integration.py` reference
+> `robot._apply_complementary_filter`, supprime depuis (voir `doc_ref/TODO.md` §5). Duree de
+> match indiquee a 90 s : c'est 100 s. Conserve pour l'approche de test par niveaux (1 a 5),
+> reutilisable a la refonte LiDAR. L'algo SVD lui-meme est decrit a jour dans
+> `../ODOMETRY_CORRECTION_IMPLEMENTATION.md` et `doc_ref/`.
+
 ## 🚀 Démarrage Rapide
 
 ### Pré-requis

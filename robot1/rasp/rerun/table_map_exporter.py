@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-Export Webots Map → Rerun
+Export de la carte Eurobot 2026 vers Rerun
 
-Charge la scène Webots complète (terrain, balises, supports, caisses, etc.)
-et l'affiche en Rerun avec toutes les textures et géométries.
+Publie le terrain statique (playmat, balises, supports, zones, grenier, murs,
+caisses) dans Rerun. La géométrie est codée en dur dans ce fichier : aucune
+dépendance à un simulateur, seule la texture du playmat est lue sur disque.
 
 Usage:
-    python webots_map_exporter.py --mode local --output recording.rrd
-    python webots_map_exporter.py --mode serve --port 9876
+    python table_map_exporter.py --mode local --output recording.rrd
+    python table_map_exporter.py --mode serve --port 9876
 """
 
 import sys
@@ -20,11 +21,7 @@ import rerun as rr
 
 # Chemins
 _DIR = Path(__file__).parent
-WEBOTS_DIR = _DIR.parent.parent / "simulation"
-WORLD_FILE = WEBOTS_DIR / "worlds" / "my_world.wbt"
-PROTOS_DIR = WEBOTS_DIR / "protos" / "table"
-TEXTURES_DIR = WEBOTS_DIR / "protos" / "textures"
-RERUN_MAP_ASSETS = _DIR / "rerun" / "map_assets" / "eurobot2026"
+TEXTURES_DIR = _DIR / "map_assets" / "eurobot2026" / "textures"
 
 # Charger positions depuis terrain_jeu.py
 try:
@@ -58,7 +55,7 @@ C_ZONE_Y  = [247, 181, 0, 120]
 C_ZONE_B  = [0, 91, 140, 120]
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Webots Proto → Python structs
+# Géométrie du terrain (mm)
 # ─────────────────────────────────────────────────────────────────────────────
 
 BEACONS_MM = BEACONS_POS
@@ -158,7 +155,7 @@ CRATES_MM = _build_crates()
 def log_static_map():
     """Publie la carte statique complète (balises, supports, caisses, etc.)."""
 
-    print("📍 Logging Webots map assets...")
+    print("Publication de la carte statique...")
 
     # ── Playmat (texture) ──
     try:
@@ -275,18 +272,18 @@ def create_blueprint():
 
 
 def main():
-    p = argparse.ArgumentParser(description="Webots Map → Rerun")
+    p = argparse.ArgumentParser(description="Carte Eurobot 2026 vers Rerun")
     p.add_argument("--mode", choices=["local", "serve"], default="local")
     p.add_argument("--port", type=int, default=9876)
     p.add_argument("--output", help="Enregistrer en .rrd")
     args = p.parse_args()
 
     # Init Rerun
-    rr.init("webots_map", spawn=(args.mode == "local"))
+    rr.init("table_map", spawn=(args.mode == "local"))
 
     if args.mode == "serve":
         rr.serve_web(open_browser=False, web_port=args.port)
-        print(f"Webots map sur http://localhost:{args.port}")
+        print(f"Carte sur http://localhost:{args.port}")
 
     if args.output:
         rr.save(args.output)
@@ -295,7 +292,7 @@ def main():
     rr.send_blueprint(create_blueprint())
     log_static_map()
 
-    print("\n✨ Map Webots complète chargée!")
+    print("\nCarte complète chargée.")
     if args.mode == "local":
         print("Viewer devrait s'ouvrir automatiquement...")
 
