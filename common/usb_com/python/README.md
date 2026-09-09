@@ -26,24 +26,27 @@ Gestionnaire principal de la communication USB série avec checksum CRC8 et sign
 
 ### Initialisation
 
+Le port n'est pas choisi : il est retrouvé par numéro de série, vid et pid.
+
 ```python
-from common.usb_com.python.com.com import Com
-from common.usb_com.python.messages import Messages
-
-# Mode hardware (Teensy réelle)
 com = Com(
-    port="COM5",                    # Port détecté automatiquement
-    baudrate=115200,
-    serial_number=17795370,         # Numéro de série de la Teensy
-    use_crc=True
+    logger,
+    17795370,              # numéro de série de la Teensy
+    5824,                  # vid
+    1155,                  # pid
+    115200,                # baudrate
+    enable_crc=True,
+    enable_dummy=False,    # True : boucle locale DummySerial, sans matériel
 )
+```
 
-# Mode simulation (port virtuel)
-com = Com(
-    port="COM1",
-    baudrate=115200,
-    use_crc=True
-)
+Côté `robot1/rasp/`, ne pas instancier `Com` à la main : `utils.init_robot()` lit ces
+valeurs dans `config.json` et choisit le mode d'après `ROBOT_MODE`.
+
+```python
+from utils import init_robot
+
+com, mode = init_robot(logger)
 ```
 
 ### Envoi de messages

@@ -179,24 +179,21 @@ Avant de tester une nouvelle feature, exécutez dans l'ordre :
 
 ##  Configuration
 
-Les scripts utilisent automatiquement `config.json` pour détecter :
-- Le mode (simulation vs hardware)
-- Le port série
-- Le numéro de série de la Teensy
+Les scripts lisent `config.json`, section `serial_config`, pour le numéro de série,
+le vid/pid et le baudrate de la Teensy.
 
-### Forcer le mode hardware
+Le mode d'exécution est explicite et se lit dans `ROBOT_MODE` : `hardware` (défaut)
+ou `dummy`. Toute autre valeur lève `ValueError`.
+
+### Exécuter sans Teensy branchée (poste de dev)
 
 ```bash
-export ROBOT_MODE=hardware
+export ROBOT_MODE=dummy         # PowerShell : $env:ROBOT_MODE='dummy'
 python test_communication.py
 ```
 
-### Forcer le mode simulation
-
-```bash
-export ROBOT_MODE=simulation
-python test_communication.py
-```
+Sans cette variable, l'absence de Teensy lève `ComError: No Device found!`.
+C'est voulu : un robot qui ne parle pas à sa Teensy ne doit pas sembler démarrer.
 
 ---
 
