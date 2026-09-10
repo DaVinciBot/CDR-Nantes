@@ -1,19 +1,5 @@
 {
-    "usb_com": {
-        "module_path": "../../common/usb_com/python",
-        "classes": {
-            "Com": "com.com.Com",
-            "DummyCom": "com.dummy.DummyCom",
-            "Messages": "messages.Messages"
-        }
-    },
-    "teensy": {
-        "module_path": "../../common/teensy",
-        "classes": {
-            "BaseTeensy": "base_teensy.BaseTeensy",
-            "GPIOTeensy": "gpio_teensy.GPIOTeensy"
-        }
-    },
+    "_comment": "Source unique des identifiants Teensy. Lu par comm/context.py. Le mode d'execution n'est PAS ici : il vient de la variable d'environnement ROBOT_MODE (hardware | dummy).",
     "serial_config": {
         "serial_number": 17795370,
         "vid": 5824,

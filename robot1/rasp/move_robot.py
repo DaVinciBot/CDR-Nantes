@@ -6,15 +6,12 @@ import time
 import logging
 import sys
 from pathlib import Path
-from loader import loader
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-Messages = loader.load_class('usb_com', 'Messages')
 
-sys.path.insert(0, str(Path(__file__).parent))
-from utils import init_robot
+from comm import init_robot
 
 com, mode = init_robot(logger)
 

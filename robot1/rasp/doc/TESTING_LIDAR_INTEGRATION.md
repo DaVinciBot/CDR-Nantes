@@ -59,7 +59,7 @@ python3 test_lidar_correction_integration.py --level 5 --duration 60
 
 **Si échoue:**
 - [ ] Balises pas visibles → Vérifier visibilité physique
-- [ ] Seuils trop stricts → Modifier `BEACON_QUAL_MIN`, `BEACON_MIN_RETURNS_PER_CLUSTER` dans `lidar_logic.py`
+- [ ] Seuils trop stricts → Modifier `BEACON_QUAL_MIN`, `BEACON_MIN_RETURNS_PER_CLUSTER` dans `localization.py`
 - [ ] Positions dans `BEACONS_BY_ID` incorrectes → Recalibrer via mesure laser
 
 ---
@@ -123,7 +123,7 @@ pip install rplidar numpy scipy
 
 ### Erreur: "Pas de balises détectées"
 ```bash
-# Vérifier BEACONS_BY_ID dans terrain_jeu.py
+# Vérifier BEACONS_BY_ID dans world.py
 # Positions doivent être en MONDE (mm)
 
 # Exemple pour table CDR 2026:
@@ -136,7 +136,7 @@ BEACONS_BY_ID = {
 
 ### Erreur: "SVD confidence trop basse"
 ```python
-# Dans lidar_logic.py, réduire seuils:
+# Dans localization.py, réduire seuils:
 BEACON_FIT_MAX_RMS_MM = 200.0  # Augmenter tolérance RMS
 POSE_CORRECTION_MIN_CONFIDENCE = 0.50  # Baisser seuil confiance
 ```
@@ -232,9 +232,9 @@ python3 test_lidar_correction_integration.py --level 3 --duration 30
 ## 📚 Références
 
 - **SVD Umeyama**: [ODOMETRY_CORRECTION_IMPLEMENTATION.md](ODOMETRY_CORRECTION_IMPLEMENTATION.md)
-- **API LiDAR**: [lidar_logic.py](lidar/lidar_logic.py) - Public functions (L780+)
+- **API LiDAR**: [localization.py](vision/localization.py) - Public functions (L780+)
 - **Filtre complémentaire**: [robot.py](robot.py#L78-L112)
-- **Configuration**: [terrain_jeu.py](terrain_jeu.py) - `BEACONS_BY_ID`
+- **Configuration**: [world.py](world.py) - `BEACONS_BY_ID`
 
 ---
 
@@ -261,7 +261,7 @@ logging.basicConfig(level=logging.DEBUG)
 ### Vérifier constantes
 ```bash
 python3 -c "
-from lidar.lidar_logic import BEACON_WINDOW_ANGLE_RAD, POSE_CORRECTION_MIN_CONFIDENCE
+from vision.localization import BEACON_WINDOW_ANGLE_RAD, POSE_CORRECTION_MIN_CONFIDENCE
 print(f'Window angle: {BEACON_WINDOW_ANGLE_RAD}')
 print(f'Min confidence: {POSE_CORRECTION_MIN_CONFIDENCE}')
 "
@@ -269,7 +269,7 @@ print(f'Min confidence: {POSE_CORRECTION_MIN_CONFIDENCE}')
 
 ### Dump candidats bruts
 ```bash
-# Modifier lidar/lidar_logic.py pour afficher _extract_beacon_candidates_fast()
+# Modifier vision/localization.py pour afficher _extract_beacon_candidates_fast()
 # Ajouter: print(f"Candidates: {candidates}")
 ```
 

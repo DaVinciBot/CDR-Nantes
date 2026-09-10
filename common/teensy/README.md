@@ -104,14 +104,14 @@ Toutes les classes gèrent automatiquement :
 
 ##  Tests
 
-Des scripts de test sont disponibles dans `robot1/rasp/test/` :
+Des scripts de test sont disponibles dans `robot1/rasp/tools/bringup/` :
 
 ```bash
 # Test de connexion basique
-python robot1/rasp/test/test_usb_detection.py
+python -m tools.bringup.test_usb_detection
 
 # Test de communication complète
-python robot1/rasp/test/test_communication.py
+python -m tools.bringup.test_communication
 ```
 
 ---

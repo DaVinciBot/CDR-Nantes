@@ -4,7 +4,7 @@ Point d'entrée principal du robot pour la Coupe de France de Robotique.
 """
 import time
 import logging
-from robot import Robot,lire_couleur_equipe # On importera votre future grande classe Robot
+from app import Robot, lire_couleur_equipe
 
 # Configuration du logger pour voir ce qui se passe dans la console
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
