@@ -11,7 +11,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger("MAIN")
 
 # --- PARAMÈTRES DU MATCH ---
-TEMPS_MATCH_SECONDES = 90.0
+# 100 s: Eurobot regulation match duration. The code said 90 s until 11/09/2026.
+TEMPS_MATCH_SECONDES = 100.0
 
 def main():
     logger.info("Démarrage du système...")
@@ -21,10 +22,10 @@ def main():
     # =================================================================
     # Idéalement, on lit un switch physique sur le robot pour savoir si on est Bleu ou Jaune
     couleur_equipe = lire_couleur_equipe()
-    
+
     # On crée LE robot (qui va lui-même allumer le Lidar, la Teensy, etc.)
     mon_robot = Robot(couleur_equipe)
-    
+
     logger.info(f"Robot initialisé pour l'équipe {couleur_equipe}.")
     logger.info("En attente de la tirette de départ...")
 
@@ -32,34 +33,34 @@ def main():
     # 2. ATTENTE DU DÉPART (Sur la table)
     # =================================================================
     # Le code reste bloqué ici tant que la tirette n'est pas retirée
-    mon_robot.attendre_tirette() 
-    
+    mon_robot.attendre_tirette()
+
     # --- LE MATCH COMMENCE ICI ---
     heure_debut = time.time()
     logger.info("MATCH LANCÉ !")
 
     # =================================================================
-    # 3. LA BOUCLE DES 90 SECONDES (Le Match)
+    # 3. LA BOUCLE DES 100 SECONDES (Le Match)
     # =================================================================
     try:
         while True:
             temps_ecoule = time.time() - heure_debut
-            
+
             # Vérification stricte du chronomètre
             if temps_ecoule >= TEMPS_MATCH_SECONDES:
                 logger.info("FIN DU TEMPS RÉGLEMENTAIRE !")
                 break # On sort de la boucle !
 
-            # C'est ici que toute la magie opère. Le robot lit ses capteurs, 
+            # C'est ici que toute la magie opère. Le robot lit ses capteurs,
             # consulte sa stratégie, calcule son Pathfinding et bouge.
             mon_robot.update()
-            
+
             # Petite pause pour ne pas surcharger le processeur (ex: 20 Hz)
-            time.sleep(0.05) 
+            time.sleep(0.05)
 
     except KeyboardInterrupt:
         logger.warning("Arrêt d'urgence demandé par l'utilisateur (Ctrl+C).")
-        
+
     finally:
         # =================================================================
         # 4. ARRÊT TOTAL (Sécurité vitale)

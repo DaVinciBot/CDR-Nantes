@@ -19,21 +19,21 @@ logger = logging.getLogger(__name__)
 
 def handle_position(data: bytes) -> None:
     """Callback détaillé pour analyser les messages."""
-    logger.info(f"📥 Message reçu: {len(data)} bytes")
-    logger.info(f"   Hex: {data.hex(' ')}")
-    
+    logger.info(f" Message reçu: {len(data)} bytes")
+    logger.info(f"  Hex: {data.hex(' ')}")
+
     if len(data) >= 24:
         x, y, theta = struct.unpack('<ddd', data[:24])
-        logger.info(f"   ✅ Décodé: X={x:.6f}mm, Y={y:.6f}mm, θ={theta:.6f}rad")
-        
+        logger.info(f"  [OK] Décodé: X={x:.6f}mm, Y={y:.6f}mm, theta={theta:.6f}rad")
+
         if x == 0.0 and y == 0.0 and theta == 0.0:
-            logger.warning("   ⚠️  Toutes les valeurs sont à zéro !")
+            logger.warning("  [WARN]  Toutes les valeurs sont à zéro !")
     else:
-        logger.error(f"   ❌ Message trop court: attendu 24 bytes, reçu {len(data)}")
+        logger.error(f"  [FAIL] Message trop court: attendu 24 bytes, reçu {len(data)}")
 
 def main():
     serial_config = get_com_config()   # honore ROBOT_MODE (hardware | dummy)
-    
+
     logger.info("=" * 70)
     logger.info("Configuration:")
     logger.info(f"  Serial: {serial_config['serial_number']}")
@@ -43,8 +43,8 @@ def main():
     logger.info(f"  CRC: {serial_config['enable_crc']}")
     logger.info(f"  Dummy: {serial_config['enable_dummy']}")
     logger.info("=" * 70)
-    
-    logger.info("🔌 Connexion à la Teensy...")
+
+    logger.info(" Connexion à la Teensy...")
     com = Com(
         logger=logger,
         serial_number=serial_config['serial_number'],
@@ -54,22 +54,22 @@ def main():
         enable_crc=serial_config['enable_crc'],
         enable_dummy=serial_config['enable_dummy']
     )
-    
+
     # Enregistrer le callback
     com.add_callback(handle_position, Messages.UPDATE_ROLLING_BASIS.value)
-    logger.info("✅ Callback enregistré pour UPDATE_ROLLING_BASIS (ID=128)")
-    
-    logger.info("✅ Connexion établie!")
-    logger.info("\n⏳ Écoute des messages pendant 15 secondes...\n")
-    
+    logger.info("[OK] Callback enregistré pour UPDATE_ROLLING_BASIS (ID=128)")
+
+    logger.info("[OK] Connexion établie!")
+    logger.info("\n Écoute des messages pendant 15 secondes...\n")
+
     time.sleep(15)
-    
-    logger.info("\n✅ Test terminé!")
+
+    logger.info("\n[OK] Test terminé!")
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        logger.info("\n⏹️  Test interrompu")
+        logger.info("\n  Test interrompu")
     except Exception as e:
-        logger.error(f"\n❌ ERREUR: {e}", exc_info=True)
+        logger.error(f"\n[FAIL] ERREUR: {e}", exc_info=True)

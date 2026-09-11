@@ -1,26 +1,25 @@
 #!/usr/bin/env python3
 """
 test_complet_lidar.py — CDR 2026
-═══════════════════════════════════════════════════════════════════════════════
+===============================================================================
 Test complet du stack robot avec LiDAR réel uniquement.
 Teensy simulée via poses fictives injectées directement dans lidar_logic.
 
 Modules testés :
-  ✓ world          — terrain, obstacles, balises, symétrie BLEU/JAUNE
-  ✓ pathfinder      — A*, grille, inflation, chemin, lookahead
-  ✓ localization    — thread, scan, extraction balises, SVD, adversaire
-  ✓ lidar.py        — LidarInterface, get_fused_position, get_opponent
-  ✓ robot.py        — filtre complémentaire, logique de correction odométrie
-  ✓ strategy        — StratManager, chrono, validation actions
-  ✓ loader          — chargement config.json
-  ✓ intégration     — pipeline complet LiDAR → SVD → filtre → correction
+  [OK] world          — terrain, obstacles, balises, symétrie BLEU/JAUNE
+  [OK] pathfinder      — A*, grille, inflation, chemin, lookahead
+  [OK] localization    — thread, scan, extraction balises, SVD, adversaire
+  [OK] robot.py        — filtre complémentaire, logique de correction odométrie
+  [OK] strategy        — StratManager, chrono, validation actions
+  [OK] loader          — chargement config.json
+  [OK] intégration     — pipeline complet LiDAR -> SVD -> filtre -> correction
 
 Usage :
     python test_complet_lidar.py [--level 1-8] [--duration 20] [--color BLUE]
     python test_complet_lidar.py           # tous les tests (non-LiDAR d'abord)
     python test_complet_lidar.py --level 7 --duration 60  # intégration complète
 
-═══════════════════════════════════════════════════════════════════════════════
+===============================================================================
 """
 
 import sys
@@ -37,7 +36,7 @@ from collections import deque
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s │ %(levelname)-7s │ %(name)-18s │ %(message)s",
+    format="%(asctime)s | %(levelname)-7s | %(name)-18s | %(message)s",
 )
 logger = logging.getLogger("TEST_CDR")
 
@@ -46,25 +45,25 @@ logger = logging.getLogger("TEST_CDR")
 # ══════════════════════════════════════════════════════════════════════════════
 
 def header(titre: str) -> None:
-    print("\n" + "═" * 72)
+    print("\n" + "=" * 72)
     print(f"  {titre}")
-    print("═" * 72)
+    print("=" * 72)
 
 
 def ok(msg: str) -> None:
-    print(f"  ✓  {msg}")
+    print(f"  [OK]  {msg}")
 
 
 def warn(msg: str) -> None:
-    print(f"  ⚠  {msg}")
+    print(f"  [WARN]  {msg}")
 
 
 def fail(msg: str) -> None:
-    print(f"  ✗  {msg}")
+    print(f"  [FAIL]  {msg}")
 
 
 def section(msg: str) -> None:
-    print(f"\n  ── {msg} ──")
+    print(f"\n  -- {msg} --")
 
 
 RESULTS: Dict[str, bool] = {}
@@ -114,12 +113,12 @@ def test_terrain(color: str = "BLUE") -> bool:
         for bid, (bx, by) in BeaconLayout.BEACONS.items():
             ok(f"  Balise #{bid} : ({bx:.0f}, {by:.0f}) mm")
 
-        section("Symétrie balises BLEU → JAUNE")
+        section("Symétrie balises BLEU -> JAUNE")
         for bid in BeaconLayout.BEACONS:
             bx_bl, by_bl = BeaconLayout.get_beacon(bid, "BLUE")
             bx_yl, by_yl = BeaconLayout.get_beacon(bid, "YELLOW")
             assert abs((bx_bl + bx_yl) - 3000) < 1, \
-                f"Symétrie X incorrecte balise {bid}: {bx_bl}+{bx_yl}≠3000"
+                f"Symétrie X incorrecte balise {bid}: {bx_bl}+{bx_yl}!=3000"
             ok(f"  Balise #{bid} BLEU=({bx_bl:.0f},{by_bl:.0f}) JAUNE=({bx_yl:.0f},{by_yl:.0f})")
 
         print()
@@ -151,14 +150,14 @@ def test_pathfinder(color: str = "BLUE") -> bool:
         ok(f"Inflation = robot({terrain.ROBOT_RADIUS}) + margin({pf.MARGIN}) = {pf.inflation_radius} mm")
         ok(f"Grille    = {pf.cols} cols × {pf.rows} rows")
 
-        section("Chemin basique (centre → bord)")
+        section("Chemin basique (centre -> bord)")
         start = {"x": 1500, "y": 1000, "theta": 0.0}
         goal  = {"x": 2800, "y": 1000}
         chemin = pf.get_path(start, goal, [])
         if chemin and len(chemin) > 1:
             ok(f"Chemin trouvé : {len(chemin)} waypoints")
         else:
-            warn("Aucun chemin trouvé pour start→bord (peut être bloqué par obstacle)")
+            warn("Aucun chemin trouvé pour start->bord (peut être bloqué par obstacle)")
 
         section("Chemin avec obstacle dynamique")
         obstacles_dyn = [(1800, 1000)]  # adversaire entre start et goal
@@ -186,7 +185,7 @@ def test_pathfinder(color: str = "BLUE") -> bool:
             s["theta"] = 0.0
             ch = pf.get_path(s, g, [])
             status = f"{len(ch)} pts" if ch else "BLOQUÉ"
-            ok(f"  Segment {i+1}: ({s['x']},{s['y']}) → ({g['x']},{g['y']}) — {status}")
+            ok(f"  Segment {i+1}: ({s['x']},{s['y']}) -> ({g['x']},{g['y']}) — {status}")
 
         print()
         ok("TEST 2 PASSED")
@@ -216,9 +215,9 @@ def test_strategy(color: str = "BLUE") -> bool:
         section("Types d'actions")
         for i, action in enumerate(strat.liste_actions):
             ok(f"  Action {i}: {action.type.name}"
-               + (f" → ({action.cible_x:.0f}, {action.cible_y:.0f})" if action.type == TypeAction.DEPLACEMENT else "")
-               + (f" → {action.nom_actionneur}" if action.type == TypeAction.ACTIONNEUR else "")
-               + (f" → {action.temps_attente}s" if action.type == TypeAction.ATTENTE else ""))
+               + (f" -> ({action.cible_x:.0f}, {action.cible_y:.0f})" if action.type == TypeAction.DEPLACEMENT else "")
+               + (f" -> {action.nom_actionneur}" if action.type == TypeAction.ACTIONNEUR else "")
+               + (f" -> {action.temps_attente}s" if action.type == TypeAction.ATTENTE else ""))
 
         section("get_action_actuelle")
         action = strat.get_action_actuelle()
@@ -256,7 +255,7 @@ def test_strategy(color: str = "BLUE") -> bool:
         strat.valider_action_terminee()
         assert strat.etape_actuelle == 1, "etape_actuelle devrait être 1 après validation"
         assert strat.chrono_action is None, "chrono_action devrait être reset après validation"
-        ok("valider_action_terminee() OK → étape 0→1")
+        ok("valider_action_terminee() OK -> étape 0->1")
 
         section("Fin de stratégie")
         strat.etape_actuelle = len(strat.liste_actions)
@@ -279,12 +278,13 @@ def test_strategy(color: str = "BLUE") -> bool:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def test_complementary_filter(color: str = "BLUE") -> bool:
-    header("TEST 4 — filtre complémentaire adaptatif (robot._apply_complementary_filter)")
+    header("TEST 4 — filtre complémentaire adaptatif (courbe alpha de référence)")
     try:
-        # On instancie la méthode directement sans créer de Robot complet
-        # pour éviter la dépendance à la Teensy.
+        # Copie locale de la courbe, volontairement autonome : la méthode
+        # d'origine Robot._apply_complementary_filter n'existe plus, et la
+        # courbe reste la référence documentée (PLAN_REFONTE §7).
         def apply_filter(lidar_x, lidar_y, teensy_x, teensy_y, confidence):
-            """Copie exacte de robot.py._apply_complementary_filter."""
+            """Courbe alpha adaptative : 0.85 sous conf 0.2, 0.25 au-dessus de 0.8."""
             if confidence < 0.2:
                 alpha = 0.85
             elif confidence > 0.8:
@@ -296,15 +296,15 @@ def test_complementary_filter(color: str = "BLUE") -> bool:
             return x_fused, y_fused, alpha
 
         cases = [
-            (0.00, 0.85, "conf=0.00 → alpha=0.85 (100% Teensy)"),
-            (0.10, 0.85, "conf=0.10 → alpha=0.85"),
-            (0.20, 0.85, "conf=0.20 → alpha=0.85 (boundary bas)"),
-            (0.35, None, "conf=0.35 → alpha intermédiaire"),
-            (0.50, 0.55, "conf=0.50 → alpha=0.55"),
-            (0.65, None, "conf=0.65 → alpha intermédiaire"),
-            (0.80, 0.25, "conf=0.80 → alpha=0.25 (boundary haut)"),
-            (0.90, 0.25, "conf=0.90 → alpha=0.25"),
-            (1.00, 0.25, "conf=1.00 → alpha=0.25 (100% LiDAR)"),
+            (0.00, 0.85, "conf=0.00 -> alpha=0.85 (100% Teensy)"),
+            (0.10, 0.85, "conf=0.10 -> alpha=0.85"),
+            (0.20, 0.85, "conf=0.20 -> alpha=0.85 (boundary bas)"),
+            (0.35, None, "conf=0.35 -> alpha intermédiaire"),
+            (0.50, 0.55, "conf=0.50 -> alpha=0.55"),
+            (0.65, None, "conf=0.65 -> alpha intermédiaire"),
+            (0.80, 0.25, "conf=0.80 -> alpha=0.25 (boundary haut)"),
+            (0.90, 0.25, "conf=0.90 -> alpha=0.25"),
+            (1.00, 0.25, "conf=1.00 -> alpha=0.25 (100% LiDAR)"),
         ]
 
         alphas = []
@@ -314,7 +314,7 @@ def test_complementary_filter(color: str = "BLUE") -> bool:
             alphas.append(alpha)
             if expected_alpha is not None:
                 diff = abs(alpha - expected_alpha)
-                status = "✓" if diff < 0.001 else "✗"
+                status = "[OK]" if diff < 0.001 else "[FAIL]"
                 print(f"    {status}  {desc:45s}  alpha={alpha:.4f}")
                 if diff >= 0.001:
                     fail(f"Alpha attendu {expected_alpha:.3f}, obtenu {alpha:.3f}")
@@ -335,8 +335,8 @@ def test_complementary_filter(color: str = "BLUE") -> bool:
         xf_high, yf_high, _ = apply_filter(lx, ly, tx, ty, 1.0)
         assert xf_low  > lx, "Basse confiance : résultat devrait être proche de Teensy"
         assert xf_high < tx, "Haute confiance : résultat devrait être proche de LiDAR"
-        ok(f"Basse conf → fusionné ({xf_low:.1f},{yf_low:.1f}) ~ Teensy ({tx},{ty})")
-        ok(f"Haute conf → fusionné ({xf_high:.1f},{yf_high:.1f}) ~ LiDAR ({lx},{ly})")
+        ok(f"Basse conf -> fusionné ({xf_low:.1f},{yf_low:.1f}) ~ Teensy ({tx},{ty})")
+        ok(f"Haute conf -> fusionné ({xf_high:.1f},{yf_high:.1f}) ~ LiDAR ({lx},{ly})")
 
         print()
         ok("TEST 4 PASSED")
@@ -422,8 +422,8 @@ def test_lidar_logic_static(color: str = "BLUE") -> bool:
                 ok(f"SVD synthétique : conf={result.confidence:.2f}, "
                    f"delta=({result.x-1500:.1f},{result.y-1000:.1f})mm, "
                    f"beacons={result.beacon_ids}")
-                assert abs(result.x - 1500.0) < 50, f"Δx trop grand : {result.x-1500:.1f}mm"
-                assert abs(result.y - 1000.0) < 50, f"Δy trop grand : {result.y-1000:.1f}mm"
+                assert abs(result.x - 1500.0) < 50, f"deltax trop grand : {result.x-1500:.1f}mm"
+                assert abs(result.y - 1000.0) < 50, f"deltay trop grand : {result.y-1000:.1f}mm"
                 ok("Delta SVD < 50mm (correction précise sur candidats exacts)")
             else:
                 warn("SVD retourne None sur candidats synthétiques — RMS trop haut?")
@@ -436,7 +436,7 @@ def test_lidar_logic_static(color: str = "BLUE") -> bool:
             assoc = _associate_candidates_to_beacons(cands_sans_bid, 1500.0, 1000.0, 0.0, None)
             ok(f"Association sans fenêtres : {len(assoc)} candidats associés / {len(cands_sans_bid)}")
             for a in assoc:
-                ok(f"  → Balise #{a.get('beacon_id')} (score={a.get('association_score', 'N/A')})")
+                ok(f"  -> Balise #{a.get('beacon_id')} (score={a.get('association_score', 'N/A')})")
 
         section("_validate_beacon_geometry")
         if len(syn_cands) >= 2:
@@ -459,7 +459,7 @@ def test_lidar_logic_static(color: str = "BLUE") -> bool:
 
 def test_lidar_thread_basic(duration_sec: int = 15, color: str = "BLUE") -> bool:
     header(f"TEST 6 — Thread LiDAR réel : scan, balises ({duration_sec}s)")
-    print("  ⚡  Ce test nécessite le LiDAR branché sur /dev/ttyUSB0")
+    print("  Ce test nécessite le LiDAR branché sur /dev/ttyUSB0")
     try:
         from robot1.rasp.vision.localization import (
             start_lidar_thread, stop_lidar_runtime,
@@ -542,7 +542,7 @@ def test_lidar_thread_basic(duration_sec: int = 15, color: str = "BLUE") -> bool
             ok(f"Confiance moyenne   : {avg_conf:.3f}")
             if first_pose:
                 ok(f"Première pose       : ({first_pose.x:.0f}, {first_pose.y:.0f}) "
-                   f"θ={math.degrees(first_pose.theta):.1f}° "
+                   f"theta={math.degrees(first_pose.theta):.1f}° "
                    f"conf={first_pose.confidence:.2f} "
                    f"beacons={first_pose.beacon_ids}")
 
@@ -565,86 +565,12 @@ def test_lidar_thread_basic(duration_sec: int = 15, color: str = "BLUE") -> bool
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TEST 7 — LidarInterface (lidar.py wrapper)
-# ══════════════════════════════════════════════════════════════════════════════
-
-def test_lidar_interface(duration_sec: int = 20, color: str = "BLUE") -> bool:
-    header(f"TEST 7 — LidarInterface : get_fused_position, get_opponent ({duration_sec}s)")
-    print("  ⚡  Nécessite LiDAR branché")
-    try:
-        from robot1.rasp.vision.localization import (
-            start_lidar_thread, stop_lidar_runtime,
-            update_teensy_pose, set_team_color,
-        )
-        from robot1.rasp.vision import LidarInterface
-
-        set_team_color(color)
-
-        def _noop(x): pass
-
-        start_lidar_thread(_noop, _noop)
-        time.sleep(2.0)
-
-        lidar_iface = LidarInterface(team_color=color)
-
-        # Poses Teensy fictives : robot se déplace virtuellement en ligne
-        test_poses = [
-            (1500, 1000, 0.0),
-            (1500, 1000, math.pi / 4),
-            (1200, 800,  0.0),
-            (1800, 1200, math.pi / 2),
-        ]
-
-        section("get_fused_position avec poses Teensy fictives")
-        results_fused = []
-        for tx, ty, tth in test_poses:
-            update_teensy_pose(tx, ty, tth)
-            time.sleep(0.5)
-            fx, fy, fth, conf = lidar_iface.get_fused_position(tx, ty, tth)
-            results_fused.append((fx, fy, conf))
-            ok(f"Teensy ({tx},{ty}) → Fusionné ({fx:.0f},{fy:.0f}) conf={conf:.2f}")
-
-        section("get_opponent")
-        opp = lidar_iface.get_opponent()
-        if opp:
-            ox, oy, oc = opp
-            ok(f"Adversaire détecté : ({ox:.0f}, {oy:.0f}) conf={oc:.2f}")
-        else:
-            ok("Aucun adversaire détecté (normal si table vide)")
-
-        section("get_diagnostic_info")
-        diag = lidar_iface.get_diagnostic_info()
-        ok(f"Localisé     : {diag['is_localized']}")
-        ok(f"Nb balises   : {diag['nb_beacons']}")
-        ok(f"Confiance    : {diag['confidence']:.2f}")
-        ok(f"Balises IDs  : {diag['beacon_ids']}")
-
-        section("Scan pendant %ds supplémentaires" % (duration_sec - 5))
-        update_teensy_pose(1500, 1000, 0.0)
-        time.sleep(duration_sec - 5)
-
-        # Dernier état
-        fx, fy, fth, conf = lidar_iface.get_fused_position(1500, 1000, 0.0)
-        ok(f"Position finale fusionnée : ({fx:.0f}, {fy:.0f}) conf={conf:.2f}")
-
-        stop_lidar_runtime()
-        print()
-        ok("TEST 7 PASSED")
-        return record("lidar_interface", True)
-
-    except Exception as e:
-        fail(f"TEST 7 FAILED : {e}")
-        import traceback; traceback.print_exc()
-        return record("lidar_interface", False)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
 # TEST 8 — Pipeline complet (sans Teensy réelle)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def test_full_pipeline(duration_sec: int = 30, color: str = "BLUE") -> bool:
-    header(f"TEST 8 — Pipeline complet : LiDAR→SVD→filtre→pathfinder ({duration_sec}s)")
-    print("  ⚡  Nécessite LiDAR branché — Teensy simulée par injection de pose")
+    header(f"TEST 8 — Pipeline complet : LiDAR->SVD->filtre->pathfinder ({duration_sec}s)")
+    print("  Nécessite LiDAR branché — Teensy simulée par injection de pose")
     try:
         from robot1.rasp.world import Terrain
         from robot1.rasp.nav import PathFinder
@@ -652,13 +578,12 @@ def test_full_pipeline(duration_sec: int = 30, color: str = "BLUE") -> bool:
             start_lidar_thread, stop_lidar_runtime,
             update_teensy_pose, get_corrected_pose,
             should_send_correction_to_teensy, set_team_color,
+            get_latest_opponent,
         )
-        from robot1.rasp.vision import LidarInterface
 
         set_team_color(color)
         terrain = Terrain(color)
         pf = PathFinder(terrain)
-        lidar_iface = LidarInterface(team_color=color)
 
         def _noop(x): pass
         start_lidar_thread(_noop, _noop)
@@ -688,7 +613,7 @@ def test_full_pipeline(duration_sec: int = 30, color: str = "BLUE") -> bool:
                     else 0.85 - (conf - 0.2) / 0.6 * 0.60)
             return (1.0 - alpha) * lx + alpha * tx, (1.0 - alpha) * ly + alpha * ty, alpha
 
-        ok(f"Position départ {color}: ({robot_x:.0f},{robot_y:.0f}) θ={math.degrees(robot_theta):.1f}°")
+        ok(f"Position départ {color}: ({robot_x:.0f},{robot_y:.0f}) theta={math.degrees(robot_theta):.1f}°")
         ok(f"Objectifs : {objectifs}")
         print()
 
@@ -714,9 +639,9 @@ def test_full_pipeline(duration_sec: int = 30, color: str = "BLUE") -> bool:
 
             # — Adversaire → obstacles —
             obstacles = []
-            opp = lidar_iface.get_opponent()
-            if opp:
-                obstacles.append((opp[0], opp[1]))
+            opp = get_latest_opponent()
+            if opp is not None and opp.confidence >= 0.1:
+                obstacles.append((opp.x, opp.y))
 
             # — Pathfinding —
             dist_to_goal = math.hypot(goal["x"] - rx, goal["y"] - ry)
@@ -787,21 +712,21 @@ def test_full_pipeline(duration_sec: int = 30, color: str = "BLUE") -> bool:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def print_summary() -> None:
-    print("\n" + "═" * 72)
+    print("\n" + "=" * 72)
     print("  RÉSUMÉ DES TESTS")
-    print("═" * 72)
+    print("=" * 72)
     total  = len(RESULTS)
     passed = sum(1 for v in RESULTS.values() if v)
     for name, result in RESULTS.items():
-        status = "✓ PASS" if result else "✗ FAIL"
+        status = "[OK] PASS" if result else "[FAIL] FAIL"
         print(f"  {status}  —  {name}")
-    print("─" * 72)
+    print("-" * 72)
     print(f"  {passed}/{total} tests réussis")
     if passed == total:
-        print("  ✓✓✓  TOUS LES TESTS PASSÉS")
+        print("  OK  TOUS LES TESTS PASSÉS")
     else:
-        print(f"  ⚠   {total - passed} test(s) en échec")
-    print("═" * 72 + "\n")
+        print(f"  [WARN]   {total - passed} test(s) en échec")
+    print("=" * 72 + "\n")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -815,8 +740,7 @@ TESTS = {
     4: ("Filtre complémentaire adaptatif",                  test_complementary_filter,  False),
     5: ("lidar_logic static (SVD, fenêtres, constantes)",   test_lidar_logic_static,    False),
     6: ("Thread LiDAR réel (scan + balises)",               test_lidar_thread_basic,    True),
-    7: ("LidarInterface (fused + opponent)",                test_lidar_interface,       True),
-    8: ("Pipeline complet (LiDAR→SVD→filtre→pathfinder)",  test_full_pipeline,         True),
+    8: ("Pipeline complet (LiDAR->SVD->filtre->pathfinder)",  test_full_pipeline,         True),
 }
 
 
@@ -826,7 +750,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--level", type=int, default=0,
-        help="Numéro de test à exécuter (0 = tous, 1-8 = spécifique)"
+        help="Numéro de test à exécuter (0 = tous, 1-8 = specifique)"
     )
     parser.add_argument(
         "--duration", type=int, default=20,
@@ -846,9 +770,9 @@ def main() -> None:
     if color not in ("BLUE", "YELLOW"):
         color = "BLUE"
 
-    print("\n" + "╔" + "═" * 70 + "╗")
-    print("║" + "  CDR 2026 — TEST COMPLET ROBOT (LiDAR réel, Teensy simulée)".center(70) + "║")
-    print("╚" + "═" * 70 + "╝")
+    print("\n" + "+" + "=" * 70 + "+")
+    print("|" + "  CDR 2026 — TEST COMPLET ROBOT (LiDAR réel, Teensy simulée)".center(70) + "|")
+    print("+" + "=" * 70 + "+")
     print(f"  Équipe    : {color}")
     print(f"  Durée LiDAR: {args.duration}s par test")
     print(f"  LiDAR requis: {'OUI' if not args.no_lidar else 'SAUTÉ (--no-lidar)'}")
@@ -858,7 +782,7 @@ def main() -> None:
         # Tous les tests
         for num, (desc, fn, needs_lidar) in TESTS.items():
             if needs_lidar and args.no_lidar:
-                print(f"\n  ⟳  Test {num} SAUTÉ (nécessite LiDAR) : {desc}")
+                print(f"\n  --  Test {num} SAUTÉ (nécessite LiDAR) : {desc}")
                 continue
             if needs_lidar:
                 fn(duration_sec=args.duration, color=color)
@@ -870,7 +794,7 @@ def main() -> None:
             sys.exit(1)
         desc, fn, needs_lidar = TESTS[args.level]
         if needs_lidar and args.no_lidar:
-            print(f"  ⟳  Test {args.level} SAUTÉ (--no-lidar)")
+            print(f"  --  Test {args.level} SAUTÉ (--no-lidar)")
         elif needs_lidar:
             fn(duration_sec=args.duration, color=color)
         else:

@@ -1,274 +1,109 @@
-#  Scripts de Test - Raspberry Pi
+# tools/bringup/ - bring-up materiel
 
-> Suite de tests pour validation hardware et communication USB.
+> Outils qu'on lance a la main, face au robot, dans l'ordre. Ils testent la **liaison** et le
+> **mouvement**, pas le code Python : les tests du code sont dans [../../tests/](../../tests/).
 > Toutes les commandes se lancent depuis `robot1/rasp/` (le `-m` est requis,
-> cf. [../README.md](../README.md)).
+> cf. [../../README.md](../../README.md)).
 
----
+> Etat au 11/09/2026. La version precedente de ce README documentait des options
+> (`--motor`, `--steps`, `--speed`, `--duration`, `--filter`, `--no-crc`, `--timeout`,
+> `--list-all`) qui **n'existent dans aucun de ces scripts** : aucun n'a d'argparse. Elle
+> montrait aussi des sorties inventees. Ce qui suit decrit ce que le code fait.
 
-##  Liste des scripts
+## Dans quel ordre
 
-###  Tests de communication
+| # | Script | Ce qu'il fait vraiment | Materiel requis |
+| --- | --- | --- | --- |
+| 1 | `test_usb_detection.py` | liste tous les ports serie, repere la Teensy sur `vid=0x16c0` et imprime le bloc `serial_number`/`vid`/`pid` a recopier dans `config.json` | Teensy branchee |
+| 2 | `test_communication.py` | ouvre le lien via `usb_com.Com`, remet l'odometrie a zero, envoie 4 positions cibles, compte les `UPDATE_ROLLING_BASIS` recus | Teensy flashee |
+| 3 | `test_debug_messages.py` | meme connexion, en `DEBUG`, ecoute 15 s et hexdumpe chaque message recu | Teensy flashee |
+| 4 | `test_length_messages.py` | **serie brute, sans `usb_com`** : decoupe le flux sur la signature `BA DD 1C C5` et verifie signature, CRC, longueur declaree contre longueur reelle | Teensy flashee |
+| 5 | `test_one_motor.py` | envoie 4 consignes de position (X, puis X+Y, puis rotation, puis retour) et laisse 5 s entre chaque | moteurs alimentes |
 
-#### `test_usb_detection.py`
-**Objectif :** Détecter automatiquement les Teensy connectées via USB
+Aucun de ces scripts ne prend d'argument. Le seul reglage est `ROBOT_MODE`, plus `TEENSY_PORT`
+pour `test_length_messages.py`.
 
-```bash
-python -m tools.bringup.test_usb_detection
-```
 
-**Sortie attendue :**
-```
- Recherche de périphériques USB Teensy...
- Teensy 4.1 détectée :
-   - Port : COM5
-   - Serial Number : 18421350
-   - VID/PID : 5824/1155
-```
+- **`test_one_motor.py` ne teste pas un moteur.** Il envoie des consignes holonomes
+  (`SET_TARGET_POSITION`) qui font tourner **les trois roues** a la fois. Il n'y a aucun moyen
+  d'adresser une roue seule dans le protocole actuel. C'est un script de « premier mouvement »,
+  pas un test de moteur isole.
+- **`test_length_messages.py` ne mesure pas des tailles de payload par type de message.** Il
+  decode la trame sur le fil. C'est le seul outil qui voit le cadrage, donc celui qui servira au
+  chantier COBS / byte-stuffing (`doc_ref/TODO.md` §4).
 
----
+Renommer les deux demande de les verifier devant le robot : reporte.
 
-#### `test_communication.py`
-**Objectif :** Test complet du protocole de communication (envoi/réception)
+## Configuration
 
-```bash
-python -m tools.bringup.test_communication
-```
-
-**Tests effectués :**
--  Connexion USB établie
--  Envoi de `SET_TARGET_POSITION`
--  Réception de `UPDATE_ROLLING_BASIS`
--  Validation CRC8
--  Latence de communication (<10ms)
-
-**Sortie attendue :**
-```
-[INFO] Connexion établie sur COM5
-[INFO] Message envoyé : SET_TARGET_POSITION
-[INFO] Réponse reçue : UPDATE_ROLLING_BASIS
-[INFO] Position: X=123.5mm Y=67.8mm θ=1.57rad
-[SUCCESS] Tous les tests passés ✓
-```
-
----
-
-#### `test_serial_raw.py`
-**Objectif :** Test brut de la communication série (debug bas niveau)
+Les scripts lisent `config.json`, section `serial_config` (numero de serie, vid, pid, baudrate).
+`test_length_messages.py` n'utilise pas `usb_com` mais **retrouve le port avec la meme regle**
+(vid + pid + numero de serie) : il portait `/dev/ttyACM0` en dur jusqu'au 11/09/2026. Pour forcer
+un device :
 
 ```bash
-python -m tools.bringup.test_serial_raw
+TEENSY_PORT=/dev/ttyACM0 python -m tools.bringup.test_length_messages
 ```
 
-Affiche les bytes bruts envoyés/reçus en hexadécimal. Utile pour diagnostiquer les problèmes de protocole.
+Le mode d'execution est explicite et se lit dans `ROBOT_MODE` : `hardware` (defaut) ou `dummy`.
+Toute autre valeur leve `ValueError`.
 
----
-
-###  Tests de mouvement
-
-#### `test_one_motor.py`
-**Objectif :** Tester un moteur individuel
+### Sans Teensy branchee (poste de dev)
 
 ```bash
-python -m tools.bringup.test_one_motor --motor 1 --steps 1000
+ROBOT_MODE=dummy python -m tools.bringup.test_communication
 ```
 
-**Options :**
-- `--motor` : Numéro du moteur (1, 2 ou 3)
-- `--steps` : Nombre de pas à effectuer
-- `--speed` : Vitesse en steps/s (défaut: 1000)
+Le lien devient une boucle locale : les envois partent, **rien ne revient** (le dummy n'emet pas
+d'`UPDATE_ROLLING_BASIS`), donc le script finit sur « aucun message recu ». C'est le
+comportement attendu hors robot, pas une panne.
 
-**Sortie attendue :**
-```
-[INFO] Test du moteur 1
-[INFO] Commande : 1000 steps à 1000 steps/s
-[INFO] Encodeur avant : 0
-[INFO] Encodeur après : 1000
-[SUCCESS] Moteur 1 fonctionne correctement ✓
-```
+Sans cette variable, l'absence de Teensy leve `ComError: No Device found!`. C'est voulu : un robot
+qui ne parle pas a sa Teensy ne doit pas sembler demarrer.
 
----
+## Checklist de validation
 
-###  Tests de messages
+1. [ ] `test_usb_detection.py` -> Teensy detectee, identifiants coherents avec `config.json`
+2. [ ] `test_communication.py` -> messages envoyes **et** recus non nuls
+3. [ ] `test_length_messages.py` -> signature OK, longueur declaree = longueur reelle
+4. [ ] `test_one_motor.py` -> les trois roues tournent, la position remontee evolue
+5. [ ] `python -m tools.manual.move_robot` -> pilotage interactif x/y/theta
 
-#### `test_length_messages.py`
-**Objectif :** Vérifier la taille des payloads pour chaque type de message
+La fiche de validation complete du lien USB (T-USB-01, T-USB-02) est dans
+`doc_ref/TESTS_A_VALIDER.md`.
 
-```bash
-python -m tools.bringup.test_length_messages
-```
+## Depannage
 
-**Sortie attendue :**
-```
-Message : SET_TARGET_POSITION
-  Payload attendu : 24 bytes (3 × double)
-  Payload reçu    : 24 bytes
-  ✓ Taille correcte
+**Port serie introuvable.** Lancer `test_usb_detection.py` : il liste *tous* les ports, meme non
+Teensy. Sous Linux, verifier l'appartenance au groupe `dialout` :
+`sudo usermod -a -G dialout $USER`, puis rouvrir la session.
 
-Message : SET_PID
-  Payload attendu : 13 bytes (1 × byte + 3 × float)
-  Payload reçu    : 13 bytes
-  ✓ Taille correcte
+**CRC invalide.** Le CRC se desactive dans `config.json` (`"enable_crc": false`), pas en ligne de
+commande. A ne faire qu'en debug, et a remettre ensuite.
 
-...
-```
+**Rien ne revient de la Teensy.** Verifier dans l'ordre : firmware flashe, baudrate 115200,
+et que le firmware emet bien des `UPDATE_ROLLING_BASIS`. `test_length_messages.py` tranche : s'il
+ne voit aucune signature `BA DD 1C C5`, rien ne sort de la Teensy.
 
----
+## Ce qui a disparu le 11/09/2026
 
-#### `test_debug_messages.py`
-**Objectif :** Afficher tous les messages reçus de la Teensy
+`test_serial_raw.py`, **copie octet pour octet de `test_usb_detection.py`** (meme MD5). Son nom
+promettait un dump serie brut, il listait des ports USB. Le vrai dump brut est
+`test_length_messages.py`.
 
-```bash
-python -m tools.bringup.test_debug_messages --duration 30
-```
+## Ajouter un nouveau test
 
-**Options :**
-- `--duration` : Durée d'écoute en secondes (défaut: 10)
-- `--filter` : Filtrer par type de message (ex: `UPDATE_ROLLING_BASIS`)
-
-**Sortie attendue :**
-```
-[17:30:15.123] UPDATE_ROLLING_BASIS: X=0.0 Y=0.0 θ=0.0
-[17:30:15.223] UPDATE_ROLLING_BASIS: X=1.2 Y=0.1 θ=0.01
-[17:30:15.323] SWITCH_STATE_RETURN: Pin=22 State=HIGH
-...
-```
-
----
-
-##  Tests rapides
-
-### Test complet du système
-
-```bash
-# 1. Vérifier la connexion
-python -m tools.bringup.test_usb_detection
-
-# 2. Tester la communication
-python -m tools.bringup.test_communication
-
-# 3. Tester un mouvement simple (script a la racine de rasp/)
-python test_simple_traj.py
-```
-
-### Diagnostic en cas de problème
-
-```bash
-# Afficher les ports disponibles
-python -m tools.bringup.test_usb_detection --list-all
-
-# Test brut de la liaison série
-python -m tools.bringup.test_serial_raw
-
-# Vérifier les messages reçus
-python -m tools.bringup.test_debug_messages --duration 5
-```
-
----
-
-##  Checklist de validation
-
-Avant de tester une nouvelle feature, exécutez dans l'ordre :
-
-- [ ] `test_usb_detection.py` → Teensy détectée
-- [ ] `test_communication.py` → Communication OK
-- [ ] `test_length_messages.py` → Tailles de messages valides
-- [ ] `test_one_motor.py` (pour chaque moteur) → Moteurs fonctionnels
-- [ ] `test_simple_traj.py` → Déplacement complet
-
----
-
-##  Configuration
-
-Les scripts lisent `config.json`, section `serial_config`, pour le numéro de série,
-le vid/pid et le baudrate de la Teensy.
-
-Le mode d'exécution est explicite et se lit dans `ROBOT_MODE` : `hardware` (défaut)
-ou `dummy`. Toute autre valeur lève `ValueError`.
-
-### Exécuter sans Teensy branchée (poste de dev)
-
-```bash
-export ROBOT_MODE=dummy         # PowerShell : $env:ROBOT_MODE='dummy'
-python -m tools.bringup.test_communication
-```
-
-Sans cette variable, l'absence de Teensy lève `ComError: No Device found!`.
-C'est voulu : un robot qui ne parle pas à sa Teensy ne doit pas sembler démarrer.
-
----
-
-##  Dépannage
-
-### Problème : "Port série introuvable"
-
-```bash
-# Vérifier les ports disponibles
-python -m tools.bringup.test_usb_detection --list-all
-
-# Vérifier les permissions (Linux)
-sudo usermod -a -G dialout $USER
-# Puis redémarrer la session
-```
-
-### Problème : "CRC invalide"
-
-```bash
-# Tester avec CRC désactivé (debug uniquement)
-python -m tools.bringup.test_communication --no-crc
-```
-
-### Problème : "Timeout de réception"
-
-```bash
-# Vérifier que la Teensy répond
-python -m tools.bringup.test_serial_raw
-
-# Augmenter le timeout
-python -m tools.bringup.test_communication --timeout 5000  # 5 secondes
-```
-
----
-
-##  Ajouter un nouveau test
-
-Aucun `sys.path` a bricoler : `usb_com` vient de `pip install -e .` (racine du depot)
-et `comm` est resolvable parce que le script se lance avec `-m` depuis `robot1/rasp/`.
+Aucun `sys.path` a bricoler : `usb_com` vient de `pip install -e .` (racine du depot) et
+`robot1.rasp.comm` s'importe de partout depuis l'etape B.
 
 ```python
 #!/usr/bin/env python3
 """Description du test."""
 
+import struct
 import logging
 
-from usb_com import Messages
+from usb_com import Com, Messages
 
-from robot1.rasp.comm import init_robot
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-
-def main():
-    # Initialiser la communication (honore ROBOT_MODE)
-    com, mode = init_robot(logger)
-
-    # Votre test ici
-    logger.info("Test en cours...")
-    com.send_bytes(Messages.SET_TARGET_POSITION.to_bytes())
-    logger.info("Test reussi")
-
-
-if __name__ == "__main__":
-    main()
+from robot1.rasp.comm import get_com_config
 ```
-
-Lancer : `cd robot1/rasp && python -m tools.bringup.mon_test`
-
----
-
-##  Voir aussi
-
-- [Guide de démarrage rapide](../../../Documentation_CDR_Nantes_2026.md#12-guide-de-démarrage-rapide)
-- [Protocole de communication](../../../PROTOCOLE_COMMUNICATION.md)
-- [Module USB Com Python](../../../common/usb_com/python/README.md)

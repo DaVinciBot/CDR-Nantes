@@ -11,21 +11,15 @@ import matplotlib.animation as animation
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import numpy as np
 
+# Debug view of the FROZEN localization.py module: see its docstring.
+# The star import is kept as is, the GUI consumes some forty of its constants.
+# It goes away with the rewrite, not before.
 from .localization import *
 
-# Couche de fusion historique : lidar_processor / fusion_layer n'existent dans
-# aucune branche, FUSION_AVAILABLE vaut donc toujours False. Conserve tel quel,
-# la refonte LiDAR tranchera (doc_ref/TODO.md §5).
-try:
-    from lidar_processor import LidarPoint
-    from fusion_layer import FusionLayer
-    FUSION_AVAILABLE = True
-    FUSION_IMPORT_ERROR = ""
-except Exception as exc:
-    LidarPoint = None
-    FusionLayer = None
-    FUSION_AVAILABLE = False
-    FUSION_IMPORT_ERROR = str(exc)
+# Removed on 11/09/2026: a historical fusion layer (lidar_processor /
+# fusion_layer) imported at the top of this file, present in no branch of the
+# repository. Its FUSION_AVAILABLE flag was therefore always False and the ~35
+# lines of configuration it guarded were unreachable.
 
 # ── COULEURS ──────────────────────────────────────────────────────────────────
 BG       = '#0a0e1a'
@@ -76,49 +70,11 @@ class LidarApp:
         # Artistes balises candidates (affichage temps reel)
         self.beacon_candidate_artists = []
 
-        self.fusion = None
+        # Only remaining localization mode: the auto-beacon one of localization.py.
         self.auto_localization_enabled = AUTO_BEACON_LOCALIZATION
-        self.localization_enabled = False
-        self.localization_error = ""
-
-        if FUSION_AVAILABLE:
-            try:
-                self.fusion = FusionLayer(team_color="blue")
-                self.fusion.initialize_pose(self.robot_x, self.robot_y, self.robot_theta)
-
-                proc = self.fusion.lidar_processor
-                proc.set_sim_mode(False)
-                proc._own_beacons = dict(BEACONS_TEST)
-                proc._adverse_beacons = {}
-                proc._all_beacons = dict(BEACONS_TEST)
-                proc.allow_distance_only_fallback = True
-
-                proc._thresholds = {"beacon": 8, "obstacle": 2}
-                proc.DISTANCE_MIN_MM = POSE_MIN_DIST_MM
-                proc.DISTANCE_MAX_MM = POSE_MAX_DIST_MM
-                proc.OBSTACLE_MAX_DIST_MM = POSE_MAX_DIST_MM
-                proc.CLUSTER_GAP_MM = int(CLUSTER_GAP_MM)
-                proc.CLUSTER_MIN_POINTS = 2
-                proc.BEACON_MAX_RADIUS_MM = int(BEACON_HALF_DEPTH_MM + 40.0)
-                proc.BEACON_MAX_RESIDUAL_RAD = 0.24
-                proc.BEACON_MAX_RESIDUAL_NO_INTENSITY_RAD = 0.36
-
-                self.fusion.MIN_CONFIDENCE_FOR_CORRECTION = 0.12
-                self.fusion.ALPHA_CONFIDENCE_1_0 = 0.95
-                self.fusion.ALPHA_CONFIDENCE_0_5 = 0.75
-                self.localization_enabled = True
-            except Exception as exc:
-                self.localization_error = str(exc)
-        else:
-            self.localization_error = FUSION_IMPORT_ERROR
 
         self._build_ui()
         self._start_lidar()
-
-        if self.localization_error and not self.auto_localization_enabled:
-            self._log(f"[WARN] Localisation desactivee: {self.localization_error}\n")
-        elif self.localization_error and self.auto_localization_enabled:
-            self._log(f"[INFO] Fusion indisponible, mode auto-balises actif: {self.localization_error}\n")
 
         self.ani = animation.FuncAnimation(
             self.fig, self._update_plot,
@@ -244,7 +200,7 @@ class LidarApp:
         self.qual_var = tk.IntVar(value=MIN_QUAL)
         ttk.Scale(panel, from_=0, to=15, orient='horizontal',
                   variable=self.qual_var).pack(fill='x', pady=(4, 0))
-        self.lbl_qual = tk.Label(panel, text=f"≥ {MIN_QUAL}",
+        self.lbl_qual = tk.Label(panel, text=f">= {MIN_QUAL}",
                                  bg=BG2, fg=ACCENT, font=('Courier New', 10))
         self.lbl_qual.pack(pady=(2, 6))
 
@@ -449,7 +405,7 @@ class LidarApp:
         This GUI method just displays the calculated pose.
         """
         latest_pose = get_corrected_pose()
-        
+
         if latest_pose and latest_pose.is_localized and latest_pose.confidence >= AUTO_POSE_MIN_CONFIDENCE:
             # Accept the corrected pose from SVD
             self._accept_pose(
@@ -756,16 +712,13 @@ class LidarApp:
             self.status_var.set(
                 f"{self.thread_status} | auto-balises {loc_txt} {self.pose_confidence:.2f}"
             )
-        elif self.localization_enabled:
-            loc_txt = "LOC" if self.pose_localized else "NO-LOC"
-            self.status_var.set(f"{self.thread_status} | {loc_txt} {self.pose_confidence:.2f}")
         else:
             self.status_var.set(f"{self.thread_status} | localisation off")
 
         max_dist = self.range_var.get()
         min_qual = self.qual_var.get()
         self.lbl_range.config(text=f"{max_dist} mm")
-        self.lbl_qual.config(text=f"≥ {min_qual}")
+        self.lbl_qual.config(text=f">= {min_qual}")
 
         # ── Recuperation des donnees ───────────────────────────────────────────
         data          = get_latest_scan_data()

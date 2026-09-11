@@ -4,16 +4,14 @@
 import struct
 import time
 import logging
-import sys
-from pathlib import Path
+
+from usb_com import Messages
+
+# Initialisation du lien Com (mode lu dans ROBOT_MODE)
+from robot1.rasp.comm import init_robot
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-
-#A mettre partout dans les codes python
-# Initialisation du lien Com (mode lu dans ROBOT_MODE)
-from robot1.rasp.comm import init_robot
 
 com, mode = init_robot(logger)
 
@@ -22,7 +20,7 @@ def handle_position(data: bytes) -> None:
     """Callback pour recevoir la position du robot."""
     if len(data) >= 24:
         x, y, theta = struct.unpack('<ddd', data[:24])
-        logger.info(f" Position robot: X={x:.2f}mm, Y={y:.2f}mm, θ={theta:.4f}rad")
+        logger.info(f" Position robot: X={x:.2f}mm, Y={y:.2f}mm, theta={theta:.4f}rad")
     else:
         logger.warning(f" Message trop court: {len(data)} bytes")
 
@@ -31,7 +29,7 @@ def send_position(x, y, theta, com, description=""):
     msg = Messages.SET_TARGET_POSITION.to_bytes()
     msg += struct.pack('<ddd', x, y, theta)
     com.send_bytes(msg)
-    logger.info(f" {description}: X={x}mm, Y={y}mm, θ={theta}rad")
+    logger.info(f" {description}: X={x}mm, Y={y}mm, theta={theta}rad")
 
 
 def send_reset_odometry(com):
@@ -39,7 +37,7 @@ def send_reset_odometry(com):
     msg = Messages.SET_ODOMETRIE.to_bytes()
     msg += struct.pack('<ddd', 0.0, 0.0, 0.0)
     com.send_bytes(msg)
-    logger.info(" Odométrie remise à zéro (0, 0, 0) → robot IDLE")
+    logger.info(" Odométrie remise à zéro (0, 0, 0) -> robot IDLE")
 
 
 com.add_callback(handle_position, Messages.UPDATE_ROLLING_BASIS.value)

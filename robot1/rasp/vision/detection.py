@@ -1,16 +1,17 @@
-"""
-detection.py
-──────────────────
-Détection du robot adverse par LiDAR A2M12 — version simple.
+"""Opponent detection from the A2M12 LiDAR.
 
-Centroïde brut du cluster + lissage temporel + gating de vitesse.
-Pas de fit géométrique : marche quelle que soit la forme de l'objet.
+Raw cluster centroid, exponential smoothing, speed gating. No geometric fit, so
+it works whatever the shape of the object.
 
-API publique :
-    start()                        → lance le thread LiDAR
-    stop()                         → arrête proprement
-    get_opponent()                 → (x_mm, y_mm, confiance) ou None
-    update_robot_pose(x, y, theta) → appelé depuis robot.py à chaque update()
+This is the only perception layer the match loop (app.py) uses. The beacon and
+SVD stack lives in localization.py and is frozen, see vision/README.md.
+
+Public API:
+    start()                        start the acquisition thread, returns success
+    stop()                         stop it cleanly
+    get_opponent()                 (x_mm, y_mm, confidence) or None
+    get_status()                   (connected, last_error)
+    update_robot_pose(x, y, theta) called by app.py on every update()
 """
 
 import math
@@ -23,44 +24,47 @@ from typing import Optional, Tuple, List
 import numpy as np
 from rplidar import RPLidar
 
+from .lidar_config import BAUDRATE, PORT, TIMEOUT
+
 logger = logging.getLogger("LIDAR_DETECT")
 
 # ── CONFIGURATION ─────────────────────────────────────────────────────────────
+# Serial link: PORT / BAUDRATE / TIMEOUT come from config.json through
+# lidar_config.py. Never hardcode a port here, it is what silently disabled
+# opponent detection on the robot until 11/09/2026.
 
-# Matériel
-PORT     = 'COM5'
-BAUDRATE = 256000
-TIMEOUT  = 3
+# Filters
+MIN_DIST_MM    = 200     # reliable dead zone of the A2M12
+DETECT_DIST_MM = 1500    # < 520 mm hides the walls of the test field
+                         # CDR value: 1500
+MIN_QUALITY    = 5       # RPLidar quality (0-15), filters out noise
+                         # lower to 5-7 if too many points are dropped
 
-# Filtres
-MIN_DIST_MM    = 200     # dead zone fiable du A2M12
-DETECT_DIST_MM = 1500     # < 520mm → murs du terrain test invisibles
-                         # CDR : remonter à 1500
-MIN_QUALITY    = 5      # qualité RPLidar (0–15), filtre le bruit
-                         # baisser à 5-7 si trop de pertes de points
-
-# Terrain (mm)
-# Test : 1040 × 1040     CDR : 3000 × 2000
+# Field (mm)
+# Test field: 1040 x 1040   CDR field: 3000 x 2000
 FIELD_W      = 3000
 FIELD_H      = 2000
-FIELD_MARGIN = 500       # CDR : 500
+FIELD_MARGIN = 500       # CDR value: 500
 
 # Clustering
-CLUSTER_GAP_MM  = 80     # distance max entre 2 points consécutifs d'un cluster
-CLUSTER_MIN_PTS = 3      # cluster trop petit = bruit
+CLUSTER_GAP_MM  = 80     # max distance between two consecutive points of a cluster
+CLUSTER_MIN_PTS = 3      # a cluster this small is noise
 
-# Tracking temporel
-MAX_MISSED_SCANS    = 5        # scans sans détection avant oubli
-ALPHA_SMOOTH        = 0.4      # lissage exponentiel (0=très lisse, 1=brut)
-MAX_OPP_SPEED_MM_S  = 2500     # vitesse max plausible adversaire CDR
-STALE_TIMEOUT_S     = 0.5      # timeout de fraîcheur
+# Time tracking
+MAX_MISSED_SCANS    = 5        # scans without detection before forgetting
+ALPHA_SMOOTH        = 0.4      # exponential smoothing (0=very smooth, 1=raw)
+MAX_OPP_SPEED_MM_S  = 2500     # plausible max opponent speed at the CDR
+STALE_TIMEOUT_S     = 0.5      # freshness timeout
 
-# Offset angulaire LiDAR (degrés)
-# 0   si câble LiDAR = avant du robot
-# 180 si câble LiDAR = arrière du robot
+# LiDAR angular offset (degrees)
+# 0   if the LiDAR cable points to the front of the robot
+# 180 if it points to the rear
 ANGLE_OFFSET_DEG = 0
 
-# ── ÉTAT PARTAGÉ ──────────────────────────────────────────────────────────────
+# How long start() waits for the first successful connection.
+CONNECT_TIMEOUT_S = 3.0
+
+# ── SHARED STATE ──────────────────────────────────────────────────────────────
 
 @dataclass
 class _OpponentState:
@@ -76,17 +80,24 @@ class _RobotPose:
     y:     float = 0.0
     theta: float = 0.0
 
+@dataclass
+class _Status:
+    connected:  bool = False
+    last_error: str  = ""
+
 _opponent      = _OpponentState()
 _robot_pose    = _RobotPose()
+_status        = _Status()
 _opponent_lock = threading.Lock()
 _pose_lock     = threading.Lock()
+_status_lock   = threading.Lock()
 _running       = False
 _thread: Optional[threading.Thread] = None
 
-# ── API PUBLIQUE ──────────────────────────────────────────────────────────────
+# ── PUBLIC API ────────────────────────────────────────────────────────────────
 
 def update_robot_pose(x: float, y: float, theta: float) -> None:
-    """Met à jour la pose du robot (odométrie Teensy)."""
+    """Update the robot pose (Teensy odometry)."""
     with _pose_lock:
         _robot_pose.x     = x
         _robot_pose.y     = y
@@ -94,10 +105,7 @@ def update_robot_pose(x: float, y: float, theta: float) -> None:
 
 
 def get_opponent() -> Optional[Tuple[float, float, float]]:
-    """
-    Retourne (x_mm, y_mm, confiance) ou None.
-    Coordonnées dans le repère terrain.
-    """
+    """Return (x_mm, y_mm, confidence) in field coordinates, or None."""
     with _opponent_lock:
         if _opponent.confidence < 0.1 or _opponent.timestamp == 0.0:
             return None
@@ -106,32 +114,65 @@ def get_opponent() -> Optional[Tuple[float, float, float]]:
         return (_opponent.x, _opponent.y, _opponent.confidence)
 
 
-def start() -> None:
-    """Lance le thread d'acquisition LiDAR."""
+def get_status() -> Tuple[bool, str]:
+    """Return (connected, last_error) of the acquisition thread."""
+    with _status_lock:
+        return _status.connected, _status.last_error
+
+
+def start(timeout_s: float = CONNECT_TIMEOUT_S) -> bool:
+    """Start the acquisition thread and wait for the LiDAR to answer.
+
+    Returns True once the LiDAR is connected. A failure is logged as an error
+    and returned to the caller: an acquisition thread that dies on its own must
+    never look like a working detection.
+    """
     global _running, _thread
     if _thread and _thread.is_alive():
-        logger.warning("Thread LiDAR déjà actif.")
-        return
+        logger.warning("Thread LiDAR deja actif.")
+        return get_status()[0]
+
+    with _status_lock:
+        _status.connected  = False
+        _status.last_error = ""
+
     _running = True
     _thread = threading.Thread(target=_lidar_loop, daemon=True, name="LidarDetect")
     _thread.start()
-    logger.info("Thread LiDAR démarré.")
+
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        connected, error = get_status()
+        if connected:
+            logger.info("Thread LiDAR demarre.")
+            return True
+        if error or not _thread.is_alive():
+            break
+        time.sleep(0.05)
+
+    _, error = get_status()
+    logger.error(
+        "LiDAR indisponible sur %s : %s",
+        PORT,
+        error or f"aucune reponse en {timeout_s:.1f} s",
+    )
+    return False
 
 
 def stop() -> None:
-    """Arrête proprement le thread LiDAR (attente max 3 s)."""
+    """Stop the acquisition thread cleanly (waits up to 3 s)."""
     global _running
     _running = False
     if _thread:
         _thread.join(timeout=3.0)
-    logger.info("Thread LiDAR arrêté.")
+    logger.info("Thread LiDAR arrete.")
 
-# ── TRAITEMENT D'UN SCAN ─────────────────────────────────────────────────────
+# ── SCAN PROCESSING ───────────────────────────────────────────────────────────
 
 def _process_scan(raw_scan) -> None:
-    """Traite un scan complet : filtre → terrain → cluster → tracking."""
+    """Process one full scan: filter, project to field, cluster, track."""
 
-    # 1. Filtre qualité/distance + projection repère robot
+    # 1. Quality and distance filter, then projection into the robot frame
     pts_robot = []
     for quality, angle_deg, dist_mm in raw_scan:
         if dist_mm < MIN_DIST_MM or dist_mm > DETECT_DIST_MM:
@@ -145,7 +186,7 @@ def _process_scan(raw_scan) -> None:
         _mark_missed()
         return
 
-    # 2. Conversion en coordonnées terrain
+    # 2. Conversion to field coordinates
     with _pose_lock:
         rx, ry, rtheta = _robot_pose.x, _robot_pose.y, _robot_pose.theta
 
@@ -162,7 +203,7 @@ def _process_scan(raw_scan) -> None:
         _mark_missed()
         return
 
-    # 3. Clustering angulaire
+    # 3. Angular clustering
     pts_sorted = sorted(pts_terrain,
                         key=lambda p: math.atan2(p[1] - ry, p[0] - rx))
 
@@ -177,7 +218,12 @@ def _process_scan(raw_scan) -> None:
             current.append(pts_sorted[i])
     clusters.append(current)
 
-    # 4. Meilleur cluster : le plus proche avec assez de points
+    # 4. Best cluster: the closest one with enough points.
+    #    KNOWN LIMITATION: nothing tells a wall, a beacon mast or a fixed
+    #    obstacle apart from the opponent. Whatever stands closest within
+    #    DETECT_DIST_MM wins. Only DETECT_DIST_MM and the field bounding box
+    #    keep it honest today. To be validated in match conditions before the
+    #    rewrite, see doc_ref/TODO.md section 6.
     best = None
     best_dist = float('inf')
     for cluster in clusters:
@@ -192,7 +238,7 @@ def _process_scan(raw_scan) -> None:
             conf = min(1.0, len(cluster) / 8.0)
             best = (cx, cy, conf, len(cluster))
 
-    # 5. Mise à jour avec lissage + gating
+    # 5. Update with smoothing and gating
     now = time.time()
     with _opponent_lock:
         if best is None:
@@ -203,20 +249,20 @@ def _process_scan(raw_scan) -> None:
 
         cx, cy, conf, npts = best
 
-        # Gating : rejette les sauts physiquement impossibles
+        # Gating: reject physically impossible jumps
         if _opponent.confidence > 0.1 and _opponent.missed < MAX_MISSED_SCANS:
             dt = max(now - _opponent.timestamp, 0.05)
             max_jump = MAX_OPP_SPEED_MM_S * dt
             jump = math.hypot(cx - _opponent.x, cy - _opponent.y)
             if jump > max_jump:
-                logger.debug(f"GATING saut={jump:.0f}mm > max={max_jump:.0f}mm → rejeté")
+                logger.debug(f"GATING saut={jump:.0f}mm > max={max_jump:.0f}mm -> rejete")
                 _opponent.missed += 1
                 return
-            # Lissage exponentiel
+            # Exponential smoothing
             _opponent.x = ALPHA_SMOOTH * cx + (1 - ALPHA_SMOOTH) * _opponent.x
             _opponent.y = ALPHA_SMOOTH * cy + (1 - ALPHA_SMOOTH) * _opponent.y
         else:
-            # Nouvelle détection : pas de lissage
+            # New detection: no smoothing
             _opponent.x = cx
             _opponent.y = cy
 
@@ -230,22 +276,31 @@ def _process_scan(raw_scan) -> None:
 
 
 def _mark_missed() -> None:
-    """Incrémente le compteur d'absence."""
+    """Increment the miss counter."""
     with _opponent_lock:
         _opponent.missed += 1
         if _opponent.missed > MAX_MISSED_SCANS:
             _opponent.confidence = 0.0
 
-# ── THREAD D'ACQUISITION ─────────────────────────────────────────────────────
+# ── ACQUISITION THREAD ────────────────────────────────────────────────────────
+
+def _set_status(connected: bool, error: str = "") -> None:
+    """Publish the state of the acquisition thread for get_status()."""
+    with _status_lock:
+        _status.connected = connected
+        if error:
+            _status.last_error = error
+
 
 def _lidar_loop() -> None:
-    """Boucle d'acquisition. Tourne dans un thread daemon."""
+    """Acquisition loop. Runs in a daemon thread."""
     lidar = None
     try:
         lidar = RPLidar(PORT, baudrate=BAUDRATE, timeout=TIMEOUT)
         lidar._serial.flushInput()
         time.sleep(0.5)
-        logger.info(f"LiDAR connecté sur {PORT}.")
+        _set_status(True)
+        logger.info(f"LiDAR connecte sur {PORT}.")
 
         try:
             scan_iter = lidar.iter_scans(max_buf_meas=1500, min_len=20)
@@ -258,8 +313,10 @@ def _lidar_loop() -> None:
             _process_scan(scan)
 
     except Exception as exc:
-        logger.error(f"Erreur LiDAR : {exc}")
+        _set_status(False, str(exc))
+        logger.error(f"Erreur LiDAR sur {PORT} : {exc}")
     finally:
+        _set_status(False)
         if lidar is not None:
             try:
                 lidar.stop()
@@ -267,4 +324,4 @@ def _lidar_loop() -> None:
                 lidar.disconnect()
             except Exception:
                 pass
-        logger.info("Thread LiDAR terminé.")
+        logger.info("Thread LiDAR termine.")

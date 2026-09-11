@@ -10,32 +10,32 @@ class StratManager:
     def __init__(self, couleur_equipe: str):
         self.logger = logging.getLogger("STRAT")
         self.couleur_equipe = couleur_equipe
-        self.etape_actuelle = 0 
+        self.etape_actuelle = 0
         self.liste_actions = self._generer_strategie()
-        
+
         # UTILISATION D'UNE SENTINELLE 'None' (Au lieu de 0.0)
         self.chrono_action = None
 
     def _generer_strategie(self):
-        """Génère la liste des actions à effectuer pendant les 90s."""
+        """Génère la liste des actions à effectuer pendant le match."""
         actions = []
-        
+
         # Exemple de match :
         # 1. Sortir de la zone de départ
         actions.append(Action(TypeAction.DEPLACEMENT, cible_x=500, cible_y=500))
-        
+
         # 2. Aller devant un pot
         actions.append(Action(TypeAction.DEPLACEMENT, cible_x=1200, cible_y=800))
-        
+
         # 3. Baisser le bras
         actions.append(Action(TypeAction.ACTIONNEUR, nom_actionneur="BAISSER_BRAS"))
-        
+
         # 4. Attendre 1 seconde que le bras descende
         actions.append(Action(TypeAction.ATTENTE, temps_attente=1.0))
-        
+
         # 5. Retourner à la base
         actions.append(Action(TypeAction.DEPLACEMENT, cible_x=200, cible_y=200))
-        
+
         return actions
 
     def get_action_actuelle(self):
@@ -62,8 +62,8 @@ class StratManager:
         """Passe à la mission suivante et réinitialise le chrono."""
         if self.etape_actuelle < len(self.liste_actions):
             action_finie = self.liste_actions[self.etape_actuelle]
-            self.logger.info(f"✅ Action terminée : {action_finie.type.name}")
-            
+            self.logger.info(f"[OK] Action terminée : {action_finie.type.name}")
+
             self.etape_actuelle += 1
             # ON RÉINITIALISE LE CHRONO ICI
             self.chrono_action = None

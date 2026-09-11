@@ -1,3 +1,24 @@
+"""Beacon extraction and SVD Umeyama 2D pose correction. FROZEN MODULE.
+
+Actual state: the computation runs in lidar_thread() and is exposed by
+get_corrected_pose(), but the match loop does not apply it. Its only consumers
+are the debug GUI (gui.py) and the Rerun bridge. Neither pending nor dead:
+computed, not wired in, never validated on the robot.
+
+FROZEN means it is no longer patched case by case. The beacon layout and the
+table are CDR 2026, the 2027 rules are not out, and the forty-odd empirical
+thresholds below were tuned on a test field that no longer exists. Rewriting it
+or dropping it is decided after the logging campaign and replay/ (doc_ref/TODO.md
+sections 3 and 5).
+
+What is worth carrying over to the rewrite, as mathematics and not as code: the
+Umeyama SVD (_compute_corrected_pose), the candidate extraction
+(_extract_beacon_candidates_fast) and the Hungarian assignment (_hungarian_assign).
+
+The opponent detection of this module (_detect_opponent_fast, get_latest_opponent)
+duplicates detection.py and is only used by the GUI.
+"""
+
 import itertools
 import logging
 import math
@@ -13,6 +34,9 @@ from rplidar import RPLidar
 # Source unique: dimensions du terrain + layout des balises.
 from robot1.rasp import world
 from robot1.rasp.world import BeaconLayout
+
+# Single source of truth: the LiDAR serial link (config.json / LIDAR_PORT).
+from .lidar_config import BAUDRATE, PORT, TIMEOUT
 
 FIELD_WIDTH_MM  = float(world.FIELD_WIDTH_MM)
 FIELD_HEIGHT_MM = float(world.FIELD_HEIGHT_MM)
@@ -51,9 +75,9 @@ BEACON_SIZE_MM = float(BeaconLayout.BEACON_SIZE_MM)
 
 
 # ── CONFIG RUNTIME LIDAR ──────────────────────────────────────────────────────
-PORT      = '/dev/ttyUSB0'
-BAUDRATE  = 256000
-TIMEOUT   = 3
+# Port / baudrate / timeout: single source of truth in config.json, through
+# lidar_config. Never redefine a port here, both LiDAR stacks must target the
+# same hardware (they cannot open it at the same time).
 MIN_DIST  = 50
 MAX_DIST  = 12000
 MIN_QUAL  = 2
@@ -304,9 +328,9 @@ def _detect_opponent_fast(
     Détecte le robot adverse via clustering angulaire O(N).
 
     Filtres :
-      1. Taille cluster : rayon ∈ [ROBOT_MIN_RADIUS_MM, ROBOT_MAX_RADIUS_MM]
+      1. Taille cluster : rayon  dans  [ROBOT_MIN_RADIUS_MM, ROBOT_MAX_RADIUS_MM]
       2. Exclusion balises : distance > OPPONENT_BEACON_EXCLUSION_MM
-      3. Contrainte terrain : x ∈ [-50, MAP_W+50], y ∈ [-50, MAP_H+50]
+      3. Contrainte terrain : x  dans  [-50, MAP_W+50], y  dans  [-50, MAP_H+50]
       4. Linéarité PCA : rejeter si trop linéaire (= balise)
     """
     if not merged_data or len(merged_data) < 3:
@@ -419,7 +443,7 @@ _last_correction_time = 0.0
 # ── UTILITAIRES ───────────────────────────────────────────────────────────────
 
 def _angle_diff(a1: float, a2: float) -> float:
-    """Différence angulaire minimale avec wrap-around [0, π]."""
+    """Différence angulaire minimale avec wrap-around [0, pi]."""
     return abs((a1 - a2 + math.pi) % (2 * math.pi) - math.pi)
 
 
@@ -432,7 +456,7 @@ def _hungarian_assign(
     cand_dists: Dict,
 ) -> Dict[int, int]:
     """
-    Association optimale candidats→balises par comparaison de distances.
+    Association optimale candidats->balises par comparaison de distances.
     Max 3! = 6 permutations pour 3 balises.
     """
     k          = min(len(candidates), len(beacon_ids))
@@ -710,7 +734,7 @@ def _predict_beacon_windows(
 def _extract_beacon_candidates_fast(points) -> List[Dict]:
     """
     Extrait les candidats-balises depuis un scan fusionné.
-    Pipeline : distance → qualité → clustering angulaire → validation face.
+    Pipeline : distance -> qualité -> clustering angulaire -> validation face.
     """
     if not points:
         return []
@@ -1006,7 +1030,7 @@ def get_latest_beacon_candidates() -> List[Dict]:
 # ── API PUBLIQUE — POSE ET ADVERSAIRE ────────────────────────────────────────
 
 def get_latest_pose() -> PoseState:
-    """Alias de compatibilité → get_corrected_pose()."""
+    """Alias de compatibilité -> get_corrected_pose()."""
     return get_corrected_pose()
 
 

@@ -35,8 +35,8 @@ def lire_couleur_equipe() -> str:
     Lit le switch de couleur et retourne "BLUE" ou "YELLOW".
     À appeler dans main.py AVANT de créer Robot().
 
-    Switch pressé (pin LOW) → BLUE
-    Switch relâché (pin HIGH) → YELLOW
+    Switch pressé (pin LOW) -> BLUE
+    Switch relâché (pin HIGH) -> YELLOW
     """
     pin = Button(PIN_COULEUR, pull_up=True)
     couleur = "BLUE" if pin.is_pressed else "YELLOW"
@@ -62,8 +62,18 @@ class Robot:
         self.terrain = Terrain(self.couleur)
         self.cerveau = PathFinder(self.terrain)
 
-        # 2. Démarrer LiDAR (détection adversaire)
-        lidar.start()
+        # 2. Demarrer LiDAR (detection adversaire)
+        # start() waits for the connection and returns False when the LiDAR
+        # does not answer. Without this check the acquisition thread died on
+        # its own and get_opponent() returned None for the whole match,
+        # silently.
+        if not lidar.start():
+            _, erreur = lidar.get_status()
+            self.logger.error(
+                "Détection adversaire INDISPONIBLE (%s). "
+                "Le robot roulera sans évitement dynamique.",
+                erreur or "cause inconnue",
+            )
 
         # 4. Communication USB
         self.Messages       = Messages
@@ -88,7 +98,7 @@ class Robot:
 
         self.logger.info(
             f"Position de départ [{self.couleur}] : "
-            f"X={start_x:.0f}mm  Y={start_y:.0f}mm  θ={math.degrees(start_theta):.1f}°"
+            f"X={start_x:.0f}mm  Y={start_y:.0f}mm  theta={math.degrees(start_theta):.1f}°"
         )
 
         with self.lock:
@@ -137,7 +147,7 @@ class Robot:
         msg  = self.Messages.SET_TARGET_POSITION.to_bytes()
         msg += struct.pack('<ddd', x, y, theta)
         self.com.send_bytes(msg)
-        self.logger.debug(f"{description}: X={x:.1f}, Y={y:.1f}, θ={theta:.2f}")
+        self.logger.debug(f"{description}: X={x:.1f}, Y={y:.1f}, theta={theta:.2f}")
 
     def _send_odometry_correction(
         self,
@@ -151,7 +161,7 @@ class Robot:
         self.com.send_bytes(msg)
         self.logger.info(
             f"Correction odométrie: X={corrected_x:.1f}, "
-            f"Y={corrected_y:.1f}, θ={corrected_theta:.3f}"
+            f"Y={corrected_y:.1f}, theta={corrected_theta:.3f}"
         )
 
     # ── BOUCLE PRINCIPALE ─────────────────────────────────────────────────────
@@ -279,11 +289,6 @@ class Robot:
         self.logger.info("Arrêt du LiDAR…")
         lidar.stop()
 
-        self._pin_tirette.close()
-
-        if hasattr(self, 'actionneurs'):
-            try:
-                self.actionneurs.ranger_bras()
-                self.logger.info("Bras replié.")
-            except Exception as e:
-                self.logger.error(f"Erreur fermeture bras: {e}")
+        # None in simulation: patched_init creates no GPIO pin.
+        if self._pin_tirette is not None:
+            self._pin_tirette.close()

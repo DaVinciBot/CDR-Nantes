@@ -8,9 +8,9 @@ importables sans toucher a sys.path) :
   python -m telemetry.rerun_bridge --mode serve --with-lidar --port 9876
 
 Modes :
-  --mode local        → viewer spawné localement (dev PC)
-  --mode serve        → serve_grpc port 9876 (stream vers PC distant)
-  --mode connect      → connect_grpc vers viewer externe
+  --mode local        -> viewer spawné localement (dev PC)
+  --mode serve        -> serve_grpc port 9876 (stream vers PC distant)
+  --mode connect      -> connect_grpc vers viewer externe
 
 Depuis test_sim_mode.py :
   from robot1.rasp.telemetry import rerun_bridge as rb
@@ -66,7 +66,7 @@ W  = 3000.0
 H  = 2000.0
 CX = W / 2   # 1500
 CY = H / 2   # 1000
-TERRAIN_DIAG_MM = math.sqrt(W**2 + H**2)  # ≈ 3606 mm
+TERRAIN_DIAG_MM = math.sqrt(W**2 + H**2)  # ~ 3606 mm
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Couleurs RGBA uint8
@@ -269,7 +269,7 @@ def log_static_map() -> None:
 
 def _log_playmat() -> None:
     if not PLAYMAT_PATH.exists():
-        logger.warning("Playmat introuvable → table verte unie")
+        logger.warning("Playmat introuvable -> table verte unie")
         rr.log("world/map/table", rr.Boxes3D(
             centers=[[CX, CY, 1]], half_sizes=[[W/2, H/2, 1]], colors=[C_TABLE],
         ), static=True)
@@ -703,7 +703,7 @@ def create_blueprint() -> rrb.Blueprint:
                 rrb.TimeSeriesView(name="Position Teensy (mm)",  origin="data/teensy"),
                 rrb.TimeSeriesView(name="Lidar",                 origin="data/lidar"),
                 rrb.TimeSeriesView(name="Fusionné",              origin="data/fused"),
-                rrb.TimeSeriesView(name="Écart odom↔lidar",     origin="data/fusion"),
+                rrb.TimeSeriesView(name="Écart odom<->lidar",     origin="data/fusion"),
                 column_shares=[3, 2, 2, 2],
             ),
             row_shares=[2, 1],
@@ -728,16 +728,16 @@ def main() -> None:
 
     if args.mode == "local":
         rr.spawn()
-        logger.info("🖥  Viewer local spawné")
+        logger.info("  Viewer local spawné")
 
     elif args.mode == "serve":
         rr.serve_grpc(grpc_port=args.port, server_memory_limit="200MB")
-        logger.info("🌐 serve_grpc actif sur port %d", args.port)
-        logger.info("   Sur ton PC : rerun --connect rerun+http://<IP_RASP>:%d/proxy", args.port)
+        logger.info(" serve_grpc actif sur port %d", args.port)
+        logger.info("  Sur ton PC : rerun --connect rerun+http://<IP_RASP>:%d/proxy", args.port)
 
     elif args.mode == "connect":
         rr.connect_grpc(f"rerun+http://{args.host}:{args.port}/proxy")
-        logger.info("🔗 Connecté au viewer gRPC %s:%d", args.host, args.port)
+        logger.info(" Connecté au viewer gRPC %s:%d", args.host, args.port)
 
     rr.send_blueprint(create_blueprint())
     log_static_map()
@@ -745,16 +745,27 @@ def main() -> None:
     lidar_poll = None
     if args.with_lidar:
         try:
+            from robot1.rasp.vision.localization import start_lidar_thread
+
             lidar_poll = make_lidar_poll()
-            logger.info("✓ Lidar polling activé")
-        except ImportError:
-            logger.warning("vision.localization indisponible")
+            # Starting the thread was missing: the poll queried an empty state
+            # at 20 Hz and --with-lidar never displayed anything (11/09/2026).
+            start_lidar_thread(
+                lambda msg: logger.info("LIDAR %s", str(msg).rstrip()),
+                lambda msg: logger.info("LIDAR statut : %s", msg),
+            )
+            logger.info("Thread LiDAR demarre, polling actif")
+        except ImportError as exc:
+            logger.warning("vision.localization indisponible : %s", exc)
+            lidar_poll = None
 
     if args.sim:
-        logger.info("🎮 Simulation interne activée")
+        logger.info("Simulation interne activee")
         threading.Thread(target=simulation_loop, daemon=True).start()
-    elif not args.with_lidar:
-        # Hardware Teensy
+    else:
+        # Teensy hardware. Independent from the LiDAR: both must be able to
+        # run together, otherwise the bridge never shows odometry and pose
+        # correction side by side, which is what it exists for.
         try:
             from usb_com import Messages
 
@@ -762,13 +773,17 @@ def main() -> None:
             com, mode = init_robot(logger)
             com.add_callback(make_odom_callback(),
                              Messages.UPDATE_ROLLING_BASIS.value)
-            logger.info("✅ Teensy connecté (mode %s)", mode)
+            logger.info("Teensy connectee (mode %s)", mode)
         except Exception as e:
-            logger.error("❌ Teensy indisponible : %s", e)
-            logger.error("   Relancez avec --sim ou --with-lidar")
-            raise SystemExit(1)
+            if lidar_poll is not None:
+                logger.warning(
+                    "Teensy indisponible (%s) : poursuite en LiDAR seul.", e)
+            else:
+                logger.error("Teensy indisponible : %s", e)
+                logger.error("  Relancez avec --sim ou --with-lidar")
+                raise SystemExit(1)
 
-    logger.info("▶ Publication Rerun à 20 Hz")
+    logger.info("> Publication Rerun à 20 Hz")
     publish_loop(hz=20.0, lidar_poll=lidar_poll)
 
 

@@ -36,7 +36,12 @@ Arguments (`argparse` dans `rerun_bridge.py`) :
 | `--host` | `0.0.0.0` | hote pour `serve` / `connect` |
 | `--port` | `9876` | port gRPC |
 | `--sim` | off | simulation interne (robot en cercle, nuage synthetique) |
-| `--with-lidar` | off | polling du LiDAR hardware via `vision/localization.py` |
+| `--with-lidar` | off | demarre le thread LiDAR de `vision/localization.py` (module **gele**) et publie ses scans, balises et pose SVD |
+
+`--with-lidar` ne coupe plus la Teensy : depuis le 11/09/2026 les deux sources
+coexistent, et le pont montre odometrie et recalage cote a cote. Jusque-la
+l'option se contentait d'interroger un etat vide, le thread LiDAR n'etant jamais
+demarre (`doc_ref/CHANGELOG.md`).
 
 En mode `serve`, on **attache le viewer Rerun** au flux gRPC (viewer natif ou
 `rerun --connect rerun+http://<IP_RASP>:9876/proxy`), ce n'est pas une page web a ouvrir

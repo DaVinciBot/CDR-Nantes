@@ -11,7 +11,7 @@ def adapter_coordonnees(x_bleu, y_bleu, angle_bleu):
     - BLEU: (1775, 2700)  — haut-gauche
     - JAUNE: (1775, 300)  — bas-gauche
     
-    Symétrie Y uniquement (miroir haut ↔ bas), PAS de symétrie X.
+    Symétrie Y uniquement (miroir haut <-> bas), PAS de symétrie X.
     """
     if couleur_equipe == "BLEU":
         # On ne change rien, le code a été pensé pour ce côté

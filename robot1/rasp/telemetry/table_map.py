@@ -179,9 +179,9 @@ def log_static_map():
                 ),
                 static=True,
             )
-            print(f"  ✓ Playmat texturé {playmat_path.name}")
+            print(f"  [OK] Playmat texturé {playmat_path.name}")
     except Exception as e:
-        print(f"  ⚠ Playmat error: {e} → table verte fallback")
+        print(f"  [WARN] Playmat error: {e} -> table verte fallback")
         rr.log(
             "world/map/table",
             rr.Boxes3D(
@@ -199,7 +199,7 @@ def log_static_map():
             rr.Mesh3D(vertex_positions=verts, triangle_indices=tris, vertex_colors=cols),
             static=True,
         )
-    print(f"  ✓ {len(BEACONS_MM)} balises")
+    print(f"  [OK] {len(BEACONS_MM)} balises")
 
     # ── Supports (BeaconSupport.proto) ──
     support_centers = np.array([s["pos"] + [100] for s in SUPPORTS_MM], dtype=np.float32)
@@ -210,7 +210,7 @@ def log_static_map():
         rr.Boxes3D(centers=support_centers, half_sizes=support_half, colors=support_colors),
         static=True,
     )
-    print(f"  ✓ {len(SUPPORTS_MM)} supports")
+    print(f"  [OK] {len(SUPPORTS_MM)} supports")
 
     # ── Zones de calcul (CalculationZone.proto) ──
     calc_centers = np.array([c["pos"] for c in CALC_ZONES_MM], dtype=np.float32)
@@ -221,7 +221,7 @@ def log_static_map():
         rr.Boxes3D(centers=calc_centers, half_sizes=calc_halves, colors=calc_colors),
         static=True,
     )
-    print(f"  ✓ {len(CALC_ZONES_MM)} zones calcul")
+    print(f"  [OK] {len(CALC_ZONES_MM)} zones calcul")
 
     # ── Grenier (Attic) ──
     rr.log(
@@ -233,7 +233,7 @@ def log_static_map():
         ),
         static=True,
     )
-    print(f"  ✓ Grenier")
+    print(f"  [OK] Grenier")
 
     # ── Murs (BaseTable.proto) ──
     wall_centers = np.array([w["c"] for w in WALLS_MM], dtype=np.float32)
@@ -244,7 +244,7 @@ def log_static_map():
         rr.Boxes3D(centers=wall_centers, half_sizes=wall_halves, colors=wall_colors),
         static=True,
     )
-    print(f"  ✓ {len(WALLS_MM)} murs")
+    print(f"  [OK] {len(WALLS_MM)} murs")
 
     # ── Caisses (Crate*.proto) ──
     crate_centers = np.array([c["center"] for c in CRATES_MM], dtype=np.float32)
@@ -255,9 +255,9 @@ def log_static_map():
         rr.Boxes3D(centers=crate_centers, half_sizes=crate_halves, colors=crate_colors),
         static=True,
     )
-    print(f"  ✓ {len(CRATES_MM)} caisses")
+    print(f"  [OK] {len(CRATES_MM)} caisses")
 
-    print("✓ Carte complète publiée!")
+    print("[OK] Carte complète publiée!")
 
 
 def create_blueprint():

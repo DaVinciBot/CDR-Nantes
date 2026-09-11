@@ -29,11 +29,11 @@ robot1/rasp/
 ├── main.py             point d'entree du match
 ├── app.py              boucle de match / machine a etats (classe Robot)
 ├── world.py            geometrie table, balises, symetrie BLEU/JAUNE
-├── config.json         identifiants Teensy (lu par comm/)
+├── config.json         identifiants Teensy + port LiDAR (comm/, vision/)
 │
 ├── comm/               lien Teensy : mode d'execution + creation du Com
 ├── nav/                navigation A*
-├── vision/             LiDAR : detection adversaire, recalage balises, GUI debug
+├── vision/             LiDAR : detection adversaire (production) + recalage balises (gele)
 ├── strategy/           machine a etats strategie (stub hardcode)
 ├── telemetry/          pont de visualisation Rerun
 │
@@ -43,8 +43,11 @@ robot1/rasp/
 └── tests/              scripts de test historiques                  HORS package
 ```
 
-Chaque module du haut (`comm`, `nav`, `vision`, `strategy`, `telemetry`) est un package avec son
-`__init__.py` : les symboles publics sont ceux qu'il exporte.
+Chaque module du haut (`comm`, `nav`, `strategy`, `telemetry`) est un package avec son
+`__init__.py` : les symboles publics sont ceux qu'il exporte. `vision/` fait exception depuis le
+11/09/2026 : son `__init__.py` n'exporte **rien**, pour qu'importer la detection d'adversaire ne
+tire pas avec elle les 1000 lignes du recalage balises et une tentative d'import de tkinter.
+On y importe le sous-module voulu, jamais le package.
 
 `tools/` et `tests/` n'ont **volontairement pas** d'`__init__.py` : ce ne sont pas des
 dependances du robot, juste des namespaces de lancement. Consequence pratique, ils se lancent en
@@ -55,7 +58,7 @@ dependances du robot, juste des namespaces de lancement. Consequence pratique, i
 | `comm` | `from robot1.rasp.comm import init_robot` | ouvre le lien Teensy, lit `ROBOT_MODE`. Point d'insertion du futur mode `sim2d`. |
 | `nav` | `from robot1.rasp.nav import PathFinder` | A* sur grille 50 mm, inflation d'obstacles. |
 | `vision` | `from robot1.rasp.vision import detection` | detection adversaire (la seule couche utilisee par `app.py`). |
-| `vision` | `from robot1.rasp.vision import get_corrected_pose` | recalage SVD balises : calcule et expose, **pas applique** par la boucle de match. |
+| `vision` | `from robot1.rasp.vision.localization import get_corrected_pose` | recalage SVD balises : calcule et expose, **pas applique** par la boucle de match. Module **gele**, voir [vision/README.md](vision/README.md). |
 | `strategy` | `from robot1.rasp.strategy import StratManager, TypeAction` | sequence d'actions (stub hardcode). |
 | `telemetry` | `from robot1.rasp.telemetry import rerun_bridge` | publication Rerun, best-effort. |
 | `world` | `from robot1.rasp.world import Terrain, BeaconLayout` | dimensions table, obstacles fixes, balises. |
@@ -104,6 +107,17 @@ qui ne parle pas a sa Teensy ne doit pas sembler demarrer. Toute autre valeur de
 Les identifiants de la Teensy (`serial_number`, `vid`, `pid`, `baudrate`) vivent dans
 `config.json`, section `serial_config` : c'est la seule source de verite.
 
+Le port du LiDAR suit la meme regle, section `lidar_config`, avec une surcharge ponctuelle par
+`LIDAR_PORT` :
+
+```bash
+LIDAR_PORT=COM5 python -m vision           # PC Windows, sans toucher config.json
+```
+
+Il etait ecrit en dur dans `vision/detection.py` (`COM5`) jusqu'au 11/09/2026, ce qui privait le
+match de toute detection d'adversaire sur la Raspberry Pi, sans message d'erreur autre qu'une
+ligne noyee dans le log. Detail : [vision/README.md](vision/README.md).
+
 ## Ou est passee la doc de `rasp/`
 
 Il n'y a plus de dossier `doc/` : ce README et les README de chaque module sont la seule doc du
@@ -126,7 +140,7 @@ Detail de chaque suppression et de ce qui a ete extrait : `doc_ref/CHANGELOG.md`
 | --- | --- | --- |
 | `tools/bringup/` | bring-up **materiel** : liaison serie, detection USB, un moteur. Outils qu'on lance a la main face au robot. | `python -m tools.bringup.<script>` |
 | `tools/manual/` | **pilotage manuel** du robot complet : envoi de consignes x/y/theta. | `python -m tools.manual.<script>` |
-| `tests/` | scripts de test **du code** (CDR 2026), historiques. Pas de framework, pas d'assertions collectees. Trois sur cinq sont casses. | `python -m tests.<script>` |
+| `tests/` | scripts de test **du code** (CDR 2026), historiques. Pas de framework, pas d'assertions collectees. Il en reste deux : les trois casses ont ete supprimes le 11/09/2026. | `python -m tests.<script>` |
 
 Detail et etat de chacun : [tests/README.md](tests/README.md) et
 [tools/bringup/README.md](tools/bringup/README.md).

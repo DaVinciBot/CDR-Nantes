@@ -4,14 +4,13 @@
 import struct
 import time
 import logging
-import sys
-from pathlib import Path
+
+from usb_com import Messages
+
+from robot1.rasp.comm import init_robot
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-
-from robot1.rasp.comm import init_robot
 
 com, mode = init_robot(logger)
 
@@ -19,7 +18,7 @@ com, mode = init_robot(logger)
 def handle_position(data: bytes) -> None:
     if len(data) >= 24:
         x, y, theta = struct.unpack('<ddd', data[:24])
-        logger.info(f"  Position reçue : X={x:.1f}mm  Y={y:.1f}mm  θ={theta:.4f}rad ({theta*57.2958:.1f}°)")
+        logger.info(f"  Position reçue : X={x:.1f}mm  Y={y:.1f}mm  theta={theta:.4f}rad ({theta*57.2958:.1f}°)")
     else:
         logger.warning(f"  Message trop court : {len(data)} bytes")
 
@@ -29,7 +28,7 @@ def send_position(x: float, y: float, theta: float, description: str = "") -> No
     msg += struct.pack('<ddd', x, y, theta)
     com.send_bytes(msg)
     label = f" [{description}]" if description else ""
-    logger.info(f"→ Envoi{label} : X={x}mm  Y={y}mm  θ={theta}rad ({theta*57.2958:.1f}°)")
+    logger.info(f"-> Envoi{label} : X={x}mm  Y={y}mm  theta={theta}rad ({theta*57.2958:.1f}°)")
 
 
 com.add_callback(handle_position, Messages.UPDATE_ROLLING_BASIS.value)
@@ -71,13 +70,13 @@ else:
 
         parts = raw.split()
         if len(parts) != 3:
-            print("  ✗ Format : x y theta_rad  (3 valeurs séparées par des espaces)")
+            print("  [FAIL] Format : x y theta_rad  (3 valeurs séparées par des espaces)")
             continue
 
         try:
             x, y, theta = float(parts[0]), float(parts[1]), float(parts[2])
         except ValueError:
-            print("  ✗ Valeurs non numériques, réessaie.")
+            print("  [FAIL] Valeurs non numériques, réessaie.")
             continue
 
         send_position(x, y, theta)
