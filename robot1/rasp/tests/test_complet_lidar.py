@@ -34,13 +34,6 @@ from pathlib import Path
 from typing import Optional, List, Tuple, Dict
 from collections import deque
 
-# ── Chemin ───────────────────────────────────────────────────────────────────
-# robot1/rasp, pour que world / nav / vision soient importables quand ce fichier
-# est lance directement. Inutile via `python -m test.test_complet_lidar`.
-ROOT = Path(__file__).resolve().parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
@@ -89,7 +82,7 @@ def record(name: str, passed: bool) -> bool:
 def test_terrain(color: str = "BLUE") -> bool:
     header("TEST 1 — world : dimensions, obstacles, balises, symétrie")
     try:
-        from world import Terrain, BeaconLayout, FIELD_WIDTH_MM, FIELD_HEIGHT_MM
+        from robot1.rasp.world import Terrain, BeaconLayout, FIELD_WIDTH_MM, FIELD_HEIGHT_MM
 
         section("Dimensions")
         assert FIELD_WIDTH_MM == 3000, f"WIDTH attendu 3000, got {FIELD_WIDTH_MM}"
@@ -146,8 +139,8 @@ def test_terrain(color: str = "BLUE") -> bool:
 def test_pathfinder(color: str = "BLUE") -> bool:
     header("TEST 2 — pathfinder : A*, grille, inflation, chemin")
     try:
-        from world import Terrain
-        from nav import PathFinder
+        from robot1.rasp.world import Terrain
+        from robot1.rasp.nav import PathFinder
 
         terrain = Terrain(color)
         pf = PathFinder(terrain)
@@ -212,8 +205,8 @@ def test_pathfinder(color: str = "BLUE") -> bool:
 def test_strategy(color: str = "BLUE") -> bool:
     header("TEST 3 — strategy : StratManager, chrono, actions")
     try:
-        from strategy import Action, TypeAction
-        from strategy import StratManager
+        from robot1.rasp.strategy import Action, TypeAction
+        from robot1.rasp.strategy import StratManager
 
         section("Création StratManager")
         strat = StratManager(color)
@@ -362,7 +355,7 @@ def test_complementary_filter(color: str = "BLUE") -> bool:
 def test_lidar_logic_static(color: str = "BLUE") -> bool:
     header("TEST 5 — lidar_logic : constantes, BEACONS, SVD Umeyama (hors thread)")
     try:
-        from vision.localization import (
+        from robot1.rasp.vision.localization import (
             BEACONS_BY_ID, BEACON_WINDOW_ANGLE_RAD, BEACON_WINDOW_DIST_MM,
             POSE_CORRECTION_MIN_CONFIDENCE, POSE_CORRECTION_MIN_BEACONS,
             POSE_SEND_BACK_INTERVAL_S, BEACON_FIT_MAX_RMS_MM,
@@ -468,7 +461,7 @@ def test_lidar_thread_basic(duration_sec: int = 15, color: str = "BLUE") -> bool
     header(f"TEST 6 — Thread LiDAR réel : scan, balises ({duration_sec}s)")
     print("  ⚡  Ce test nécessite le LiDAR branché sur /dev/ttyUSB0")
     try:
-        from vision.localization import (
+        from robot1.rasp.vision.localization import (
             start_lidar_thread, stop_lidar_runtime,
             get_latest_scan_data, get_latest_beacon_candidates,
             get_corrected_pose, update_teensy_pose, set_team_color,
@@ -579,11 +572,11 @@ def test_lidar_interface(duration_sec: int = 20, color: str = "BLUE") -> bool:
     header(f"TEST 7 — LidarInterface : get_fused_position, get_opponent ({duration_sec}s)")
     print("  ⚡  Nécessite LiDAR branché")
     try:
-        from vision.localization import (
+        from robot1.rasp.vision.localization import (
             start_lidar_thread, stop_lidar_runtime,
             update_teensy_pose, set_team_color,
         )
-        from vision import LidarInterface
+        from robot1.rasp.vision import LidarInterface
 
         set_team_color(color)
 
@@ -653,14 +646,14 @@ def test_full_pipeline(duration_sec: int = 30, color: str = "BLUE") -> bool:
     header(f"TEST 8 — Pipeline complet : LiDAR→SVD→filtre→pathfinder ({duration_sec}s)")
     print("  ⚡  Nécessite LiDAR branché — Teensy simulée par injection de pose")
     try:
-        from world import Terrain
-        from nav import PathFinder
-        from vision.localization import (
+        from robot1.rasp.world import Terrain
+        from robot1.rasp.nav import PathFinder
+        from robot1.rasp.vision.localization import (
             start_lidar_thread, stop_lidar_runtime,
             update_teensy_pose, get_corrected_pose,
             should_send_correction_to_teensy, set_team_color,
         )
-        from vision import LidarInterface
+        from robot1.rasp.vision import LidarInterface
 
         set_team_color(color)
         terrain = Terrain(color)

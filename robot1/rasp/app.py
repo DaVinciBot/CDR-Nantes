@@ -8,11 +8,11 @@ from gpiozero import Button
 
 from usb_com import Messages
 
-from comm import init_robot
-from nav import PathFinder
-from strategy import StratManager, TypeAction
-from vision import detection as lidar
-from world import Terrain
+from robot1.rasp.comm import init_robot
+from robot1.rasp.nav import PathFinder
+from robot1.rasp.strategy import StratManager, TypeAction
+from robot1.rasp.vision import detection as lidar
+from robot1.rasp.world import Terrain
 
 # ── PINS GPIO ─────────────────────────────────────────────────────────────────
 PIN_COULEUR = 26
@@ -21,7 +21,7 @@ PIN_TIRETTE = 19
 # ── IMPORT OPTIONNEL RERUN ────────────────────────────────────────────────────
 # La telemetrie est best-effort : son absence ne doit jamais empecher un match.
 try:
-    from telemetry import rerun_bridge
+    from robot1.rasp.telemetry import rerun_bridge
     HAS_RERUN = True
 except Exception:
     rerun_bridge = None

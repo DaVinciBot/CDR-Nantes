@@ -7,7 +7,7 @@ Importing rerun_bridge pulls in the rerun SDK, which is optional on a dev
 machine. Callers that tolerate its absence should guard the import:
 
     try:
-        from telemetry import rerun_bridge
+        from robot1.rasp.telemetry import rerun_bridge
     except ImportError:
         rerun_bridge = None
 

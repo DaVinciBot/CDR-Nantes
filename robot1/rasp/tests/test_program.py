@@ -7,17 +7,11 @@ import sys
 import time
 from pathlib import Path
 
-# Rend robot1/rasp importable quand ce fichier est lance directement.
-# Inutile via `python -m test.test_program` depuis robot1/rasp.
-_RASP_DIR = str(Path(__file__).resolve().parent.parent)
-if _RASP_DIR not in sys.path:
-    sys.path.insert(0, _RASP_DIR)
-
 # =================================================================
 # --- AJOUT: Import de mes modules d'IA et de LiDAR ---
-from world import Terrain
-from nav import PathFinder
-from vision import LidarInterface
+from robot1.rasp.world import Terrain
+from robot1.rasp.nav import PathFinder
+from robot1.rasp.vision import LidarInterface
 # =================================================================
 
 # Créer un logger simple
@@ -27,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 #A mettre partout dans les codes python
 # Initialisation du lien Com (mode lu dans ROBOT_MODE)
-from comm import init_robot
+from robot1.rasp.comm import init_robot
 
 com, mode = init_robot(logger)
 

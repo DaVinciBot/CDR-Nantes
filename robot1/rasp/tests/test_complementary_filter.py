@@ -13,13 +13,7 @@ import math
 import sys
 from pathlib import Path
 
-# Rend robot1/rasp importable quand ce fichier est lance directement.
-# Inutile via `python -m test.test_complementary_filter` depuis robot1/rasp.
-_RASP_DIR = str(Path(__file__).resolve().parent.parent)
-if _RASP_DIR not in sys.path:
-    sys.path.insert(0, _RASP_DIR)
-
-from app import Robot
+from robot1.rasp.app import Robot
 
 
 def test_complementary_filter_low_confidence():

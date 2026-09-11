@@ -11,8 +11,8 @@ import numpy as np
 from rplidar import RPLidar
 
 # Source unique: dimensions du terrain + layout des balises.
-import world
-from world import BeaconLayout
+from robot1.rasp import world
+from robot1.rasp.world import BeaconLayout
 
 FIELD_WIDTH_MM  = float(world.FIELD_WIDTH_MM)
 FIELD_HEIGHT_MM = float(world.FIELD_HEIGHT_MM)

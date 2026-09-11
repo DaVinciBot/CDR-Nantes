@@ -123,7 +123,7 @@ def init_robot(logger=None):
         tuple: (com, mode) where mode is "HARDWARE" or "DUMMY".
 
     Example:
-        from comm import init_robot
+        from robot1.rasp.comm import init_robot
 
         com, mode = init_robot(logger)
     """

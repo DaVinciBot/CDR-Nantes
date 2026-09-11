@@ -16,13 +16,16 @@ pip install -e .                  # rend usb_com / teensy importables partout
 pip install -r requirements.txt   # dependances tierces (gpiozero : Raspberry Pi seulement)
 ```
 
-`pip install -e .` remplace l'ancien `loader.py` et ses `sys.path.insert`. Sans lui,
-`from usb_com import Com, Messages` echoue.
+`pip install -e .` remplace l'ancien `loader.py` et ses `sys.path.insert`. Il rend importables,
+depuis n'importe quel repertoire courant, `usb_com` / `teensy` (depuis `common/`) **et
+`robot1.rasp`** (depuis la racine du depot). Sans lui, `from usb_com import Com, Messages` et
+`from robot1.rasp.nav import PathFinder` echouent tous les deux.
 
 ## Structure
 
 ```text
 robot1/rasp/
+├── __init__.py         vide : fait de `rasp` le package `robot1.rasp`
 ├── main.py             point d'entree du match
 ├── app.py              boucle de match / machine a etats (classe Robot)
 ├── world.py            geometrie table, balises, symetrie BLEU/JAUNE
@@ -34,26 +37,28 @@ robot1/rasp/
 ├── strategy/           machine a etats strategie (stub hardcode)
 ├── telemetry/          pont de visualisation Rerun
 │
-├── tools/bringup/      scripts de bring-up materiel (liaison serie, moteurs)
-├── test/               scripts de test historiques, hors chemin de prod
-├── doc/                notes de travail
-├── test_simple_traj.py test de deplacement interactif (garde a la racine)
-├── move_robot.py       deplacement manuel x/y/theta
-└── code_changement_couleur.py
+│
+├── tools/bringup/      bring-up materiel (liaison serie, moteurs)   HORS package
+├── tools/manual/       pilotage manuel du robot                     HORS package
+└── tests/              scripts de test historiques                  HORS package
 ```
 
-Chaque sous-dossier est un package avec son `__init__.py` : les symboles publics
-sont ceux qu'il exporte.
+Chaque module du haut (`comm`, `nav`, `vision`, `strategy`, `telemetry`) est un package avec son
+`__init__.py` : les symboles publics sont ceux qu'il exporte.
+
+`tools/` et `tests/` n'ont **volontairement pas** d'`__init__.py` : ce ne sont pas des
+dependances du robot, juste des namespaces de lancement. Consequence pratique, ils se lancent en
+`-m` **depuis `robot1/rasp/`**, alors que `robot1.rasp.*` s'importe de partout.
 
 | Module | Import | Role |
 | -------- | -------- | ------ |
-| `comm` | `from comm import init_robot` | ouvre le lien Teensy, lit `ROBOT_MODE`. Point d'insertion du futur mode `sim2d`. |
-| `nav` | `from nav import PathFinder` | A* sur grille 50 mm, inflation d'obstacles. |
-| `vision` | `from vision import detection` | detection adversaire (la seule couche utilisee par `app.py`). |
-| `vision` | `from vision import get_corrected_pose` | recalage SVD balises : calcule et expose, **pas applique** par la boucle de match. |
-| `strategy` | `from strategy import StratManager, TypeAction` | sequence d'actions (stub hardcode). |
-| `telemetry` | `from telemetry import rerun_bridge` | publication Rerun, best-effort. |
-| `world` | `from world import Terrain, BeaconLayout` | dimensions table, obstacles fixes, balises. |
+| `comm` | `from robot1.rasp.comm import init_robot` | ouvre le lien Teensy, lit `ROBOT_MODE`. Point d'insertion du futur mode `sim2d`. |
+| `nav` | `from robot1.rasp.nav import PathFinder` | A* sur grille 50 mm, inflation d'obstacles. |
+| `vision` | `from robot1.rasp.vision import detection` | detection adversaire (la seule couche utilisee par `app.py`). |
+| `vision` | `from robot1.rasp.vision import get_corrected_pose` | recalage SVD balises : calcule et expose, **pas applique** par la boucle de match. |
+| `strategy` | `from robot1.rasp.strategy import StratManager, TypeAction` | sequence d'actions (stub hardcode). |
+| `telemetry` | `from robot1.rasp.telemetry import rerun_bridge` | publication Rerun, best-effort. |
+| `world` | `from robot1.rasp.world import Terrain, BeaconLayout` | dimensions table, obstacles fixes, balises. |
 
 ## Lancer
 
@@ -66,11 +71,19 @@ python main.py                                  # match (robot reel)
 python -m vision                                # GUI debug LiDAR
 python -m telemetry.rerun_bridge --mode serve --with-lidar --port 9876
 python -m tools.bringup.test_communication      # bring-up liaison serie
+python -m tools.manual.move_robot               # pilotage manuel x/y/theta
 ```
 
-Le `python -m` n'est pas cosmetique : il place `robot1/rasp` en tete de `sys.path`,
-ce qui rend `world`, `comm` et `vision` importables depuis un sous-package sans
-toucher a `sys.path`.
+Le `-m` sert ici a resoudre `vision`, `telemetry`, `tools` et `tests` **en tant que chemins**,
+via le repertoire courant : d'ou l'obligation d'etre dans `robot1/rasp/`. Le code du robot,
+lui, ne depend plus du repertoire courant depuis l'etape B (11/09/2026) — il s'importe en
+`robot1.rasp.<module>` et fonctionne de partout :
+
+```bash
+cd n-importe-ou
+python -m robot1.rasp.main                      # le match, sans se soucier du cwd
+python -c "from robot1.rasp.nav import PathFinder"
+```
 
 ## Mode d'execution
 
@@ -91,30 +104,43 @@ qui ne parle pas a sa Teensy ne doit pas sembler demarrer. Toute autre valeur de
 Les identifiants de la Teensy (`serial_number`, `vid`, `pid`, `baudrate`) vivent dans
 `config.json`, section `serial_config` : c'est la seule source de verite.
 
-## doc/
+## Ou est passee la doc de `rasp/`
 
-- `TESTING_LIDAR_INTEGRATION.md` - approche de test LiDAR par niveaux (partiellement perime,
-  bandeau en tete).
-- `../ODOMETRY_CORRECTION_IMPLEMENTATION.md` - algo SVD Umeyama + filtre complementaire
-  (le filtre decrit n'est pas branche sur la boucle de match - cf. TODO §5).
+Il n'y a plus de dossier `doc/` : ce README et les README de chaque module sont la seule doc du
+code. Le reste vit dans `doc_ref/` (non commite) et `DocVB/cdr/nantes/Info/` (publie).
 
-Les analyses d'etat des lieux (`CODEBASE_ANALYSIS_2026*`, `ETAT_DES_LIEUX_PYTHON`,
-`PLAN_REDUCTION_RASP`) ont ete retirees le 09/09/2026 : perimees et redondantes avec le
-suivi `doc_ref/` (voir `doc_ref/CHANGELOG.md`).
+- `doc/TESTING_LIDAR_INTEGRATION.md` et `ODOMETRY_CORRECTION_IMPLEMENTATION.md` : **supprimes**
+  (09/09 et 11/09/2026). Ce qui valait d'etre garde - seuils d'acceptation du LiDAR, courbe alpha
+  du filtre complementaire adaptatif - a ete extrait dans `doc_ref/PLAN_REFONTE` §7 avant
+  suppression. Etat du SVD : `doc_ref/TODO.md` §5.
+- Les 4 `telemetry/RERUN_*.md` (96 Ko) : **supprimes** le 11/09/2026, voir
+  [telemetry/README.md](telemetry/README.md).
+- Les analyses d'etat des lieux (`CODEBASE_ANALYSIS_2026*`, `ETAT_DES_LIEUX_PYTHON`,
+  `PLAN_REDUCTION_RASP`) : retirees le 09/09/2026, perimees et redondantes avec `doc_ref/`.
 
-## Deux emplacements de scripts, deux usages
+Detail de chaque suppression et de ce qui a ete extrait : `doc_ref/CHANGELOG.md`.
+
+## Trois emplacements de scripts, trois usages
 
 | Dossier | Usage | Lancer |
 | --- | --- | --- |
 | `tools/bringup/` | bring-up **materiel** : liaison serie, detection USB, un moteur. Outils qu'on lance a la main face au robot. | `python -m tools.bringup.<script>` |
-| `test/` | scripts de test **du code** (CDR 2026), historiques. Pas de framework, pas d'assertions collectees. Trois sur cinq sont casses. | `python -m test.<script>` |
+| `tools/manual/` | **pilotage manuel** du robot complet : envoi de consignes x/y/theta. | `python -m tools.manual.<script>` |
+| `tests/` | scripts de test **du code** (CDR 2026), historiques. Pas de framework, pas d'assertions collectees. Trois sur cinq sont casses. | `python -m tests.<script>` |
 
-Detail et etat de chacun : [test/README.md](test/README.md) et
+Detail et etat de chacun : [tests/README.md](tests/README.md) et
 [tools/bringup/README.md](tools/bringup/README.md).
 
-`test_simple_traj.py`, `move_robot.py` et `code_changement_couleur.py` restent a la racine :
-ce sont des utilitaires de pilotage manuel, pas des tests.
+La racine de `rasp/` ne porte plus que du chemin de production. `move_robot.py` et
+`test_simple_traj.py` sont descendus dans `tools/manual/` le 11/09/2026.
 
-> `test/` masque le package `test` de la bibliotheque standard quand le repertoire courant est
-> `robot1/rasp`. Sans consequence ici (rien n'importe le `test` du stdlib), mais c'est la raison
-> pour laquelle la convention Python est plutot `tests/` au pluriel.
+`code_changement_couleur.py` y est aussi, mais **mis de cote**, pas comme un outil : il double le
+mecanisme de couleur d'equipe deja en production (`app.py::lire_couleur_equipe` -> `Robot` ->
+`Terrain` / `StratManager`, symetrie dans `world.py`), avec une symetrie **contradictoire** - Y
+(`y = 2000 - y`) la ou `world.py` fait X (`x = FIELD_WIDTH_MM - x`). Ne pas le rebrancher sans
+avoir tranche lequel des deux axes est le bon : la reponse ira dans `world.py`, pas ici
+(`doc_ref/TODO.md` §2).
+
+> Le dossier s'appelait `test/` jusqu'au 10/09/2026 : il masquait alors le package `test` de la
+> bibliotheque standard quand le repertoire courant est `robot1/rasp`. Renomme `tests/`, au
+> pluriel, conformement a la convention Python.

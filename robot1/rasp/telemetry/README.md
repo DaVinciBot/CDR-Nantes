@@ -71,12 +71,14 @@ Toutes les positions en mm, angles en radians, repere table `(0,0)` en bas-gauch
 |---------|------|
 | `rerun_bridge.py` | pont principal (etat partage, API, boucle de publication, modes reseau) |
 | `table_map.py` | publie le terrain statique (playmat, balises, zones, murs, caisses), geometrie codee en dur, aucune dependance simulateur |
-| `map_assets/eurobot2026/` | textures + `.proto` de la table |
-| `RERUN_QUICK_START.md` | prise en main |
-| `RERUN_DATA_FLOW_INTEGRATION.md` | flux de donnees, integration `robot.py`, API detaillee |
-| `RERUN_ARCHITECTURE_TECHNICAL.md` | architecture, threads, perf |
-| `RERUN_INTEGRATION_EXAMPLES.md` | exemples d'integration copier-coller |
+| `map_assets/eurobot2026/textures/playmat_2026.jpg` | tapis de la table, seule ressource encore utilisee (par `table_map.py` et `rerun_bridge.py`) |
 
-> Les 4 `RERUN_*.md` sont anterieurs au passage en `serve_grpc` : la ou ils disent
-> "ouvrir http://RaspIP:9876 dans un navigateur", voir la section "Lancer" ci-dessus.
-> Ils seront consolides a la refonte.
+> **Les 4 `RERUN_*.md` (96 Ko) ont ete supprimes le 11/09/2026** : anterieurs au passage en
+> `serve_grpc`, ils decrivaient encore `robot.py` (devenu `app.py`) et une ouverture du pont dans
+> un navigateur. Le pont sera elague a la refonte (`PLAN_REFONTE` §13) ; ce README est desormais
+> la seule doc du module. Contenu recuperable dans `git log`.
+>
+> Supprime en meme temps : les 11 `.proto` **Webots** de `map_assets/eurobot2026/table/` et les
+> textures `playmat_grid.jpg` / `attic.jpg` / `crate.png`, que rien ne referencait (3,1 Mo).
+> `table_map.py` cite toujours les `.proto` en commentaire : c'est la provenance des cotes qu'il
+> porte en dur, pas un fichier qu'il charge.

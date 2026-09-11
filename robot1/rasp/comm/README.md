@@ -15,7 +15,7 @@ robot : quel mode tourne, et quelle classe de transport cela implique.
 ## Utilisation
 
 ```python
-from comm import init_robot
+from robot1.rasp.comm import init_robot
 
 com, mode = init_robot(logger)   # mode vaut "HARDWARE" ou "DUMMY"
 ```

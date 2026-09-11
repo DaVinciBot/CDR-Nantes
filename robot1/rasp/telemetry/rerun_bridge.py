@@ -13,7 +13,7 @@ Modes :
   --mode connect      → connect_grpc vers viewer externe
 
 Depuis test_sim_mode.py :
-  from telemetry import rerun_bridge as rb
+  from robot1.rasp.telemetry import rerun_bridge as rb
   rb.rr.init(...)  +  rb.rr.spawn() ou rb.rr.serve_grpc()
   rb.rr.send_blueprint(rb.create_blueprint())
   rb.log_static_map()
@@ -96,7 +96,7 @@ C_OBS     = [255,  50,  50, 200]
 
 # Balises — chargées depuis world.py si dispo, sinon fallback
 try:
-    from world import BeaconLayout
+    from robot1.rasp.world import BeaconLayout
     BEACONS_MM = sorted([pos for pos in BeaconLayout.BEACONS.values()])
     logger.info(f"Balises depuis world.py : {BEACONS_MM}")
 except (ImportError, AttributeError) as e:
@@ -424,7 +424,7 @@ def make_odom_callback():
 
 
 def make_lidar_poll():
-    from vision.localization import (
+    from robot1.rasp.vision.localization import (
         get_latest_scan_data,
         get_latest_beacon_candidates,
         get_corrected_pose,
@@ -758,7 +758,7 @@ def main() -> None:
         try:
             from usb_com import Messages
 
-            from comm import init_robot
+            from robot1.rasp.comm import init_robot
             com, mode = init_robot(logger)
             com.add_callback(make_odom_callback(),
                              Messages.UPDATE_ROLLING_BASIS.value)

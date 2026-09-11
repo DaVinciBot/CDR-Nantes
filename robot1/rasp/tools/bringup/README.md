@@ -243,7 +243,7 @@ import logging
 
 from usb_com import Messages
 
-from comm import init_robot
+from robot1.rasp.comm import init_robot
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

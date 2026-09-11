@@ -28,22 +28,16 @@ from pathlib import Path
 from typing import Optional, Tuple
 from collections import deque
 
-# Rend robot1/rasp importable quand ce fichier est lance directement.
-# Inutile via `python -m test.test_lidar_correction_integration` depuis robot1/rasp.
-_RASP_DIR = str(Path(__file__).resolve().parent.parent)
-if _RASP_DIR not in sys.path:
-    sys.path.insert(0, _RASP_DIR)
-
 import math
 
 # Configuration des chemins
 
 # Imports robot + lidar
-from comm import init_robot
-from world import Terrain
+from robot1.rasp.comm import init_robot
+from robot1.rasp.world import Terrain
 
 try:
-    from vision.localization import (
+    from robot1.rasp.vision.localization import (
         get_latest_scan_data,
         start_lidar_thread,
         stop_lidar_runtime,
@@ -354,7 +348,7 @@ def test_level_4_complementary_filter(duration_sec: int = 30):
     print("="*70)
     
     try:
-        from app import Robot
+        from robot1.rasp.app import Robot
         
         logger.info("Création instance Robot...")
         robot = Robot("BLEU")

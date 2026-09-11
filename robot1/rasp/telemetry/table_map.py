@@ -24,7 +24,7 @@ TEXTURES_DIR = _DIR / "map_assets" / "eurobot2026" / "textures"
 
 # Charger positions depuis world.py
 try:
-    from world import BeaconLayout
+    from robot1.rasp.world import BeaconLayout
     BEACONS_POS = BeaconLayout.BEACONS
 except ImportError:
     # Fallback: positions codées

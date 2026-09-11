@@ -7,7 +7,7 @@ import logging
 
 from usb_com import Com, Messages
 
-from comm import get_com_config
+from robot1.rasp.comm import get_com_config
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)

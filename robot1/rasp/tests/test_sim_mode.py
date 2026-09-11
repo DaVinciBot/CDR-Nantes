@@ -18,12 +18,6 @@ import subprocess
 from enum import Enum
 from pathlib import Path
 
-# Rend robot1/rasp importable quand ce fichier est lance directement.
-# Inutile via `python -m test.test_sim_mode` depuis robot1/rasp.
-_RASP_DIR = str(Path(__file__).resolve().parent.parent)
-if _RASP_DIR not in sys.path:
-    sys.path.insert(0, _RASP_DIR)
-
 # Configuration logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("SIM")
@@ -178,7 +172,7 @@ class MockStrategy:
     """Mock du manager de stratégie."""
     
     def __init__(self, team_color="YELLOW"):
-        from strategy import TypeAction
+        from robot1.rasp.strategy import TypeAction
         self.TypeAction = TypeAction
         # Points choisis pour éviter les obstacles gonflés du PathFinder:
         # - Grenier gonflé approx: x in [440,2560], y in [1390,2160]
@@ -258,10 +252,12 @@ def inject_mocks():
         return com, "SIMULATION"
 
     # Remplacer dans sys.modules, AVANT tout import de app.py :
-    #   - comm      : le lien Teensy devient le mock odometrique
-    #   - usb_com   : app.py fait "from usb_com import Messages"
-    sys.modules['comm'] = type(sys)('comm')
-    sys.modules['comm'].init_robot = mock_init_robot
+    #   - robot1.rasp.comm : le lien Teensy devient le mock odometrique
+    #   - usb_com          : app.py fait "from usb_com import Messages"
+    # Le nom doit etre celui qu'app.py importe reellement, sinon le mock n'intercepte
+    # rien et le test ouvre le vrai port serie (cf. etape B du 11/09/2026).
+    sys.modules['robot1.rasp.comm'] = type(sys)('robot1.rasp.comm')
+    sys.modules['robot1.rasp.comm'].init_robot = mock_init_robot
 
     sys.modules['usb_com'] = type(sys)('usb_com')
     sys.modules['usb_com'].Messages = MockMessages
@@ -286,8 +282,8 @@ def patch_robot_for_sim(robot_class):
         self._last_correction_sent_time = 0.0
         
         # Terrain
-        from world import Terrain
-        from nav import PathFinder
+        from robot1.rasp.world import Terrain
+        from robot1.rasp.nav import PathFinder
         self.terrain = Terrain(couleur_equipe)
         self.cerveau = PathFinder(self.terrain)
         
@@ -331,7 +327,7 @@ def main_sim(with_rerun=False, rerun_mode="local", rerun_port=9876):
 
             # Import normal : telemetry/ est un package, plus besoin de
             # spec_from_file_location ni d'injection dans sys.modules.
-            from telemetry import rerun_bridge as rb
+            from robot1.rasp.telemetry import rerun_bridge as rb
 
             # Init Rerun
             rb.rr.init("eurobot_2026")
@@ -367,7 +363,7 @@ def main_sim(with_rerun=False, rerun_mode="local", rerun_port=9876):
     inject_mocks()
 
     # ── Patch Robot ───────────────────────────────────────────────────────────
-    from app import Robot
+    from robot1.rasp.app import Robot
     patch_robot_for_sim(Robot)
 
     logger.info("\n" + "="*70)

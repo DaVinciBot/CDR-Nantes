@@ -17,7 +17,13 @@ dependencies = []
 # quel repertoire courant :
 #     from usb_com.python.com import Com
 #     from usb_com.python.messages import Messages
+#     from robot1.rasp.nav import PathFinder
 # Cela remplace le sys.path bricole par l'ancien robot1/rasp/loader.py.
+#
+# Deux racines de recherche : `common/` pour les briques partagees, et la racine du
+# depot pour `robot1`. `include` filtre strictement, et `find` (par opposition a
+# `find_namespace`) exige un `__init__.py` : les dossiers de firmware
+# `robot1/teensy_*` n'en ont pas, ils ne sont donc jamais empaquetes.
 [tool.setuptools.packages.find]
-where = ["common"]
-include = ["usb_com*", "teensy*"]
+where = ["common", "."]
+include = ["usb_com*", "teensy*", "robot1*"]

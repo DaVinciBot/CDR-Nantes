@@ -7,7 +7,7 @@ import logging
 
 from usb_com import Com, Messages
 
-from comm import get_com_config
+from robot1.rasp.comm import get_com_config
 
 # Configuration du logging très détaillé
 logging.basicConfig(
