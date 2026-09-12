@@ -1,19 +1,5 @@
 {
-    "usb_com": {
-        "module_path": "../../common/usb_com/python",
-        "classes": {
-            "Com": "com.com.Com",
-            "DummyCom": "com.dummy.DummyCom",
-            "Messages": "messages.Messages"
-        }
-    },
-    "teensy": {
-        "module_path": "../../common/teensy",
-        "classes": {
-            "BaseTeensy": "base_teensy.BaseTeensy",
-            "GPIOTeensy": "gpio_teensy.GPIOTeensy"
-        }
-    },
+    "_comment": "Source unique des identifiants materiels. Lu par comm/context.py (serial_config) et vision/lidar_config.py (lidar_config). Le mode d'execution n'est PAS ici : il vient de la variable d'environnement ROBOT_MODE (hardware | dummy). Le port LiDAR peut etre surcharge par la variable LIDAR_PORT.",
     "serial_config": {
         "serial_number": 17795370,
         "vid": 5824,
@@ -21,5 +7,10 @@
         "baudrate": 115200,
         "enable_crc": true,
         "enable_dummy": false
+    },
+    "lidar_config": {
+        "port": "/dev/ttyUSB0",
+        "baudrate": 256000,
+        "timeout": 3
     }
 }

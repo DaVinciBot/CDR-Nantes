@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cdr-nantes-common"
+version = "0.1.0"
+description = "Briques partagees du robot holonome CDR-Nantes (liaison USB Teensy, helpers Teensy)"
+requires-python = ">=3.11"
+
+# Volontairement vide : les dependances tierces restent dans requirements.txt.
+# gpiozero ne s'installe que sur Raspberry Pi, le declarer ici casserait
+# `pip install -e .` sur un poste de dev.
+dependencies = []
+
+# `pip install -e .` depuis la racine du depot rend importables, depuis n'importe
+# quel repertoire courant :
+#     from usb_com.python.com import Com
+#     from usb_com.python.messages import Messages
+#     from robot1.rasp.nav import PathFinder
+# Cela remplace le sys.path bricole par l'ancien robot1/rasp/loader.py.
+#
+# Deux racines de recherche : `common/` pour les briques partagees, et la racine du
+# depot pour `robot1`. `include` filtre strictement, et `find` (par opposition a
+# `find_namespace`) exige un `__init__.py` : les dossiers de firmware
+# `robot1/teensy_*` n'en ont pas, ils ne sont donc jamais empaquetes.
+[tool.setuptools.packages.find]
+where = ["common", "."]
+include = ["usb_com*", "teensy*", "robot1*"]

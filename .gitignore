@@ -208,7 +208,4 @@ __marimo__/
 
 /.vscode
 schema_info.drawio.svg
-/robot1/code_test_bas_niveau/capteur_opt_Robotronik/.claude
-/robot1/code_test_bas_niveau/capteur_opt_Robotronik/robotronik_CO/.vscode
-/robot1/code_test_bas_niveau/tout_capteur/.claude
 robot1/teensy_moteur/test/.gitkeep

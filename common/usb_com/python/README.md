@@ -44,7 +44,7 @@ Côté `robot1/rasp/`, ne pas instancier `Com` à la main : `utils.init_robot()`
 valeurs dans `config.json` et choisit le mode d'après `ROBOT_MODE`.
 
 ```python
-from utils import init_robot
+from comm import init_robot
 
 com, mode = init_robot(logger)
 ```
@@ -242,5 +242,5 @@ python common/usb_com/python/tools/hex_dump.py
 
 - [Protocole de communication](../../../PROTOCOLE_COMMUNICATION.md)
 - [Implémentation C++](../cpp/README.md)
-- [Tests de communication](../../../robot1/rasp/test/README.md)
+- [Tests de communication](../../../robot1/rasp/tools/bringup/README.md)
 - [Documentation complète](../../../Documentation_CDR_Nantes_2026.md)
