@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Robot communication bootstrap.
 
-Hardware only: the USB link to the Teensy is the single supported transport.
 The mode is explicit and never guessed, it is read from ROBOT_MODE:
 
     ROBOT_MODE=hardware (default) : open the real Teensy USB port
     ROBOT_MODE=dummy              : local loopback, for development without a robot
+    ROBOT_MODE=sim2d              : simulated robot, see robot1/sim2d/
 
 Failing to open the port raises. There is no silent fallback to dummy, so a
 robot that cannot reach its Teensy never looks like a working robot.
@@ -21,9 +21,9 @@ from pathlib import Path
 
 HARDWARE_MODE = "hardware"
 DUMMY_MODE = "dummy"
+SIM2D_MODE = "sim2d"
 
-# sim2d hook: add its name here, then dispatch on it in get_com_class().
-VALID_MODES = (HARDWARE_MODE, DUMMY_MODE)
+VALID_MODES = (HARDWARE_MODE, DUMMY_MODE, SIM2D_MODE)
 
 # Single source of truth for the Teensy identifiers.
 CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
@@ -76,11 +76,24 @@ def get_com_config() -> dict:
 
 
 def get_com_class():
-    """Return the Com class matching the current mode.
+    """Return the transport class matching the current mode.
 
-    Single dispatch point for a future sim2d transport: return its own class
-    here instead of the USB one.
+    Single dispatch point for every transport. Both imports are deferred, so
+    rasp/ stays importable on a machine without a serial port, and nothing in
+    the production path ever imports the simulator.
+
+    Returns:
+        type: a class satisfying comm.link.ComLink.
+
+    Raises:
+        ImportError: in sim2d mode as long as robot1/sim2d/ does not exist
+            (it lands with lot 1, see PLAN_REFONTE section 14).
     """
+    if get_mode() == SIM2D_MODE:
+        from robot1.sim2d.transport import Sim2dCom
+
+        return Sim2dCom
+
     from usb_com.python.com import Com
 
     return Com

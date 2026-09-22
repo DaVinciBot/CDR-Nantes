@@ -603,6 +603,47 @@ def _publish(s: _State) -> None:
         rr.log("data/fusion/ecart_odom_lidar_mm", rr.Scalars(err))
 
 
+def viewer_executable() -> str:
+    """Return the path of the viewer shipped with the SDK, or "".
+
+    rr.spawn() looks for an executable named "rerun" in PATH, and
+    `pip install rerun-sdk` does not put one there: spawning then fails with
+    "Failed to find Rerun Viewer executable in PATH", which is what happens on
+    a plain pip install (checked 22/09/2026). The wheel does ship the viewer,
+    next to the SDK, so locating it is enough and nobody has to edit a PATH.
+
+    Returns:
+        str: absolute path of the viewer, or "" to let rr.spawn() search PATH.
+    """
+    root = Path(rr.__file__).parent.parent / "rerun_cli"
+    for name in ("rerun.exe", "rerun"):
+        candidate = root / name
+        if candidate.is_file():
+            return str(candidate)
+    return ""
+
+
+def spawn_viewer() -> None:
+    """Open the local viewer, using the one shipped with the SDK if present."""
+    executable = viewer_executable()
+    if executable:
+        rr.spawn(executable_path=executable)
+    else:
+        rr.spawn()
+
+
+def publish_once() -> None:
+    """Publish one frame of the current state, in the caller's thread.
+
+    publish_loop() is the hardware path: a daemon thread samples the state at a
+    fixed wall-clock rate. sim2d owns its own loop and its own (virtual) time,
+    so it publishes one frame per simulated tick instead -- sampling on the
+    wall clock would produce a recording with no relation to simulated time as
+    soon as the run is faster than real time.
+    """
+    _publish(_st.snap())
+
+
 def publish_loop(hz: float = 20.0, lidar_poll=None) -> None:
     dt = 1.0 / hz
     while True:
@@ -727,7 +768,7 @@ def main() -> None:
     rr.init("eurobot_2026")
 
     if args.mode == "local":
-        rr.spawn()
+        spawn_viewer()
         logger.info("  Viewer local spawné")
 
     elif args.mode == "serve":

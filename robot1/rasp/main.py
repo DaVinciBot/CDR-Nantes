@@ -2,9 +2,9 @@
 main.py
 Point d'entrée principal du robot pour la Coupe de France de Robotique.
 """
-import time
 import logging
 from robot1.rasp.app import Robot, lire_couleur_equipe
+from robot1.rasp.clock import RealClock
 
 # Configuration du logger pour voir ce qui se passe dans la console
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -17,6 +17,11 @@ TEMPS_MATCH_SECONDES = 100.0
 def main():
     logger.info("Démarrage du système...")
 
+    # Chemin de production : horloge murale. C'est le seul endroit qui la
+    # choisit, et c'est ce qui permet à sim2d d'en fournir une autre sans
+    # toucher au robot (voir robot1/rasp/clock.py).
+    clock = RealClock()
+
     # =================================================================
     # 1. INITIALISATION (Avant de poser le robot sur la table)
     # =================================================================
@@ -24,7 +29,7 @@ def main():
     couleur_equipe = lire_couleur_equipe()
 
     # On crée LE robot (qui va lui-même allumer le Lidar, la Teensy, etc.)
-    mon_robot = Robot(couleur_equipe)
+    mon_robot = Robot(couleur_equipe, clock=clock)
 
     logger.info(f"Robot initialisé pour l'équipe {couleur_equipe}.")
     logger.info("En attente de la tirette de départ...")
@@ -36,7 +41,7 @@ def main():
     mon_robot.attendre_tirette()
 
     # --- LE MATCH COMMENCE ICI ---
-    heure_debut = time.time()
+    heure_debut = clock.now()
     logger.info("MATCH LANCÉ !")
 
     # =================================================================
@@ -44,7 +49,7 @@ def main():
     # =================================================================
     try:
         while True:
-            temps_ecoule = time.time() - heure_debut
+            temps_ecoule = clock.now() - heure_debut
 
             # Vérification stricte du chronomètre
             if temps_ecoule >= TEMPS_MATCH_SECONDES:
@@ -56,7 +61,7 @@ def main():
             mon_robot.update()
 
             # Petite pause pour ne pas surcharger le processeur (ex: 20 Hz)
-            time.sleep(0.05)
+            clock.sleep(0.05)
 
     except KeyboardInterrupt:
         logger.warning("Arrêt d'urgence demandé par l'utilisateur (Ctrl+C).")

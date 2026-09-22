@@ -13,6 +13,15 @@ requires-python = ">=3.11"
 # `pip install -e .` sur un poste de dev.
 dependencies = []
 
+# Outils de developpement seulement, jamais requis pour faire rouler le robot :
+#     pip install -e ".[dev]"
+# pytest ne sert qu'aux modules purs (conversions de repere, symetrie de couleur,
+# pathfinder, protocoles de comm/). CODING_RULES demande deja des tests unitaires
+# quand le test sur robot est impossible, ce qui est le cas jusqu'en janvier 2027.
+# Pas de CI : voir PLAN_REFONTE section 14.
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
 # `pip install -e .` depuis la racine du depot rend importables, depuis n'importe
 # quel repertoire courant :
 #     from usb_com.python.com import Com

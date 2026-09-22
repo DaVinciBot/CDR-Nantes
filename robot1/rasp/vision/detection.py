@@ -12,6 +12,12 @@ Public API:
     get_opponent()                 (x_mm, y_mm, confidence) or None
     get_status()                   (connected, last_error)
     update_robot_pose(x, y, theta) called by app.py on every update()
+
+Off-robot API (sim2d, replay), see PLAN_REFONTE section 14:
+    set_clock(clock)               replace the time source
+    set_scan_source(factory)       replace the LiDAR by an iterator of scans
+    use_pushed_scans()             take scans from push_scan(), no thread
+    push_scan(scan)                process one scan synchronously
 """
 
 import math
@@ -22,7 +28,8 @@ from dataclasses import dataclass
 from typing import Optional, Tuple, List
 
 import numpy as np
-from rplidar import RPLidar
+
+from robot1.rasp.clock import DEFAULT_CLOCK
 
 from .lidar_config import BAUDRATE, PORT, TIMEOUT
 
@@ -94,6 +101,71 @@ _status_lock   = threading.Lock()
 _running       = False
 _thread: Optional[threading.Thread] = None
 
+# ── SCAN SOURCE AND TIME SOURCE ───────────────────────────────────────────────
+# Defaults reproduce the historical behaviour exactly: the real LiDAR in its own
+# thread, timestamped on the wall clock. Both are replaced by sim2d and replay.
+
+_clock = DEFAULT_CLOCK
+_scan_source_factory = None
+_pushed_mode = False
+
+
+def set_clock(clock) -> None:
+    """Replace the time source used for timestamps and freshness.
+
+    Must be called before start(). The speed gating below compares timestamps
+    with a scan interval: mixing a virtual clock with wall-clock timestamps
+    makes every detection look like an impossible jump, silently.
+
+    Args:
+        clock: object exposing now() and sleep(), see robot1.rasp.clock.Clock.
+    """
+    global _clock
+    _clock = clock
+
+
+def set_scan_source(factory) -> None:
+    """Replace the LiDAR by any iterator of raw scans, kept in a thread.
+
+    This is the streaming path, meant for replay: the source decides the pace,
+    exactly as a serial port does.
+
+    Args:
+        factory: callable returning an iterable of scans. Each scan is a
+            sequence of (quality, angle_deg, dist_mm) tuples, which is the
+            exact shape the RPLidar SDK yields.
+
+    Note:
+        _process_scan() reads angle 0 as the +Y axis of the robot, with angles
+        growing clockwise (x = d*sin, y = d*cos). A generator written with the
+        usual convention produces mirrored scans and nothing reports it.
+    """
+    global _scan_source_factory, _pushed_mode
+    _scan_source_factory = factory
+    _pushed_mode = False
+
+
+def use_pushed_scans() -> None:
+    """Take scans from push_scan() instead of a LiDAR, with no thread.
+
+    This is the deterministic path, meant for sim2d: the caller owns the loop,
+    so a run is reproducible and can be stepped. start() then opens nothing and
+    reports a connected LiDAR.
+    """
+    global _pushed_mode, _scan_source_factory
+    _pushed_mode = True
+    _scan_source_factory = None
+
+
+def push_scan(raw_scan) -> None:
+    """Process one raw scan synchronously, in the caller's thread.
+
+    Args:
+        raw_scan: sequence of (quality, angle_deg, dist_mm), see
+            set_scan_source() for the angle convention.
+    """
+    _process_scan(raw_scan)
+
 # ── PUBLIC API ────────────────────────────────────────────────────────────────
 
 def update_robot_pose(x: float, y: float, theta: float) -> None:
@@ -109,7 +181,7 @@ def get_opponent() -> Optional[Tuple[float, float, float]]:
     with _opponent_lock:
         if _opponent.confidence < 0.1 or _opponent.timestamp == 0.0:
             return None
-        if time.time() - _opponent.timestamp > STALE_TIMEOUT_S:
+        if _clock.now() - _opponent.timestamp > STALE_TIMEOUT_S:
             return None
         return (_opponent.x, _opponent.y, _opponent.confidence)
 
@@ -137,18 +209,25 @@ def start(timeout_s: float = CONNECT_TIMEOUT_S) -> bool:
         _status.last_error = ""
 
     _running = True
+
+    if _pushed_mode:
+        # Nothing to open and nobody to wait for: the caller pushes the scans.
+        _set_status(True)
+        logger.info("Scans pousses par l'appelant, aucun LiDAR ouvert.")
+        return True
+
     _thread = threading.Thread(target=_lidar_loop, daemon=True, name="LidarDetect")
     _thread.start()
 
-    deadline = time.time() + timeout_s
-    while time.time() < deadline:
+    deadline = _clock.now() + timeout_s
+    while _clock.now() < deadline:
         connected, error = get_status()
         if connected:
             logger.info("Thread LiDAR demarre.")
             return True
         if error or not _thread.is_alive():
             break
-        time.sleep(0.05)
+        _clock.sleep(0.05)
 
     _, error = get_status()
     logger.error(
@@ -163,6 +242,10 @@ def stop() -> None:
     """Stop the acquisition thread cleanly (waits up to 3 s)."""
     global _running
     _running = False
+    if _pushed_mode:
+        _set_status(False)
+        logger.info("Detection arretee (scans pousses).")
+        return
     if _thread:
         _thread.join(timeout=3.0)
     logger.info("Thread LiDAR arrete.")
@@ -239,7 +322,7 @@ def _process_scan(raw_scan) -> None:
             best = (cx, cy, conf, len(cluster))
 
     # 5. Update with smoothing and gating
-    now = time.time()
+    now = _clock.now()
     with _opponent_lock:
         if best is None:
             _opponent.missed += 1
@@ -292,8 +375,35 @@ def _set_status(connected: bool, error: str = "") -> None:
             _status.last_error = error
 
 
+def _injected_scan_loop() -> None:
+    """Consume scans from an injected source. Runs in a daemon thread."""
+    try:
+        scans = _scan_source_factory()
+        _set_status(True)
+        logger.info("Source de scans injectee, aucun LiDAR ouvert.")
+        for scan in scans:
+            if not _running:
+                break
+            _process_scan(scan)
+    except Exception as exc:
+        _set_status(False, str(exc))
+        logger.error(f"Erreur de la source de scans : {exc}")
+    finally:
+        _set_status(False)
+        logger.info("Thread source de scans termine.")
+
+
 def _lidar_loop() -> None:
     """Acquisition loop. Runs in a daemon thread."""
+    if _scan_source_factory is not None:
+        _injected_scan_loop()
+        return
+
+    # Deferred on purpose: rplidar is a hardware driver, and importing it at
+    # module level would make the whole perception layer unimportable on a
+    # machine that has no LiDAR stack installed.
+    from rplidar import RPLidar
+
     lidar = None
     try:
         lidar = RPLidar(PORT, baudrate=BAUDRATE, timeout=TIMEOUT)

@@ -2,14 +2,25 @@
 manager.py
 La machine à états qui dicte les missions du robot.
 """
-import time
 import logging
+
+from robot1.rasp.clock import RealClock
+
 from .actions import Action, TypeAction
 
 class StratManager:
-    def __init__(self, couleur_equipe: str):
+    def __init__(self, couleur_equipe: str, clock=None):
+        """Construit la machine à états.
+
+        Args:
+            couleur_equipe: "BLUE" ou "YELLOW".
+            clock: source de temps (voir robot1.rasp.clock). RealClock par
+                défaut. Les actions ATTENTE sont mesurées avec cette horloge :
+                sans elle, une simulation accélérée attendrait en temps réel.
+        """
         self.logger = logging.getLogger("STRAT")
         self.couleur_equipe = couleur_equipe
+        self.clock = clock if clock is not None else RealClock()
         self.etape_actuelle = 0
         self.liste_actions = self._generer_strategie()
 
@@ -48,7 +59,7 @@ class StratManager:
     def demarrer_chrono_si_necessaire(self):
         """Lance le chrono si l'action vient de débuter."""
         if self.chrono_action is None:
-            self.chrono_action = time.time()
+            self.chrono_action = self.clock.now()
             return True
         return False
 
@@ -56,7 +67,7 @@ class StratManager:
         """Vérifie si le temps imparti est dépassé."""
         if self.chrono_action is None:
             return False
-        return (time.time() - self.chrono_action) >= duree
+        return (self.clock.now() - self.chrono_action) >= duree
 
     def valider_action_terminee(self):
         """Passe à la mission suivante et réinitialise le chrono."""
