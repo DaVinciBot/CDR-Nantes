@@ -75,8 +75,8 @@ Toutes les positions en mm, angles en radians, repere table `(0,0)` en bas-gauch
 | Fichier | Role |
 |---------|------|
 | `rerun_bridge.py` | pont principal (etat partage, API, boucle de publication, modes reseau) |
-| `table_map.py` | publie le terrain statique (playmat, balises, zones, murs, caisses), geometrie codee en dur, aucune dependance simulateur |
-| `map_assets/eurobot2026/textures/playmat_2026.jpg` | tapis de la table, seule ressource encore utilisee (par `table_map.py` et `rerun_bridge.py`) |
+| `table_map.py` | publie le terrain statique (playmat, balises, zones, murs), geometrie codee en dur, aucune dependance simulateur |
+| `map_assets/playmat2027/Field.png` | tapis de la table, seule ressource encore utilisee (par `table_map.py` et `rerun_bridge.py`) |
 
 > **Les 4 `RERUN_*.md` (96 Ko) ont ete supprimes le 11/09/2026** : anterieurs au passage en
 > `serve_grpc`, ils decrivaient encore `robot.py` (devenu `app.py`) et une ouverture du pont dans

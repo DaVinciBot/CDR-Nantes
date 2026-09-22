@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Export de la carte Eurobot 2026 vers Rerun
+Export de la carte Eurobot 2027 vers Rerun
 
-Publie le terrain statique (playmat, balises, supports, zones, grenier, murs,
-caisses) dans Rerun. La géométrie est codée en dur dans ce fichier : aucune
-dépendance à un simulateur, seule la texture du playmat est lue sur disque.
+Publie le terrain statique (playmat, balises, supports, zones, murs) dans
+Rerun. La géométrie est codée en dur dans ce fichier : aucune dépendance à un
+simulateur, seule la texture du playmat est lue sur disque.
 
 Usage (depuis robot1/rasp/) :
     python -m telemetry.table_map --mode local --output recording.rrd
@@ -20,7 +20,7 @@ import rerun as rr
 
 # Chemins
 _DIR = Path(__file__).parent
-TEXTURES_DIR = _DIR / "map_assets" / "eurobot2026" / "textures"
+TEXTURES_DIR = _DIR / "map_assets" / "playmat2027" 
 
 # Charger positions depuis world.py
 try:
@@ -41,11 +41,7 @@ CY = H / 2
 
 # Couleurs
 C_WALL    = [168, 168, 168, 230]
-C_ATTIC   = [90, 76, 50, 180]
 C_TABLE   = [41, 107, 46, 80]
-C_YEL     = [242, 199, 46, 230]
-C_BLU     = [51, 127, 242, 230]
-C_BLK     = [20, 20, 20, 230]
 C_BEACON  = [255, 255, 255, 240]
 C_SUP_YEL = [247, 181, 0, 220]
 C_SUP_BLU = [0, 91, 140, 220]
@@ -73,9 +69,6 @@ CALC_ZONES_MM = [
     {"pos": [1275, 2122, 11], "half": [225, 100, 11], "color": C_ZONE_Y},
     {"pos": [1725, 2122, 11], "half": [225, 100, 11], "color": C_ZONE_B},
 ]
-
-ATTIC_CENTER = [1500, 1775, 27]
-ATTIC_HALF = [900, 225, 27]
 
 WALLS_MM = [
     {"c": [-11, 1000, 35], "h": [11, 1022, 35]},
@@ -107,51 +100,13 @@ def _cylinder_mesh(cx, cy, z_bot, radius, height, n=20):
     return verts, np.array(tris, dtype=np.uint32)
 
 
-def _build_crates():
-    """Caisses depuis rerun_bridge.py."""
-    CG = [-75.2, -25.1, 25.1, 75.2]
-    CG2 = [-25.1, 25.1]
-    CE = [-50.1, 0.0, 50.1]
-    raw = [
-        ("CG", 1150, 800, 0, 0.0, C_YEL),
-        ("CG", 1100, 200, 0, 0.0, C_YEL),
-        ("CG", 175, 1200, 0, math.pi / 2, C_YEL),
-        ("CG", 175, 400, 0, math.pi / 2, C_YEL),
-        ("CG", 800, 1675, 55, 0.0, C_YEL),
-        ("CG2", 1100, 1725, 55, 0.0, C_YEL),
-        ("CG2", 1350, 1775, 55, 0.0, C_YEL),
-        ("CE", 800, 1675, 85, 0.0, C_BLK),
-        ("CG", 1850, 800, 0, 0.0, C_BLU),
-        ("CG", 1900, 200, 0, 0.0, C_BLU),
-        ("CG", 2825, 1200, 0, math.pi / 2, C_BLU),
-        ("CG", 2825, 400, 0, math.pi / 2, C_BLU),
-        ("CG", 2200, 1675, 55, 0.0, C_BLU),
-        ("CG2", 1900, 1725, 55, 0.0, C_BLU),
-        ("CG2", 1650, 1775, 55, 0.0, C_BLU),
-        ("CE", 2200, 1675, 85, 0.0, C_BLK),
-    ]
-    offs = {"CG": CG, "CG2": CG2, "CE": CE}
-    out = []
-    for kind, tx, ty, tz, yaw, col in raw:
-        c, s = math.cos(yaw), math.sin(yaw)
-        for lx in offs[kind]:
-            ox, oy = lx * c, lx * s
-            out.append(
-                {"center": [tx + ox, ty + oy, tz + 15], "half": [25, 75, 15], "color": col}
-            )
-    return out
-
-
-CRATES_MM = _build_crates()
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Publicateurs Rerun
 # ─────────────────────────────────────────────────────────────────────────────
 
 
 def log_static_map():
-    """Publie la carte statique complète (balises, supports, caisses, etc.)."""
+    """Publie la carte statique complète (balises, supports, zones, murs)."""
 
     print("Publication de la carte statique...")
 
@@ -159,7 +114,7 @@ def log_static_map():
     try:
         from PIL import Image as PILImage
 
-        playmat_path = TEXTURES_DIR / "playmat_2026.jpg"
+        playmat_path = TEXTURES_DIR / "Field.png"
         if playmat_path.exists():
             img = PILImage.open(playmat_path).convert("RGB")
             img_arr = np.array(img, dtype=np.uint8)
@@ -223,18 +178,6 @@ def log_static_map():
     )
     print(f"  [OK] {len(CALC_ZONES_MM)} zones calcul")
 
-    # ── Grenier (Attic) ──
-    rr.log(
-        "world/map/attic",
-        rr.Boxes3D(
-            centers=[ATTIC_CENTER],
-            half_sizes=[ATTIC_HALF],
-            colors=[C_ATTIC],
-        ),
-        static=True,
-    )
-    print(f"  [OK] Grenier")
-
     # ── Murs (BaseTable.proto) ──
     wall_centers = np.array([w["c"] for w in WALLS_MM], dtype=np.float32)
     wall_halves = np.array([w["h"] for w in WALLS_MM], dtype=np.float32)
@@ -246,17 +189,6 @@ def log_static_map():
     )
     print(f"  [OK] {len(WALLS_MM)} murs")
 
-    # ── Caisses (Crate*.proto) ──
-    crate_centers = np.array([c["center"] for c in CRATES_MM], dtype=np.float32)
-    crate_halves = np.array([c["half"] for c in CRATES_MM], dtype=np.float32)
-    crate_colors = np.array([c["color"] for c in CRATES_MM], dtype=np.uint8)
-    rr.log(
-        "world/map/crates",
-        rr.Boxes3D(centers=crate_centers, half_sizes=crate_halves, colors=crate_colors),
-        static=True,
-    )
-    print(f"  [OK] {len(CRATES_MM)} caisses")
-
     print("[OK] Carte complète publiée!")
 
 
@@ -265,12 +197,12 @@ def create_blueprint():
     import rerun.blueprint as rrb
 
     return rrb.Blueprint(
-        rrb.Spatial3DView(name="Terrain Eurobot 2026", origin="world"),
+        rrb.Spatial3DView(name="Terrain Eurobot 2027", origin="world"),
     )
 
 
 def main():
-    p = argparse.ArgumentParser(description="Carte Eurobot 2026 vers Rerun")
+    p = argparse.ArgumentParser(description="Carte Eurobot 2027 vers Rerun")
     p.add_argument("--mode", choices=["local", "serve"], default="local")
     p.add_argument("--port", type=int, default=9876)
     p.add_argument("--output", help="Enregistrer en .rrd")

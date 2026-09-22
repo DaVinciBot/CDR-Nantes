@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-rerun_bridge.py — Eurobot 2026
+rerun_bridge.py — Eurobot 2027
 Visualisation complète Rerun pour la Raspberry Pi.
 
 Lancer depuis robot1/rasp/ (le -m est requis : il rend world / comm / vision
@@ -56,7 +56,7 @@ logger = logging.getLogger("rerun_bridge")
 # ─────────────────────────────────────────────────────────────────────────────
 
 _DIR         = Path(__file__).parent
-PLAYMAT_PATH = _DIR / "map_assets" / "eurobot2026" / "textures" / "playmat_2026.jpg"
+PLAYMAT_PATH = _DIR / "map_assets" / "playmat2027" / "Field.png"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Terrain
@@ -73,11 +73,7 @@ TERRAIN_DIAG_MM = math.sqrt(W**2 + H**2)  # ~ 3606 mm
 # ─────────────────────────────────────────────────────────────────────────────
 
 C_WALL    = [168, 168, 168, 230]
-C_ATTIC   = [ 90,  76,  50, 180]
 C_TABLE   = [ 41, 107,  46,  80]
-C_YEL     = [242, 199,  46, 230]
-C_BLU     = [ 51, 127, 242, 230]
-C_BLK     = [ 20,  20,  20, 230]
 C_BEACON  = [255, 255, 255, 240]
 C_SUP_YEL = [247, 181,   0, 220]
 C_SUP_BLU = [  0,  91, 140, 220]
@@ -120,9 +116,6 @@ CALC_ZONES_MM = [
     {"pos": [1725, 2122, 11], "half": [225, 100, 11], "color": C_ZONE_B},
 ]
 
-ATTIC_CENTER = [1500, 1775, 27]
-ATTIC_HALF   = [ 900,  225, 27]
-
 WALLS_MM = [
     {"c": [   -11, 1000,  35], "h": [  11, 1022,  35]},
     {"c": [  3011, 1000,  35], "h": [  11, 1022,  35]},
@@ -130,45 +123,6 @@ WALLS_MM = [
     {"c": [  1500,   -11, 35], "h": [1500,   11,  35]},
 ]
 
-
-def _build_crates():
-    CG  = [-75.2, -25.1, 25.1, 75.2]
-    CG2 = [-25.1, 25.1]
-    CE  = [-50.1, 0.0, 50.1]
-    raw = [
-        ("CG",  1150,  800,  0, 0.0,       C_YEL),
-        ("CG",  1100,  200,  0, 0.0,       C_YEL),
-        ("CG",   175, 1200,  0, math.pi/2, C_YEL),
-        ("CG",   175,  400,  0, math.pi/2, C_YEL),
-        ("CG",   800, 1675, 55, 0.0,       C_YEL),
-        ("CG2", 1100, 1725, 55, 0.0,       C_YEL),
-        ("CG2", 1350, 1775, 55, 0.0,       C_YEL),
-        ("CE",   800, 1675, 85, 0.0,       C_BLK),
-        ("CG",  1850,  800,  0, 0.0,       C_BLU),
-        ("CG",  1900,  200,  0, 0.0,       C_BLU),
-        ("CG",  2825, 1200,  0, math.pi/2, C_BLU),
-        ("CG",  2825,  400,  0, math.pi/2, C_BLU),
-        ("CG",  2200, 1675, 55, 0.0,       C_BLU),
-        ("CG2", 1900, 1725, 55, 0.0,       C_BLU),
-        ("CG2", 1650, 1775, 55, 0.0,       C_BLU),
-        ("CE",  2200, 1675, 85, 0.0,       C_BLK),
-    ]
-    offs = {"CG": CG, "CG2": CG2, "CE": CE}
-    out  = []
-    for kind, tx, ty, tz, yaw, col in raw:
-        c, s      = math.cos(yaw), math.sin(yaw)
-        half_dims = [75, 25, 15] if abs(yaw) > 0.01 else [25, 75, 15]
-        for lx in offs[kind]:
-            ox, oy = lx * c, lx * s
-            out.append({
-                "center": [tx + ox, ty + oy, tz + 15],
-                "half":   half_dims,
-                "color":  col,
-            })
-    return out
-
-
-CRATES_MM = _build_crates()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Maillage cylindre
@@ -217,11 +171,6 @@ def log_static_map() -> None:
         colors    =[C_WALL] * len(WALLS_MM),
     ), static=True)
 
-    # Grenier
-    rr.log("world/map/attic", rr.Boxes3D(
-        centers=[ATTIC_CENTER], half_sizes=[ATTIC_HALF], colors=[C_ATTIC],
-    ), static=True)
-
     # Zones de calcul
     rr.log("world/map/calc_zones", rr.Boxes3D(
         centers   =[z["pos"]  for z in CALC_ZONES_MM],
@@ -254,16 +203,9 @@ def log_static_map() -> None:
             vertex_colors   =cols,
         ), static=True)
 
-    # Caisses
-    rr.log("world/map/crates", rr.Boxes3D(
-        centers   =np.array([c["center"] for c in CRATES_MM], dtype=np.float32),
-        half_sizes=np.array([c["half"]   for c in CRATES_MM], dtype=np.float32),
-        colors    =np.array([c["color"]  for c in CRATES_MM], dtype=np.uint8),
-    ), static=True)
-
     logger.info(
-        "Carte statique publiée — %d balises | %d supports | %d caisses",
-        len(BEACONS_MM), len(SUPPORTS_MM), len(CRATES_MM),
+        "Carte statique publiée — %d balises | %d supports",
+        len(BEACONS_MM), len(SUPPORTS_MM),
     )
 
 
