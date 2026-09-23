@@ -282,7 +282,7 @@ def test_complementary_filter(color: str = "BLUE") -> bool:
     try:
         # Copie locale de la courbe, volontairement autonome : la méthode
         # d'origine Robot._apply_complementary_filter n'existe plus, et la
-        # courbe reste la référence documentée (PLAN_REFONTE §7).
+        # courbe reste la référence documentée en interne.
         def apply_filter(lidar_x, lidar_y, teensy_x, teensy_y, confidence):
             """Courbe alpha adaptative : 0.85 sous conf 0.2, 0.25 au-dessus de 0.8."""
             if confidence < 0.2:

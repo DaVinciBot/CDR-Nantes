@@ -30,7 +30,7 @@ pour `test_length_messages.py`.
   pas un test de moteur isole.
 - **`test_length_messages.py` ne mesure pas des tailles de payload par type de message.** Il
   decode la trame sur le fil. C'est le seul outil qui voit le cadrage, donc celui qui servira au
-  chantier COBS / byte-stuffing (`doc_ref/TODO.md` §4).
+  chantier COBS / byte-stuffing.
 
 Renommer les deux demande de les verifier devant le robot : reporte.
 
@@ -69,8 +69,8 @@ qui ne parle pas a sa Teensy ne doit pas sembler demarrer.
 4. [ ] `test_one_motor.py` -> les trois roues tournent, la position remontee evolue
 5. [ ] `python -m tools.manual.move_robot` -> pilotage interactif x/y/theta
 
-La fiche de validation complete du lien USB (T-USB-01, T-USB-02) est dans
-`doc_ref/TESTS_A_VALIDER.md`.
+La fiche de validation complete du lien USB (T-USB-01, T-USB-02) est tenue dans le suivi de
+validation interne, hors depot.
 
 ## Depannage
 

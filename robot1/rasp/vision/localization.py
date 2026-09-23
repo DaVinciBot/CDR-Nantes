@@ -8,8 +8,7 @@ computed, not wired in, never validated on the robot.
 FROZEN means it is no longer patched case by case. The beacon layout and the
 table are CDR 2026, the 2027 rules are not out, and the forty-odd empirical
 thresholds below were tuned on a test field that no longer exists. Rewriting it
-or dropping it is decided after the logging campaign and replay/ (doc_ref/TODO.md
-sections 3 and 5).
+or dropping it is decided after the logging campaign and replay/.
 
 What is worth carrying over to the rewrite, as mathematics and not as code: the
 Umeyama SVD (_compute_corrected_pose), the candidate extraction

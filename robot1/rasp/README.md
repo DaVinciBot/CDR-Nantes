@@ -4,9 +4,8 @@ Boucle de match, navigation, LiDAR, strategie et visualisation, cote Raspberry P
 
 > Etat : base issue de la CDR 2026. Fonctionnelle par morceaux, pas de bout en bout.
 > Le haut niveau (`app.py`, `vision/`, `nav/`, `strategy/`) sera **reecrit a partir
-> de la refonte** (voir `doc_ref/PLAN_REFONTE_HAUT_NIVEAU_2027.md` §10 et §13, `doc_ref/TODO.md` §5).
-> Bugs connus non corriges et calibrations en attente : `doc_ref/TODO.md`,
-> audit complet : `doc_ref/AUDIT_CODE_CDR_NANTES_2026.md`.
+> de la refonte**. Bugs connus non corriges, calibrations en attente et audit de code :
+> suivi interne, hors depot.
 
 ## Installation (une fois)
 
@@ -121,18 +120,17 @@ ligne noyee dans le log. Detail : [vision/README.md](vision/README.md).
 ## Ou est passee la doc de `rasp/`
 
 Il n'y a plus de dossier `doc/` : ce README et les README de chaque module sont la seule doc du
-code. Le reste vit dans `doc_ref/` (non commite) et `DocVB/cdr/nantes/Info/` (publie).
+code. Le reste vit dans un suivi interne hors depot et sur `DocVB/cdr/nantes/Info/` (publie).
 
 - `doc/TESTING_LIDAR_INTEGRATION.md` et `ODOMETRY_CORRECTION_IMPLEMENTATION.md` : **supprimes**
   (09/09 et 11/09/2026). Ce qui valait d'etre garde - seuils d'acceptation du LiDAR, courbe alpha
-  du filtre complementaire adaptatif - a ete extrait dans `doc_ref/PLAN_REFONTE` §7 avant
-  suppression. Etat du SVD : `doc_ref/TODO.md` §5.
+  du filtre complementaire adaptatif - a ete extrait dans le suivi interne avant suppression.
 - Les 4 `telemetry/RERUN_*.md` (96 Ko) : **supprimes** le 11/09/2026, voir
   [telemetry/README.md](telemetry/README.md).
 - Les analyses d'etat des lieux (`CODEBASE_ANALYSIS_2026*`, `ETAT_DES_LIEUX_PYTHON`,
-  `PLAN_REDUCTION_RASP`) : retirees le 09/09/2026, perimees et redondantes avec `doc_ref/`.
+  `PLAN_REDUCTION_RASP`) : retirees le 09/09/2026, perimees et redondantes avec le suivi interne.
 
-Detail de chaque suppression et de ce qui a ete extrait : `doc_ref/CHANGELOG.md`.
+Detail de chaque suppression et de ce qui a ete extrait : voir `git log`.
 
 ## Trois emplacements de scripts, trois usages
 
@@ -152,8 +150,7 @@ La racine de `rasp/` ne porte plus que du chemin de production. `move_robot.py` 
 mecanisme de couleur d'equipe deja en production (`app.py::lire_couleur_equipe` -> `Robot` ->
 `Terrain` / `StratManager`, symetrie dans `world.py`), avec une symetrie **contradictoire** - Y
 (`y = 2000 - y`) la ou `world.py` fait X (`x = FIELD_WIDTH_MM - x`). Ne pas le rebrancher sans
-avoir tranche lequel des deux axes est le bon : la reponse ira dans `world.py`, pas ici
-(`doc_ref/TODO.md` §2).
+avoir tranche lequel des deux axes est le bon : la reponse ira dans `world.py`, pas ici.
 
 > Le dossier s'appelait `test/` jusqu'au 10/09/2026 : il masquait alors le package `test` de la
 > bibliotheque standard quand le repertoire courant est `robot1/rasp`. Renomme `tests/`, au

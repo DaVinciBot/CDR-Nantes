@@ -223,7 +223,7 @@ def _process_scan(raw_scan) -> None:
     #    obstacle apart from the opponent. Whatever stands closest within
     #    DETECT_DIST_MM wins. Only DETECT_DIST_MM and the field bounding box
     #    keep it honest today. To be validated in match conditions before the
-    #    rewrite, see doc_ref/TODO.md section 6.
+    #    rewrite.
     best = None
     best_dist = float('inf')
     for cluster in clusters:
