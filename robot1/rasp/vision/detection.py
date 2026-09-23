@@ -13,7 +13,7 @@ Public API:
     get_status()                   (connected, last_error)
     update_robot_pose(x, y, theta) called by app.py on every update()
 
-Off-robot API (sim2d, replay), see PLAN_REFONTE section 14:
+Off-robot API (sim2d, replay):
     set_clock(clock)               replace the time source
     set_scan_source(factory)       replace the LiDAR by an iterator of scans
     use_pushed_scans()             take scans from push_scan(), no thread
@@ -306,7 +306,7 @@ def _process_scan(raw_scan) -> None:
     #    obstacle apart from the opponent. Whatever stands closest within
     #    DETECT_DIST_MM wins. Only DETECT_DIST_MM and the field bounding box
     #    keep it honest today. To be validated in match conditions before the
-    #    rewrite, see doc_ref/TODO.md section 6.
+    #    rewrite.
     best = None
     best_dist = float('inf')
     for cluster in clusters:

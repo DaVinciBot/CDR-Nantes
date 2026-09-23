@@ -86,8 +86,8 @@ def get_com_class():
         type: a class satisfying comm.link.ComLink.
 
     Raises:
-        ImportError: in sim2d mode as long as robot1/sim2d/ does not exist
-            (it lands with lot 1, see PLAN_REFONTE section 14).
+        ImportError: in sim2d mode, if robot1.sim2d.transport cannot be
+            imported.
     """
     if get_mode() == SIM2D_MODE:
         from robot1.sim2d.transport import Sim2dCom

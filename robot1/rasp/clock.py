@@ -4,7 +4,7 @@ Production runs on the wall clock. sim2d substitutes a virtual clock, and that
 is what makes two things possible: simulating a 100 s match in under a second,
 and replaying a run exactly. Both break as soon as a module reads time.time()
 on its own, because the speed gating of vision/detection.py then compares
-timestamps it did not produce (see PLAN_REFONTE section 14).
+timestamps it did not produce.
 
 Hardware behaviour is unchanged: RealClock is a thin wrapper over the time
 module and it is the default everywhere.

@@ -9,7 +9,7 @@ haut niveau (`robot.py` / pathfinder) et les affiche.
 
 > Etat : pont fonctionnel sur `main`, non branche sur la boucle de match, jamais teste sur
 > robot. Sort a trancher (TODO §7 : stress test CPU Rasp 5). Le bas + haut niveau seront
-> reecrits a partir de novembre 2026 ; `rerun_bridge.py` sera repris elague (PLAN_REFONTE §10).
+> reecrits a partir de novembre 2026 ; `rerun_bridge.py` sera repris elague.
 
 ---
 
@@ -41,7 +41,7 @@ Arguments (`argparse` dans `rerun_bridge.py`) :
 `--with-lidar` ne coupe plus la Teensy : depuis le 11/09/2026 les deux sources
 coexistent, et le pont montre odometrie et recalage cote a cote. Jusque-la
 l'option se contentait d'interroger un etat vide, le thread LiDAR n'etant jamais
-demarre (`doc_ref/CHANGELOG.md`).
+demarre.
 
 En mode `serve`, on **attache le viewer Rerun** au flux gRPC (viewer natif ou
 `rerun --connect rerun+http://<IP_RASP>:9876/proxy`), ce n'est pas une page web a ouvrir
@@ -80,7 +80,7 @@ Toutes les positions en mm, angles en radians, repere table `(0,0)` en bas-gauch
 
 > **Les 4 `RERUN_*.md` (96 Ko) ont ete supprimes le 11/09/2026** : anterieurs au passage en
 > `serve_grpc`, ils decrivaient encore `robot.py` (devenu `app.py`) et une ouverture du pont dans
-> un navigateur. Le pont sera elague a la refonte (`PLAN_REFONTE` §13) ; ce README est desormais
+> un navigateur. Le pont sera elague a la refonte ; ce README est desormais
 > la seule doc du module. Contenu recuperable dans `git log`.
 >
 > Supprime en meme temps : les 11 `.proto` **Webots** de `map_assets/eurobot2026/table/` et les

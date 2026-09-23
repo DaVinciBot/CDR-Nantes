@@ -68,7 +68,7 @@
 // holonomic kinematics and the rotational odometry. There: the obstacle
 // inflation radius for the A*. NEVER "align" them.
 // Value still to be calibrated on the real chassis (160.0 here, 156.9 in tag
-// archive/precoupe-2026-05, ~158 measured by mechanics): doc_ref/TODO.md, 6.
+// archive/precoupe-2026-05, ~158 measured by mechanics).
 #define ROBOT_RADIUS 160.0  // mm - Distance du centre aux roues
 #define WHEEL_DIAMETER  60.0 // mm - Diameter effectif (28mm main + 2mm rouleaux)
 

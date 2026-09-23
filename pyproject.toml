@@ -18,7 +18,6 @@ dependencies = []
 # pytest ne sert qu'aux modules purs (conversions de repere, symetrie de couleur,
 # pathfinder, protocoles de comm/). CODING_RULES demande deja des tests unitaires
 # quand le test sur robot est impossible, ce qui est le cas jusqu'en janvier 2027.
-# Pas de CI : voir PLAN_REFONTE section 14.
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 

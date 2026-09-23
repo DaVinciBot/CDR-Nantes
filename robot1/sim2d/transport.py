@@ -20,9 +20,9 @@ from .robot import SimulatedRobot
 
 logger = logging.getLogger("SIM2D_COM")
 
-# Rate at which the Teensy reports its odometry on the real robot (~10 Hz,
-# PLAN_REFONTE section 7). Reporting faster here would make the simulated
-# match loop better informed than the real one.
+# Rate at which the Teensy reports its odometry on the real robot (~10 Hz).
+# Reporting faster here would make the simulated match loop better informed
+# than the real one.
 ODOM_RATE_HZ = 10.0
 
 _pending_robot = None

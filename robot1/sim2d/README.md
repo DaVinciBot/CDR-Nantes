@@ -4,8 +4,6 @@ Fait tourner **le code de production de `robot1/rasp/` sans robot**. Seuls les b
 le lien USB vers la Teensy est remplacé par un robot simulé, les GPIO par des boutons simulés,
 l'horloge murale par une horloge virtuelle.
 
-Conception complète, lots et critères de sortie : `doc_ref/PLAN_REFONTE_HAUT_NIVEAU_2027.md` §14.
-
 ## Lancement
 
 **Depuis la racine du dépôt** (`CDR-Nantes/`), contrairement à `tools/` et `tests/` qui se lancent
@@ -111,8 +109,7 @@ Trois niveaux de confiance dans les constantes, à connaître avant de croire un
   Mesurer la distance parcourue, pas la position finale.
 - **Le budget « 100 s en moins d'1 s » est tenu à 0,98 s, mais A\* en représente 98 %.** Il ne tombe
   aujourd'hui que sur 25 % des ticks parce que le stub de stratégie s'arrête au bout de ~25 s. Avec
-  une vraie stratégie, compter 3,8 s. Correctif prévu dans la ré-API du pathfinder (`TODO.md` §5),
-  pas ici.
+  une vraie stratégie, compter 3,8 s. Correctif prévu dans la ré-API du pathfinder, pas ici.
 - **Le lot 2 n'est pas fait** : aucun scan LiDAR n'est produit, donc `match` ne teste **pas**
   l'évitement. `detection.use_pushed_scans()` est appelé pour n'ouvrir aucun LiDAR, et rien n'est
   poussé. Ne pas conclure quoi que ce soit sur l'évitement avant le lot 2.

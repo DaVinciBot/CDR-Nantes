@@ -4,7 +4,7 @@
     python -m robot1.sim2d.run --scenario match --color YELLOW --rerun
 
 Run from the repository root (sim2d and replay launch from there, tools/ and
-tests/ from robot1/rasp/ -- PLAN_REFONTE section 13).
+tests/ from robot1/rasp/).
 
 Two scenarios in lot 1, and they answer two different questions:
 
@@ -331,8 +331,7 @@ def report_match(sim, com, start_pose, ticks, wall_elapsed, time_in_sim,
         if wall_elapsed > budget:
             print("  Cause connue : app.py::update() replanifie en A* a "
                   "chaque tick.")
-            print("  Voir TODO.md section 5 — a traiter dans la re-API du "
-                  "pathfinder, pas ici.")
+            print("  A traiter dans la re-API du pathfinder, pas ici.")
 
     if failures:
         for item in failures:

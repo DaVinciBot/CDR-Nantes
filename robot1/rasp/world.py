@@ -39,8 +39,7 @@ ROBOT_RADIUS_MM = 120
 #
 # TO BE CONFIRMED on the real table: which physical corner carries the origin,
 # and whether the YELLOW start really sits on the same Y side as the BLUE one.
-# The code is the only source today, it was never checked against the table
-# (doc_ref/TODO.md).
+# The code is the only source today, it was never checked against the table.
 _BLUE_START_X     = 2775.0    # mm  (centre X zone gauche)
 _BLUE_START_Y     = 1700.0    # mm  (haut du terrain)
 _BLUE_START_THETA = 0.0       # rad  (0 = pointe vers +X)

@@ -7,9 +7,9 @@ sees. Comparing the two is the whole point of the simulator.
 
 What this is NOT: a model of the firmware. The motion below is a bounded
 proportional controller, not the PID of holonomic_basis.cpp, and it is not
-meant to predict how the real base settles on a target. PLAN_REFONTE section 14,
-principle 1: simulate the world and the sensors, never the firmware. Anything
-that depends on the real control loop is validated on the bench, not here.
+meant to predict how the real base settles on a target. Guiding principle:
+simulate the world and the sensors, never the firmware. Anything that depends
+on the real control loop is validated on the bench, not here.
 """
 
 import math
@@ -44,7 +44,7 @@ class DriftModel:
     diameter produces, and a random walk, which is sensor noise.
 
     Defaults are plausible placeholders, NOT measured values. They will be
-    fitted against real logs in lot 8 (replay), see PLAN_REFONTE section 14.
+    fitted against real logs in lot 8 (replay).
     """
 
     translation_scale: float = 0.002        # 0.2 %, i.e. 2 mm per metre

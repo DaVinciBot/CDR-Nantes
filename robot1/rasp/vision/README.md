@@ -56,7 +56,7 @@ rapides que `MAX_OPP_SPEED_MM_S`. Pas de fit geometrique, donc insensible a la f
 **Limite connue, non corrigee** : rien ne distingue un mur, un mat de balise ou un obstacle fixe
 du robot adverse. Le cluster le plus proche dans `DETECT_DIST_MM` gagne. Seuls ce rayon et la
 boite englobante du terrain limitent les faux positifs. A valider en conditions de match avant
-la reecriture (`doc_ref/TODO.md` section 6).
+la reecriture.
 
 ## `localization.py` - module gele
 
@@ -68,7 +68,7 @@ non branche, jamais valide sur robot.
 « Gele » veut dire qu'on ne le corrige plus au coup par coup : le layout des balises et la table
 sont du CDR 2026, le reglement 2027 n'est pas sorti, et sa quarantaine de seuils empiriques a ete
 reglee sur un terrain de test qui n'existe plus. La decision - reecrire ou supprimer - se prend
-apres la campagne de logs et `replay/` (`doc_ref/TODO.md` sections 3 et 5).
+apres la campagne de logs et `replay/`.
 
 Ce qui vaudra d'etre repris, **comme mathematiques et non comme code** : le SVD Umeyama
 (`_compute_corrected_pose`), l'extraction de candidats (`_extract_beacon_candidates_fast`) et
@@ -99,7 +99,7 @@ python -m vision        # GUI de debug (tkinter + matplotlib, pas sur Rasp headl
 
 - `interface.py` (`LidarInterface`) : wrapper objet sans aucun consommateur de production. Son
   `get_fused_position()` implementait un melange adaptatif LiDAR/odometrie que personne
-  n'appelait. Detail : `doc_ref/CHANGELOG.md`.
+  n'appelait.
 - La branche « fusion » de `gui.py` : elle importait `lidar_processor` et `fusion_layer`, absents
   de toutes les branches du depot. Son drapeau valait donc toujours `False` et les ~35 lignes de
   configuration qu'elle gardait etaient inatteignables.
