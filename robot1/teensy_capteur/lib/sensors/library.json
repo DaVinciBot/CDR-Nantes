@@ -1,0 +1,8 @@
+{
+    "name": "sensors",
+    "version": "0.1.0",
+    "description": "Non-blocking sampling of the optical odometry sensor (Qwiic OTOS) and the IMU (BNO085), both on I2C. Placeholder.",
+    "keywords": "sensors",
+    "frameworks": "*",
+    "platforms": "*"
+  }

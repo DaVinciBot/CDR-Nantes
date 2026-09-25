@@ -1,0 +1,8 @@
+{
+    "name": "kalman",
+    "version": "0.1.0",
+    "description": "Static matrix algebra and extended Kalman filter for the sensor board. Placeholder.",
+    "keywords": "kalman",
+    "frameworks": "*",
+    "platforms": "*"
+  }

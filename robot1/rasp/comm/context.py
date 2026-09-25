@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Robot communication bootstrap.
 
-Hardware only: the USB link to the Teensy is the single supported transport.
 The mode is explicit and never guessed, it is read from ROBOT_MODE:
 
     ROBOT_MODE=hardware (default) : open the real Teensy USB port
     ROBOT_MODE=dummy              : local loopback, for development without a robot
+    ROBOT_MODE=pose_stub          : generated moving pose, no robot and no EKF,
+                                    so the high level can be developed against
+                                    the pose contract (see comm/pose_stub.py)
 
 Failing to open the port raises. There is no silent fallback to dummy, so a
 robot that cannot reach its Teensy never looks like a working robot.
@@ -21,9 +23,10 @@ from pathlib import Path
 
 HARDWARE_MODE = "hardware"
 DUMMY_MODE = "dummy"
+POSE_STUB_MODE = "pose_stub"
 
 # sim2d hook: add its name here, then dispatch on it in get_com_class().
-VALID_MODES = (HARDWARE_MODE, DUMMY_MODE)
+VALID_MODES = (HARDWARE_MODE, DUMMY_MODE, POSE_STUB_MODE)
 
 # Single source of truth for the Teensy identifiers.
 CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
@@ -80,7 +83,18 @@ def get_com_class():
 
     Single dispatch point for a future sim2d transport: return its own class
     here instead of the USB one.
+
+    Returns:
+        type: the transport class to instantiate. Every one of them takes the
+            same constructor arguments, so create_com() stays mode-agnostic.
     """
+    if get_mode() == POSE_STUB_MODE:
+        # Imported lazily: the stub pulls in the generator and its thread, which
+        # a hardware run has no reason to load.
+        from .pose_stub import PoseStubCom
+
+        return PoseStubCom
+
     from usb_com.python.com import Com
 
     return Com

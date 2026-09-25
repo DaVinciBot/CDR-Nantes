@@ -1,0 +1,8 @@
+{
+    "name": "teensy_link",
+    "version": "1.0.0",
+    "description": "Inter-Teensy link codec: EncoderFrame and PoseFrame, CRC8, resynchronisation. Single definition of the wire format, shared by both boards.",
+    "keywords": "teensy_link",
+    "frameworks": "*",
+    "platforms": "*"
+  }
