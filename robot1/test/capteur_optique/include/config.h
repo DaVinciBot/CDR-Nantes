@@ -7,7 +7,7 @@
 // On Teensy the pins are fixed by the Wire instance: Wire1 = SDA1 (17) / SCL1 (16).
 // The pin numbers below are documentation only. Do not name them SDA/SCL: the
 // Teensy core already declares constants with those names.
-#define OTOS_WIRE           Wire1
+#define OTOS_WIRE           Wire1 // C'est Wire (si 19 et 18) ou Wire1 (si 17 et 16) ou Wire2 (si 24 et 25)
 #define OTOS_SDA_PIN        17  //Pin a changé en fonction de l'elek 
 #define OTOS_SCL_PIN        16  //Pin a changé en fonction de l'elek 
 #define OTOS_I2C_CLOCK_HZ   400000   // 100000 or 400000
