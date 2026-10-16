@@ -1,0 +1,8 @@
+{
+    "name": "kalman",
+    "version": "0.1.0",
+    "description": "Hand-written extended Kalman filter for the holonomic base: fixed-size storage, scalar Joseph-form updates, chi-square gate, NIS statistics. Arduino-free, tested on the host.",
+    "keywords": "kalman",
+    "frameworks": "*",
+    "platforms": "*"
+  }

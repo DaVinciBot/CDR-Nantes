@@ -1,0 +1,8 @@
+{
+    "name": "pose_estimator",
+    "version": "0.1.0",
+    "description": "Pose estimators of the holonomic base behind one interface: the complementary filter and the 6-state EKF of lib/kalman, selectable at run time. Arduino-free, tested on the host.",
+    "keywords": "pose, odometry, kalman",
+    "frameworks": "*",
+    "platforms": "*"
+  }

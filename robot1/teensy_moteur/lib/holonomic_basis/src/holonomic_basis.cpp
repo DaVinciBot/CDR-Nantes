@@ -43,15 +43,10 @@ Holonomic_Basis::Holonomic_Basis(double robot_radius,
     wheel2 = nullptr;
     wheel3 = nullptr;
     mksGroup = nullptr;
-    otos = nullptr;
-    bno085 = nullptr;
 
     odo_data.last_enc1 = 0;
     odo_data.last_enc2 = 0;
     odo_data.last_enc3 = 0;
-
-    odo_data.optical_x_acc = 0.0;
-    odo_data.optical_y_acc = 0.0;
 }
 
 // Destructor
@@ -61,10 +56,7 @@ Holonomic_Basis::~Holonomic_Basis() {
     delete wheel2;
     delete wheel3;
     delete mksGroup;
-    delete otos;
-    // Adafruit_BNO08x expose une classe polymorphique sans destructeur virtuel.
-    // Eviter delete ici pour ne pas déclencher -Wdelete-non-virtual-dtor.
-    bno085 = nullptr;
+    // The sensors are owned by the caller (attach_sensors).
 }
 
 // === DÉFINITION DES MOTEURS ===
@@ -87,20 +79,45 @@ void Holonomic_Basis::init_motors() {
     mksGroup = new MKSGroup(wheel1, wheel2, wheel3);
 }
 void Holonomic_Basis::init_holonomic_basis(double x, double y, double theta) {
+    noInterrupts();
     this->X = x;
     this->Y = y;
     this->THETA = theta;
+    if (estimator) estimator->reset(x, y, theta);
+    optical_integrator.reset(x, y);
+    interrupts();
 
-    if (otos) otos->resetTracking();
+    if (optical) optical->reset_tracking();
 }
 
 void Holonomic_Basis::calibrate_imu_origin() {
-    if (use_imu && odo_data.buffered_imu_valid) {
-        noInterrupts();
-        odo_data.imu_yaw_offset = odo_data.buffered_imu_yaw;
-        interrupts();
-    }
+    if (use_imu && imu) imu->zero_heading();
+    noInterrupts();
     this->THETA = 0.0;
+    if (estimator) estimator->reset(this->X, this->Y, 0.0);
+    interrupts();
+}
+
+// === ESTIMATEUR DE POSE ===
+
+void Holonomic_Basis::set_estimator(pose::PoseEstimator* next) {
+    if (!next) return;
+    noInterrupts();
+    next->reset(this->X, this->Y, this->THETA);
+    estimator = next;
+    interrupts();
+}
+
+bool Holonomic_Basis::select_estimator(pose::PoseEstimator* next) {
+    if (!next) return false;
+    // Only at rest: a switch while moving would hand over a pose mid-tick, and
+    // the new estimator would start with a wrong velocity.
+    if (filtered_wheel1_rpm != 0.0 || filtered_wheel2_rpm != 0.0 ||
+        filtered_wheel3_rpm != 0.0) {
+        return false;
+    }
+    set_estimator(next);
+    return true;
 }
 
 // === GESTION ÉTAT MOTEURS ===
@@ -118,38 +135,12 @@ void Holonomic_Basis::disable_motors() {
 }
 
 // === ODOMÉTRIE & PID ===
-void Holonomic_Basis::init_sensors() {
-    // === IMU BNO085 ===
-    bno085 = new Adafruit_BNO08x(BNO085_RESET_PIN);
-
-    if (bno085 && bno085->begin_I2C()) {
-        Wire.setClock(400000); // I2C Fast Mode
-        bno085->enableReport(SH2_GAME_ROTATION_VECTOR, 10000); // 100Hz
-
-        // Brief calibration attempt with timeout (don't block forever)
-        uint32_t calibStart = millis();
-        sh2_SensorValue_t sv;
-
-        while ((millis() - calibStart) < 500) {  // 500ms max timeout
-            if (bno085->getSensorEvent(&sv)) {
-                if (sv.sensorId == SH2_GAME_ROTATION_VECTOR) {
-                    float r = sv.un.gameRotationVector.real;
-                    float i = sv.un.gameRotationVector.i;
-                    float j = sv.un.gameRotationVector.j;
-                    float k = sv.un.gameRotationVector.k;
-
-                    odo_data.imu_yaw_offset = atan2(2.0f*(r*k + i*j), 1.0f-2.0f*(j*j + k*k));
-                    break;
-                }
-            }
-            delay(10);
-        }
-
-        odo_data.imu_calibrated = true;  // Mark calibrated regardless (use 0 offset as default)
-    } else {
-        // I2C begin failed - IMU not available
-        odo_data.imu_calibrated = false;
-    }
+void Holonomic_Basis::attach_sensors(sensors::Bno085Sensor* imu_sensor,
+                                     sensors::OtosSensor* optical_sensor) {
+    noInterrupts();
+    imu = imu_sensor;
+    optical = optical_sensor;
+    interrupts();
 }
 
 Point Holonomic_Basis::get_current_position() {
@@ -162,260 +153,95 @@ Point Holonomic_Basis::get_current_position() {
     return position;
 }
 
-// FONCTION PRINCIPALE - ODOMÉTRIE OPTIQUE
-void Holonomic_Basis::update_optical_odometry(double dtheta_robot) {
-    if (!otos) return;
-
-    // OTOS : position absolue en mètres depuis resetTracking()
-    sfe_otos_pose2d_t currentPose;
-    otos->getPosition(currentPose);
-    static sfe_otos_pose2d_t lastPose = {0.0f, 0.0f, 0.0f};
-    double dx_mm = (currentPose.x - lastPose.x) * 1000.0;  // m → mm
-    double dy_mm = (currentPose.y - lastPose.y) * 1000.0;
-    lastPose = currentPose;
-
-    // Ignore la première lecture (souvent aberrante)
-    static bool is_first_run_opt = true;
-    if (is_first_run_opt) {
-        is_first_run_opt = false;
-        return;
-    }
-
-    // Delta déjà en repère monde (IMU interne de l'OTOS) : pas de rotation robot→monde.
-    // Au-delà de 15 mm sur un cycle, la lecture est un outlier ; sous 2 mm, du bruit.
-    double magnitude = sqrt(dx_mm*dx_mm + dy_mm*dy_mm);
-    if (magnitude > 15.0) {
-        odo_data.optical_outlier_count++;
-    } else {
-        double dx_world = (magnitude >= 2.0) ? dx_mm : 0.0;
-        double dy_world = (magnitude >= 2.0) ? dy_mm : 0.0;
-        odo_data.optical_x_acc += dx_world;
-        odo_data.optical_y_acc += dy_world;
-        if (dx_world != 0.0 || dy_world != 0.0) odo_data.optical_valid_count++;
-    }
-}
-
+// Builds the estimator input of the tick from the buffers filled in loop().
+// Called from the ISR: no I/O here, only copies under noInterrupts().
 void Holonomic_Basis::update_odometry() {
-    // ===== NON-BLOQUANT: Lire encodeurs depuis les buffers (mis à jour par loop()) =====
-    // Au lieu d'appeler RS485 ici (qui bloquerait l'ISR 50ms), on lit les buffers pré-remplis
-    // par read_encoders_nonblocking() exécutée dans loop()
-    
+    // Ask loop() for the next sensor samples
+    if (use_imu && imu) need_read_imu = true;
+    if (use_optical_flow && optical) need_read_optical = true;
+
     int64_t enc1, enc2, enc3;
+    uint32_t seq, enc_us;
     {
         noInterrupts();
         enc1 = odo_data.buffered_enc1;
         enc2 = odo_data.buffered_enc2;
         enc3 = odo_data.buffered_enc3;
+        seq = odo_data.buffer_seq;
+        enc_us = odo_data.buffer_timestamp_us;
         interrupts();
     }
-    
-    // Si les buffers n'ont jamais été remplis, garder dernière valeur
-    // (update_odometry() gère le fallback gracieux)
-    
-    static bool is_first_run = true;
-    static double last_theta_enc = 0.0;
-    if (is_first_run) {
-        odo_data.last_enc1 = enc1;
-        odo_data.last_enc2 = enc2;
-        odo_data.last_enc3 = enc3;
+    const uint32_t now_us = micros();
 
-        is_first_run = false;
-        return; // On sort ! Pas de calcul de mouvement au démarrage.
-    }
+    pose::EstimatorInput in = pose::empty_input();
 
-    // Encoder counts increase in the opposite direction to commanded RPM on all 3 motors.
-    // Negate so that positive d = forward wheel rotation = positive velocity contribution.
-    double d1 = -double(enc1 - odo_data.last_enc1);
-    double d2 = -double(enc2 - odo_data.last_enc2);
-    double d3 = -double(enc3 - odo_data.last_enc3);
-    const double ENCODER_NOISE_THRESHOLD = 16.0; // counts
-    if (abs(d1) < ENCODER_NOISE_THRESHOLD) d1 = 0.0;
-    if (abs(d2) < ENCODER_NOISE_THRESHOLD) d2 = 0.0;
-    if (abs(d3) < ENCODER_NOISE_THRESHOLD) d3 = 0.0;
-
-    //  Appel du capteur optique AVANT check encodeurs (pour avoir logs même au repos)
-    bool optical_active = false;
-    double dx_optical_world = 0.0;
-    double dy_optical_world = 0.0;
-    if (use_optical_flow && otos) {
-        double prev_acc_x = odo_data.optical_x_acc;
-        double prev_acc_y = odo_data.optical_y_acc;
-        
-        // omega_enc provisoire = 0 si encodeurs immobiles
-        double omega_temp = 0.0;
-        if (d1 != 0.0 || d2 != 0.0 || d3 != 0.0) {
-            double w1_mm = d1 * COUNTS_TO_MM;
-            double w2_mm = d2 * COUNTS_TO_MM;
-            double w3_mm = d3 * COUNTS_TO_MM;
-            omega_temp = (w1_mm + w2_mm + w3_mm) / (3.0 * robot_radius);
-        }
-        
-        update_optical_odometry(omega_temp);
-        
-        double diff_opt_x = odo_data.optical_x_acc - prev_acc_x;
-        double diff_opt_y = odo_data.optical_y_acc - prev_acc_y;
-        
-        // Détection rotation pure : pattern encodeurs (3 roues même sens/vitesse)
-        // Rotation pure si d1 ≈ d2 ≈ d3 (toutes tournent ensemble)
-        bool is_pure_rotation = false;
-        if (abs(omega_temp) > 0.005) { // Rotation détectée (> 0.005 rad = 0.3°)
-            // Vérifier si les 3 roues tournent dans le même sens
-            double d1_abs = abs(d1);
-            double d2_abs = abs(d2);
-            double d3_abs = abs(d3);
-            
-            // Vérifier même signe (toutes positives ou toutes négatives)
-            bool same_sign = (d1 * d2 > 0) && (d2 * d3 > 0);
-            
-            // Vérifier vitesses similaires (tolérance 20% pour imprécisions)
-            double d_avg = (d1_abs + d2_abs + d3_abs) / 3.0;
-            if (d_avg > 50.0) { // Mouvement significatif (>50 counts)
-                double d1_diff = abs(d1_abs - d_avg) / d_avg;
-                double d2_diff = abs(d2_abs - d_avg) / d_avg;
-                double d3_diff = abs(d3_abs - d_avg) / d_avg;
-                
-                // Rotation pure = même signe ET vitesses similaires (<20% écart)
-                if (same_sign && d1_diff < 0.2 && d2_diff < 0.2 && d3_diff < 0.2) {
-                    is_pure_rotation = true;
-                }
-            }
-        }
-        
-        // Rotation pure : ignorer X/Y optique (filtrage mouvements parasites)
-        // Sinon : seuil à 0.01mm pour éviter le bruit capteur
-        if (is_pure_rotation) {
-            dx_optical_world = 0.0;
-            dy_optical_world = 0.0;
-            optical_active   = false;
-        } else {
-            const double OPTICAL_THRESHOLD = 0.01;
-            if (abs(diff_opt_x) > OPTICAL_THRESHOLD || abs(diff_opt_y) > OPTICAL_THRESHOLD) {
-                dx_optical_world = diff_opt_x;
-                dy_optical_world = diff_opt_y;
-                optical_active   = true;
-            }
-        }
-    }
-
-    // Ne pas skipper même au repos : permet le logging optique continu
-    // (Au repos: encodeurs=0, optique filtré, mais logs debug utiles)
-
-    const double CTM = COUNTS_TO_MM;
-
-    double w1_mm = d1 * CTM;
-    double w2_mm = d2 * CTM;
-    double w3_mm = d3 * CTM;
-    
-    // ============= CINÉMATIQUE DIRECTE (INVERSE MATHÉMATIQUE DE L'INVERSE) =============
-    // Configuration physique confirmée : Roue1=Haut-Droite, Roue2=Haut-Gauche, Roue3=Arrière
-    // Angles utilisés dans cinématique inverse : Roue1=120°, Roue2=240°, Roue3=0°
-    //
-    // Système à résoudre (de la cinématique inverse) :
-    //   w1 = -0.5*vx + 0.866*vy + ω*R
-    //   w2 = -0.5*vx - 0.866*vy + ω*R
-    //   w3 = 1.0*vx + ω*R
-    //
-    // Solutions (inverse matricielle) :
-    //   vx = (2*w3 - w1 - w2) / 3
-    //   vy = (w1 - w2) / √3
-    //   ω*R = (w1 + w2 + w3) / 3
-    // ==================================================================================
-
-    // Vitesse X (longitudinale - vers l'avant robot)
-    // W1=120°, W2=240°, W3=0°
-    double dx_enc = (-w1_mm - w2_mm + 2.0*w3_mm) / 3.0;
-    double dy_enc  = (w1_mm - w2_mm) / sqrt(3.0);
-    double omega_enc = -(w1_mm + w2_mm + w3_mm) / (3.0 * robot_radius);
-
-    static uint32_t enc_debug_counter = 0;
-        if (++enc_debug_counter >= 20) {  // Affichage toutes les 0.2s au lieu de 2s
-            enc_debug_counter = 0;
-            //printf(" ENC: d[%+4.0f,%+4.0f,%+4.0f] v[%+5.1f,%+5.1f] dθ=%+.3f | pos[%+6ld,%+6ld,%+6ld]\n", 
-            //    (double)d1, (double)d2, (double)d3, dx_enc, dy_enc, omega_enc,
-            //    (long)pos1, (long)pos2, (long)pos3);
-        }
-
-    if (++odo_data.debug_counter >= 20) { 
-        odo_data.debug_counter = 0;
-       
-    }
-    
-    // Transformation encodeurs dans le repère monde
-    double dx_enc_world = dx_enc * cos(this->THETA) - dy_enc * sin(this->THETA);
-    double dy_enc_world = dx_enc * sin(this->THETA) + dy_enc * cos(this->THETA);
-    
-    // Accumulateurs pour statistiques (debugging uniquement)
-    odo_data.encoder_x_acc += dx_enc_world;
-    odo_data.encoder_y_acc += dy_enc_world;
-    
-    double dx_final_world, dy_final_world;
-    
-    if (optical_active && odo_data.optical_valid_count > 0) {
-        // FILTRE COMPLÉMENTAIRE ADAPTATIF - Validation buffer age
-        
-        // Si buffer encodeur trop vieux (> 50ms = 5 cycles manqués), on ne fait pas confiance
-        const uint32_t ENCODER_BUFFER_MAX_AGE_MS = 50;
-        bool encoder_buffer_fresh = (millis() - odo_data.buffer_timestamp) < ENCODER_BUFFER_MAX_AGE_MS;
-
-        const float ALPHA = encoder_buffer_fresh ? 0.20f : 0.0f; // 0% enc si périmé → 100% optique
-        dx_final_world = ALPHA * dx_enc_world + (1.0f - ALPHA) * dx_optical_world;
-        dy_final_world = ALPHA * dy_enc_world + (1.0f - ALPHA) * dy_optical_world;
-
-        #ifdef DEBUG_VERBOSE
-        if (!encoder_buffer_fresh) {
-            Serial.printf("[WARN] Buffer encodeur périmé (%ums) → 100%% optique\n",
-                          millis() - odo_data.buffer_timestamp);
-        }
-        #endif
+    // First tick: no motion computed at startup, only the references are taken.
+    if (!odo_data.started) {
+        in.first_frame = true;
+        odo_data.started = true;
     } else {
-        // Fallback encodeurs si capteur optique inactif
-        dx_final_world = dx_enc_world;
-        dy_final_world = dy_enc_world;
+        // Encoder counts increase in the opposite direction to commanded RPM on
+        // all 3 motors. Negate so that positive d = forward wheel rotation, the
+        // convention of the estimators (lib/kalman/include/kinematics.h).
+        in.d1 = -static_cast<int32_t>(enc1 - odo_data.last_enc1);
+        in.d2 = -static_cast<int32_t>(enc2 - odo_data.last_enc2);
+        in.d3 = -static_cast<int32_t>(enc3 - odo_data.last_enc3);
+        in.dt_us = now_us - odo_data.last_tick_us;
     }
-    
-    // Méthode 3 : IMU BNO085 - Consommer le buffer (rempli par loop())
-    bool theta_updated = false;
-    if (use_imu && odo_data.imu_calibrated && odo_data.buffered_imu_valid) {
-        noInterrupts();
-        double yaw = odo_data.buffered_imu_yaw;
-        interrupts();
 
-        this->THETA = normalizeAngle(yaw - odo_data.imu_yaw_offset);
+    // The deltas span exactly one tick only if the buffer was refreshed this tick
+    // AND the previous one. After a missed read they are zero (stale buffer),
+    // then cover two ticks at once: a speed computed over one dt would be wrong.
+    const bool fresh_read = (seq != odo_data.last_seq);
+    in.encoders_fresh = !in.first_frame && fresh_read && odo_data.prev_read_fresh;
+    in.encoder_age_us = now_us - enc_us;
 
-        theta_updated = true;
+    // IMU: heading in the table frame, origin set by calibrate_imu_origin()
+    if (use_imu && imu) {
+        const sensors::HeadingSample h = imu->latest();
+        in.imu_valid = h.valid;
+        in.heading_rad = h.heading_rad;
+        in.imu_timestamp_us = h.timestamp_us;
     }
-    
-    // Fallback encodeurs si IMU non disponible
-    if (!theta_updated) {
-        this->THETA = normalizeAngle(this->THETA + omega_enc);
-    }
-    
-    double theta_moyen = (last_theta_enc + this->THETA) / 2.0;
-    //Intégration position X,Y
-    #ifdef MODE_ODO_FIXE
-        // Mode test : position figée à (0,0,0)
-        this->X = 0.0;
-        this->Y = 0.0;
-    #else
-        if (optical_active) {
-            this->X += dx_final_world;
-            this->Y += dy_final_world;
-        } else if (use_encoders) {
-            //  Encodeurs en fallback uniquement
-            double cos_theta = cos(theta_moyen);     
-            double sin_theta = sin(theta_moyen);     
-            
-            this->X += dx_enc * cos_theta - dy_enc * sin_theta;
-            this->Y += dx_enc * sin_theta + dy_enc * cos_theta;
-            
+
+    // Optical: robot-frame velocity for the EKF, and a table-frame pose for the
+    // complementary filter, rebuilt by rotating each new robot-frame step by the
+    // heading of the previous tick. A sample is integrated once only.
+    if (use_optical_flow && optical) {
+        const sensors::OpticalSample o = optical->latest();
+        if (o.valid) {
+            if (o.seq != odo_data.last_optical_seq) {
+                odo_data.last_optical_seq = o.seq;
+                optical_integrator.add(o.dx_mm, o.dy_mm, this->THETA);
+                in.optical_velocity_valid = true;
+                in.optical_vx_mm_s = o.vx_mm_s;
+                in.optical_vy_mm_s = o.vy_mm_s;
+            }
+            in.optical_pose_valid = true;
+            in.optical_x_mm = static_cast<float>(optical_integrator.x_mm());
+            in.optical_y_mm = static_cast<float>(optical_integrator.y_mm());
+            in.optical_timestamp_us = o.timestamp_us;
         }
-    #endif
-    last_theta_enc = this->THETA;
-    // Sauvegarder pour prochaine itération
+    }
+
     odo_data.last_enc1 = enc1;
     odo_data.last_enc2 = enc2;
     odo_data.last_enc3 = enc3;
-    
+    odo_data.last_seq = seq;
+    odo_data.prev_read_fresh = fresh_read;
+    odo_data.last_tick_us = now_us;
+
+    if (!estimator) return;
+    estimator->step(in);
+    const pose::PoseEstimate p = estimator->pose();
+    this->X = p.x_mm;
+    this->Y = p.y_mm;
+    this->THETA = p.theta_rad;
+    #ifdef MODE_ODO_FIXE
+        // Test mode: position frozen at (0, 0), heading still estimated
+        this->X = 0.0;
+        this->Y = 0.0;
+    #endif
 }
 
 // Calcul de la boucle d'asservissement (PID + Cinématique Inverse)
@@ -582,11 +408,15 @@ bool Holonomic_Basis::read_encoders_nonblocking() {
     bool success = mksGroup->readAllEncodersSynced(enc1, enc2, enc3);
     
     if (success) {
-        // Stocker dans buffers pour que update_odometry() (ISR) puisse les lire
+        // Stocker dans buffers pour que update_odometry() (ISR) puisse les lire.
+        // 64-bit values: written with interrupts off so the ISR never sees half.
+        noInterrupts();
         odo_data.buffered_enc1 = enc1;
         odo_data.buffered_enc2 = enc2;
         odo_data.buffered_enc3 = enc3;
-        odo_data.buffer_timestamp = millis();
+        odo_data.buffer_timestamp_us = micros();
+        odo_data.buffer_seq++;
+        interrupts();
         
         #ifdef DEBUG_RS485
         static uint32_t enc_read_counter = 0;
@@ -629,28 +459,3 @@ bool Holonomic_Basis::send_movement_commands_nonblocking() {
     
     return true;  // On considère OK même si timeout silencieux (moteur peut fonctionner)
 }
-
-// Lire l'IMU DEPUIS loop() - I2C non-bloquant ~0.5ms
-bool Holonomic_Basis::read_imu_nonblocking() {
-    if (!bno085 || !odo_data.imu_calibrated) return false;
-
-    sh2_SensorValue_t sv;
-    if (!bno085->getSensorEvent(&sv)) return false;
-    if (sv.sensorId != SH2_GAME_ROTATION_VECTOR)  return false;
-
-    float r = sv.un.gameRotationVector.real;
-    float i = sv.un.gameRotationVector.i;
-    float j = sv.un.gameRotationVector.j;
-    float k = sv.un.gameRotationVector.k;
-
-    double yaw = atan2(2.0 * (r * k + i * j),
-                       1.0 - 2.0 * (j * j + k * k));
-
-    noInterrupts();
-    odo_data.buffered_imu_yaw       = yaw;
-    odo_data.buffered_imu_valid     = true;
-    odo_data.imu_buffer_timestamp   = millis();
-    interrupts();
-
-    return true;
-} 

@@ -28,21 +28,27 @@
 #define W3_ADDR         0x01
 
 //  SENSORS PINS 
-// IMU BNO085 (I2C)  
+// IMU BNO085 (I2C, Wire)  
 #define PIN_SDA 18
 #define PIN_SCL 19
 #define BNO085_RESET_PIN -1  // -1 si relié au Reset de la Teensy ou non utilisé
+// Report period of the game rotation vector: one heading per control tick.
+// A faster report fills the event queue, a slower one leaves ticks without.
+#define IMU_REPORT_PERIOD_US ASSERVISSEMENT_FREQUENCY
 
-
-// ── Capteur optique PAA5100JE 
-#define OPTICAL_SCALE       0.0423   // Counts → mm (à calibrer sur terrain réel)
-
-// Capteur optique PAA5100/PMW3901 (SPI)
-#define PAA5100_CS_PIN 10
-// MOSI = 11, MISO = 12, SCK = 13 (Obligatoire, géré par le matériel)
-
-#define HAUTEUR_MM 25.0   // Hauteur du capteur par rapport au sol (mm)
-#define SEUIL_BRUIT 2     // Seuil de bruit pour filtrage capteur optique
+// Optical odometry sensor SparkFun Qwiic OTOS (I2C)
+// Bus NOT fixed yet with the electronics: Wire (SDA 18 / SCL 19, shared with
+// the BNO085), Wire1 (SDA 17 / SCL 16) or Wire2 (SDA 25 / SCL 24). Each bus
+// uses its default pins.
+#define OTOS_WIRE            Wire1
+#define OTOS_I2C_CLOCK_HZ    400000
+// Scalars written at every boot (the sensor forgets them at power-off);
+// refused outside [0.95, 1.05]. To calibrate on the playing surface.
+#define OTOS_LINEAR_SCALAR   1.0f
+#define OTOS_ANGULAR_SCALAR  1.0f
+// Angle from the robot x axis to the sensor x axis (rad). The lever arm from
+// the centre of rotation is NOT set here: the EKF compensates it.
+#define OTOS_MOUNT_ANGLE_RAD 0.0f
 
 
 // ── Debug verbose ─────────────────────────────────────────────────────────────
@@ -99,6 +105,13 @@
 
 // Fréquence d'exécution des mouvements moteurs (en microsecondes)
 #define MOVEMENT_FREQUENCY 5000         // 5ms = 200Hz
+
+//  POSE ESTIMATOR
+// Both estimators are compiled in; this one runs at boot. The other can be
+// selected at run time, robot at rest (Holonomic_Basis::select_estimator).
+#define POSE_ESTIMATOR_COMPLEMENTARY 0  // 20 % encoders / 80 % optical (2026)
+#define POSE_ESTIMATOR_EKF6          1  // 6-state EKF, lib/kalman
+#define POSE_ESTIMATOR_DEFAULT POSE_ESTIMATOR_COMPLEMENTARY
 
 //  COMMUNICATION 
 // Com baudrate

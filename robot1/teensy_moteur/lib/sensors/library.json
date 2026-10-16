@@ -1,0 +1,8 @@
+{
+    "name": "sensors",
+    "version": "0.1.0",
+    "description": "Non-blocking sampling of the BNO085 IMU (heading) and the SparkFun Qwiic OTOS (robot-frame optical motion), both on I2C, polled from loop(). Needs Arduino: not part of the native environment.",
+    "keywords": "sensors, imu, optical",
+    "frameworks": "arduino",
+    "platforms": "*"
+  }
