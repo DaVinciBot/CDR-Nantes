@@ -5,7 +5,7 @@
  *
  * This class provides a method to calculate the CRC checksum of a message using
  * a precomputed lookup table. The table is initialized with the standard CRC-8
- * polynomial for efficiency.
+ * polynomial (0x07) for efficiency; the initial value is 0xFF.
  */
 class CRC {
    private:

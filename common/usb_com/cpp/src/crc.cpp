@@ -11,8 +11,10 @@
  * @return The computed 8-bit CRC checksum.
  */
 byte CRC::digest(byte* data, byte size) {
-    // Initialize the CRC value to 0
-    byte crc = 0;
+    // Initial value 0xFF, not 0: with 0, leading 0x00 bytes leave the CRC
+    // unchanged, so a stray COBS byte 0x01 in front of a frame (decoded as a
+    // leading zero) would pass as a valid message with ID 0.
+    byte crc = 0xFF;
 
     // Process each byte in the input data
     for (byte i = 0; i < size; i++) {

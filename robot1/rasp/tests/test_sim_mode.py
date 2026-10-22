@@ -15,7 +15,7 @@ import math
 import struct
 import threading
 import subprocess
-from enum import Enum
+import importlib.util
 from pathlib import Path
 
 # Configuration logging
@@ -23,20 +23,33 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger("SIM")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Classe Messages Mock (globale)
+# Messages : le vrai module du protocole, charge depuis son fichier
 # ─────────────────────────────────────────────────────────────────────────────
+# messages.py ne depend que de la bibliotheque standard ; importer le paquet
+# usb_com tirerait pyserial et ouvrirait le port. Les IDs et les formats sont
+# donc exactement ceux de la Teensy.
 
-class MockMessages(Enum):
-    UPDATE_ROLLING_BASIS = 128
-    SET_ODOMETRIE = 129
-    SET_TARGET_POSITION = 130
-    def to_bytes(self):
-        return struct.pack('<B', self.value)
+def _load_protocol_messages():
+    path = Path(__file__).resolve().parents[3] / "common" / "usb_com" / "python" / "messages.py"
+    spec = importlib.util.spec_from_file_location("sim_usb_com_messages", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+protocol = _load_protocol_messages()
+MockMessages = protocol.Messages
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MOCKS pour remplacer le hardware
 # ─────────────────────────────────────────────────────────────────────────────
+
+def odometry_data(x, y, theta):
+    """Donnees d'un message ODOMETRY telles que les recoit un callback (sans ID)."""
+    t_us = int(time.monotonic() * 1e6) & 0xFFFFFFFF
+    return protocol.pack_message(MockMessages.ODOMETRY, x, y, theta, 0.0, 0.0, 0.0, t_us)[1:]
+
 
 class MockTeensyCOM:
     """Mock de la communication USB avec la Teensy."""
@@ -64,7 +77,8 @@ class MockTeensyCOM:
 
         Protocole attendu:
           byte 0   : id message
-          bytes 1+ : payload (<ddd) pour SET_ODOMETRIE / SET_TARGET_POSITION
+          bytes 1+ : payload, au format de PAYLOAD_FORMATS (SET_ODOMETRIE,
+                     SET_TARGET)
         """
         if not data:
             return
@@ -80,20 +94,21 @@ class MockTeensyCOM:
             logger.info(f"[SIM] SET_ODOMETRIE reçu: X={x:.1f}, Y={y:.1f}, theta={theta:.3f}")
 
             # Publier immédiatement la nouvelle odométrie
-            cb = self.callbacks.get(MockMessages.UPDATE_ROLLING_BASIS.value)
+            cb = self.callbacks.get(MockMessages.ODOMETRY.value)
             if cb is not None:
                 try:
-                    cb(struct.pack('<ddd', x, y, theta))
+                    cb(odometry_data(x, y, theta))
                 except Exception as e:
                     logger.error(f"Erreur callback immédiat SET_ODOMETRIE: {e}")
             return
 
-        # SET_TARGET_POSITION: nouvelle consigne de déplacement
-        if msg_id == MockMessages.SET_TARGET_POSITION.value and len(data) >= 25:
-            x, y, theta = struct.unpack('<ddd', data[1:25])
+        # SET_TARGET: nouvelle consigne de déplacement (vitesses ignorées)
+        if (msg_id == MockMessages.SET_TARGET.value
+                and len(data) == 1 + protocol.payload_size(MockMessages.SET_TARGET)):
+            x, y, theta = protocol.unpack_message(MockMessages.SET_TARGET, data[1:])[:3]
             with self._lock:
                 self.target_x, self.target_y, self.target_theta = x, y, theta
-            logger.debug(f"[SIM] SET_TARGET_POSITION: X={x:.1f}, Y={y:.1f}, theta={theta:.3f}")
+            logger.debug(f"[SIM] SET_TARGET: X={x:.1f}, Y={y:.1f}, theta={theta:.3f}")
             return
 
         logger.debug(f"[SIM] Message Teensy ignoré: id={msg_id}, len={len(data)}")
@@ -133,11 +148,11 @@ class MockTeensyCOM:
             with self._lock:
                 self.sim_x, self.sim_y, self.sim_theta = sx, sy, stheta
 
-            # Envoyer callback UPDATE_ROLLING_BASIS (type 128)
-            if 128 in self.callbacks:
-                data = struct.pack('<ddd', sx, sy, stheta)
+            # Envoyer callback ODOMETRY
+            cb = self.callbacks.get(MockMessages.ODOMETRY.value)
+            if cb is not None:
                 try:
-                    self.callbacks[128](data)
+                    cb(odometry_data(sx, sy, stheta))
                 except Exception as e:
                     logger.error(f"Erreur callback: {e}")
 
@@ -253,7 +268,7 @@ def inject_mocks():
 
     # Remplacer dans sys.modules, AVANT tout import de app.py :
     #   - robot1.rasp.comm : le lien Teensy devient le mock odometrique
-    #   - usb_com          : app.py fait "from usb_com import Messages"
+    #   - usb_com          : app.py fait "from usb_com import Messages, pack_message, ..."
     # Le nom doit etre celui qu'app.py importe reellement, sinon le mock n'intercepte
     # rien et le test ouvre le vrai port serie (cf. etape B du 11/09/2026).
     sys.modules['robot1.rasp.comm'] = type(sys)('robot1.rasp.comm')
@@ -261,6 +276,9 @@ def inject_mocks():
 
     sys.modules['usb_com'] = type(sys)('usb_com')
     sys.modules['usb_com'].Messages = MockMessages
+    sys.modules['usb_com'].pack_message = protocol.pack_message
+    sys.modules['usb_com'].payload_size = protocol.payload_size
+    sys.modules['usb_com'].unpack_message = protocol.unpack_message
 
     logger.info("[OK] Mocks injectés dans sys.modules")
 
@@ -298,7 +316,7 @@ def patch_robot_for_sim(robot_class):
         self.Messages = MockMessages
 
         self.com = MockTeensyCOM()
-        self.com.add_callback(self._handle_position, 128)
+        self.com.add_callback(self._handle_position, MockMessages.ODOMETRY.value)
         self.mode = "SIMULATION"
 
         # Stratégie MOCK

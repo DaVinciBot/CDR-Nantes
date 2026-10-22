@@ -1,246 +1,127 @@
-#  USB Communication - Python
+# USB Communication - Python
 
-> Implémentation Python du protocole de communication USB pour CDR-Nantes
+> Côté Raspberry Pi du protocole USB Rasp ↔ Teensy. Le côté Teensy est dans
+> [../cpp/](../cpp/README.md) : les deux doivent rester identiques à l'octet près.
 
 ---
 
-##  Structure du module
+## Structure
 
-```
+```text
 python/
 ├── __init__.py
-├── messages.py           # Énumération de tous les messages
+├── messages.py          # IDs, formats des messages, drapeaux
 ├── com/
-│   ├── __init__.py
-│   ├── com.py           # Classe Com principale
-│   ├── dummy.py         # Mock pour tests sans hardware
-│   └── exceptions.py    # Exceptions personnalisées
-└── tools/               # Utilitaires de débogage
+│   ├── com.py           # Classe Com : port, thread récepteur, callbacks, heartbeat
+│   ├── framing.py       # COBS + CRC8 : encode_frame / decode_frame, sans I/O
+│   ├── dummy.py         # DummySerial : port factice, sans matériel
+│   └── exceptions.py    # ComError
+├── tools/
+│   └── get_serial_number.py
+└── tests/
+    └── test_framing.py  # tests hors ligne du cadrage et des formats
 ```
+
+`usb_com` vient de `pip install -e .` à la racine du dépôt : `from usb_com import Com, Messages`.
+
+---
+
+## Format de trame
+
+```text
+COBS( [ID][données][CRC8] )  0x00
+```
+
+CRC8 de polynôme 0x07, valeur initiale 0xFF, sur ID + données. COBS retire tous les 0x00 de la
+trame : le 0x00 final la délimite toujours, aucune donnée ne peut la couper, et après du bruit le
+flux repart au 0x00 suivant. Détails et raisons : [../cpp/README.md](../cpp/README.md).
+
+`framing.py` ne fait aucune I/O : c'est là que se testent le cadrage et la compatibilité avec le
+C++.
 
 ---
 
 ## Classe `Com` (com/com.py)
 
-Gestionnaire principal de la communication USB série avec checksum CRC8 et signature.
-
-### Initialisation
-
-Le port n'est pas choisi : il est retrouvé par numéro de série, vid et pid.
+Côté `robot1/rasp/`, ne pas instancier `Com` à la main : `init_robot()` lit `config.json`
+(section `serial_config`) et choisit le mode d'après `ROBOT_MODE`.
 
 ```python
-com = Com(
-    logger,
-    17795370,              # numéro de série de la Teensy
-    5824,                  # vid
-    1155,                  # pid
-    115200,                # baudrate
-    enable_crc=True,
-    enable_dummy=False,    # True : boucle locale DummySerial, sans matériel
-)
-```
-
-Côté `robot1/rasp/`, ne pas instancier `Com` à la main : `utils.init_robot()` lit ces
-valeurs dans `config.json` et choisit le mode d'après `ROBOT_MODE`.
-
-```python
-from comm import init_robot
+from robot1.rasp.comm import init_robot
 
 com, mode = init_robot(logger)
 ```
 
-### Envoi de messages
+Le port est retrouvé par numéro de série, vid et pid, jamais par un chemin de device. Sans Teensy,
+`ComError` est levée, sauf avec `enable_dummy=True` : le lien devient alors un `DummySerial`,
+les envois partent et rien ne revient.
+
+### Envoyer
 
 ```python
-import struct
+from usb_com import Messages, pack_message
 
-# Message simple sans payload
-com.send_bytes(Messages.RESET_TEENSY.to_bytes())
-
-# Message avec payload structuré
-msg = Messages.SET_TARGET_POSITION.to_bytes()
-msg += struct.pack('<ddd', 200.0, 0.0, 0.0)  # x, y, theta
-com.send_bytes(msg)
+com.send_bytes(pack_message(Messages.SET_TARGET, 200.0, 0.0, 0.0, 0.0, 0.0, 0.0))
+com.send_bytes(pack_message(Messages.STOP))
 ```
 
-### Réception avec callbacks
+`send_bytes()` encode et écrit la trame. Le dernier message envoyé est gardé pour être renvoyé
+si la Teensy répond `NACK` (`record=False` pour ne pas le garder).
+
+### Recevoir
 
 ```python
-def handle_position(data: bytes):
-    """Callback appelé à la réception d'UPDATE_ROLLING_BASIS"""
-    x, y, theta = struct.unpack('<ddd', data[:24])
-    print(f"Position: X={x:.1f} Y={y:.1f} θ={theta:.3f}")
+from usb_com import Messages, payload_size, unpack_message
 
-# Enregistrer le callback
-com.add_callback(handle_position, Messages.UPDATE_ROLLING_BASIS.value)
+def handle_odometry(data: bytes) -> None:
+    if len(data) != payload_size(Messages.ODOMETRY):
+        return
+    x, y, theta, vx, vy, omega, t_us = unpack_message(Messages.ODOMETRY, data)
 
-# Démarrer l'écoute (thread séparé)
-com.start_listening()
+com.add_callback(handle_odometry, Messages.ODOMETRY.value)
+```
+
+Le thread récepteur démarre avec `Com` (sauf en mode dummy). Un callback reçoit les **données
+sans l'ID**. Une trame invalide est ignorée et un `NACK` est renvoyé. La lecture a un timeout de
+0,1 s, et une trame arrivée en plusieurs morceaux est réassemblée.
+
+### Heartbeat et arrêt
+
+```python
+com.start_heartbeat()   # HEARTBEAT toutes les 0,5 s, sous le watchdog de 3 s de la Teensy
+...
+com.close()             # arrête les threads, ferme le port
 ```
 
 ---
 
-##  Énumération `Messages` (messages.py)
+## Messages (messages.py)
 
-Liste complète de tous les messages du protocole.
+Miroir de `cpp/include/messages.h` : un ID, un format ou un drapeau modifié d'un côté l'est de
+l'autre dans le même commit. La table complète des messages est dans
+[../cpp/README.md](../cpp/README.md).
 
-### Messages RPI → Teensy (0-126)
-
-| ID | Nom | Description |
-|----|-----|-------------|
-| 0 | `SET_TARGET_POSITION` | Définir position cible (x, y, θ) |
-| 1 | `SET_PID` | Configuration des gains PID |
-| 2 | `SET_ODOMETRIE` | Réinitialiser l'odométrie |
-| 3 | `SET_SERVO_ANGLE_I2C` | Servo via PCA9685 (I2C) |
-| 4 | `STEPPER_STEP` | Commande moteur pas-à-pas |
-| 5 | `SET_SERVO_ANGLE_DETACH` | Servo + détachement auto |
-| 6 | `ATTACH_SWITCH` | Activer un switch |
-| 7 | `SET_SERVO_ANGLE` | Servo PWM direct |
-| 8 | `SET_STEPPER_DRIVER_ACTIVATION_STATE` | Activer/désactiver driver |
-| 126 | `RESET_TEENSY` | Redémarrage logiciel |
-| 127 | `NACK` | Erreur de transmission |
-
-### Messages Teensy → RPI (128-255)
-
-| ID | Nom | Description |
-|----|-----|-------------|
-| 128 | `UPDATE_ROLLING_BASIS` | Position courante (x, y, θ) |
-| 129 | `SWITCH_STATE_RETURN` | État d'un switch |
-| 254 | `PRINT` | Message texte de debug |
-| 255 | `UNKNOWN_MSG_TYPE` | Type de message inconnu |
-
-**Exemple :**
-
-```python
-from common.usb_com.python.messages import Messages
-
-# Convertir en byte
-msg_id = Messages.SET_TARGET_POSITION.to_bytes()
-
-# Obtenir la valeur numérique
-value = Messages.UPDATE_ROLLING_BASIS.value  # 128
-```
+- `Messages` : les IDs. `Messages.X.to_bytes()` donne l'octet d'ID.
+- `PAYLOAD_FORMATS` : format `struct` des données de chaque message de la base roulante
+  (little-endian, sans padding, comme les structures C++). Les messages actionneurs sont
+  empaquetés par leurs appelants.
+- `pack_message(message, *champs)`, `unpack_message(message, données)`,
+  `payload_size(message)`.
+- `Estimator`, `StatusFlag`, `TraceFlag` : valeurs et drapeaux de `SET_ESTIMATOR`, `STATUS` et
+  `PID_TRACE`.
 
 ---
 
-##  Classe `DummyCom` (com/dummy.py)
-
-Mock pour les tests sans hardware.
-
-```python
-from common.usb_com.python.com.dummy import DummyCom
-from common.usb_com.python.messages import Messages
-
-# Créer un mock
-com = DummyCom()
-
-# Envoyer un message (enregistré mais pas envoyé)
-com.send_bytes(Messages.SET_TARGET_POSITION.to_bytes())
-
-# Simuler une réception
-fake_data = struct.pack('<ddd', 100.0, 50.0, 1.57)
-com.simulate_receive(Messages.UPDATE_ROLLING_BASIS.value, fake_data)
-```
-
----
-
-##  Format des messages
-
-### Structure générale
-
-```
-┌──────────┬──────────────┬──────────┬─────────┬─────────────────────────┐
-│  ID msg  │   Payload    │  Taille  │   CRC8  │      Signature          │
-│  1 byte  │  N bytes     │  1 byte  │  1 byte │  0xBA 0xDD 0x1C 0xC5    │
-└──────────┴──────────────┴──────────┴─────────┴─────────────────────────┘
-```
-
-### Exemple : `SET_TARGET_POSITION`
-
-```python
-import struct
-from common.usb_com.python.messages import Messages
-
-# Construire le message
-msg = Messages.SET_TARGET_POSITION.to_bytes()  # ID = 0
-msg += struct.pack('<ddd', 200.0, 0.0, 0.0)    # x, y, theta (24 bytes)
-
-# La classe Com ajoute automatiquement :
-# - Taille du payload (1 byte)
-# - CRC8 (1 byte)
-# - Signature (4 bytes : 0xBA 0xDD 0x1C 0xC5)
-
-com.send_bytes(msg)
-```
-
----
-
-## Vérification CRC8
-
-Le CRC8 est calculé sur `[payload + taille]` et vérifié automatiquement :
-
--  CRC valide → message traité
--  CRC invalide → envoi `NACK(127)` → retransmission
-
-```python
-# Activer/désactiver la vérification CRC
-com = Com(port="COM1", baudrate=115200, use_crc=True)  # Recommandé
-```
-
----
-
-##  Gestion des erreurs
-
-### Types d'exceptions
-
-```python
-from common.usb_com.python.com.exceptions import (
-    CommunicationError,     # Erreur générique
-    TimeoutError,           # Timeout de réception
-    CRCError,               # Checksum invalide
-    ConnectionError         # Perte de connexion USB
-)
-
-try:
-    com.send_bytes(msg)
-except CommunicationError as e:
-    logger.error(f"Erreur de communication : {e}")
-```
-
-### Reconnexion automatique
-
-La classe `Com` tente automatiquement de se reconnecter en cas de déconnexion USB.
-
----
-
-##  Débogage
-
-### Activer les logs
-
-```python
-import logging
-
-logging.basicConfig(level=logging.DEBUG)
-com = Com(port="COM1", baudrate=115200)
-
-# Affiche tous les messages envoyés/reçus
-```
-
-### Outils disponibles
+## Tests
 
 ```bash
-# Vérifier les ports USB disponibles
-python common/usb_com/python/tools/list_ports.py
-
-# Dump des messages en hexadécimal
-python common/usb_com/python/tools/hex_dump.py
+python -m unittest discover common/usb_com/python/tests
 ```
 
----
+Depuis la racine du dépôt, sans port série ni Teensy. Ils couvrent :
 
-##  Voir aussi
-
-- [Protocole de communication](../../../PROTOCOLE_COMMUNICATION.md)
-- [Implémentation C++](../cpp/README.md)
-- [Tests de communication](../../../robot1/rasp/tools/bringup/README.md)
-- [Documentation complète](../../../Documentation_CDR_Nantes_2026.md)
+- COBS ;
+- les trames de référence produites par le C++ ;
+- les tailles des messages contre les `sizeof` C++ ;
+- les trames invalides et la resynchronisation ;
+- le port factice.

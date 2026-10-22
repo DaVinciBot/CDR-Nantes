@@ -1,316 +1,126 @@
-#  USB Communication - C++
+# USB Communication - C++
 
-> Implémentation C++ du protocole de communication USB pour Teensy 4.1
+> Côté Teensy du protocole USB Rasp ↔ Teensy. Utilisé par `teensy_moteur` et
+> `teensy_actuator` (lien symbolique `com=symlink://../../common/usb_com/cpp` dans leur
+> `platformio.ini`). Le côté Rasp est dans [../python/](../python/README.md) : les deux doivent
+> rester identiques à l'octet près.
 
 ---
 
-##  Structure du module
+## Structure
 
-```
+```text
 cpp/
-├── library.json          # Configuration PlatformIO
+├── library.json
 ├── include/
-│   ├── com.h            # Classe Com principale
-│   ├── messages.h       # Énumération des messages
-│   └── crc.h            # Calcul CRC8
+│   ├── com.h        # Classe Com : réception, envoi, callbacks, NACK
+│   ├── messages.h   # IDs, structures des messages, drapeaux
+│   ├── cobs.h       # Encodage COBS (sans Arduino)
+│   └── crc.h        # CRC8 par table
 └── src/
     ├── com.cpp
-    ├── messages.cpp
+    ├── cobs.cpp
     └── crc.cpp
 ```
 
 ---
 
-##  Classe `Com` (include/com.h)
+## Format de trame
 
-Gestionnaire de communication série pour Teensy avec validation CRC8.
-
-### Initialisation
-
-```cpp
-#include "com.h"
-#include "messages.h"
-
-// Dans setup()
-Com com(&Serial, true);  // Serial1, Serial2, etc. avec CRC activé
-com.init(115200);        // Baudrate
+```text
+COBS( [ID][données][CRC8] )  0x00
 ```
 
-### Envoi de messages
+- **ID** : 1 octet. Rasp → Teensy de 0 à 127, Teensy → Rasp de 128 à 255, `NACK` = 127.
+- **Données** : la structure du message, sans padding (`#pragma pack(push, 1)`). ID + données
+  font au plus `COM_MAX_PAYLOAD` = 255 octets.
+- **CRC8** : polynôme 0x07, **valeur initiale 0xFF**, calculé sur ID + données. Pas 0 : avec 0,
+  les 0x00 de tête ne changent pas le CRC, et un octet parasite devant une trame passerait.
+- **COBS** (Consistent Overhead Byte Stuffing) retire tous les 0x00 de la trame, pour un octet de
+  plus tous les 254. Le **0x00 final délimite donc toujours une trame** : aucune donnée ne peut
+  couper sa propre trame, et après du bruit ou une trame tronquée, le flux est resynchronisé au
+  0x00 suivant.
 
-#### Message simple
-
-```cpp
-// Message sans payload
-com.send_message(Messages::RESET_TEENSY);
-```
-
-#### Message avec payload
-
-```cpp
-// Exemple : UPDATE_ROLLING_BASIS (double x, y, theta)
-double x = 123.45;
-double y = 67.89;
-double theta = 1.57;
-
-byte payload[24];
-memcpy(payload, &x, sizeof(double));
-memcpy(payload + 8, &y, sizeof(double));
-memcpy(payload + 16, &theta, sizeof(double));
-
-com.send_message(Messages::UPDATE_ROLLING_BASIS, payload, 24);
-```
-
-### Réception de messages
-
-#### Via callbacks
-
-```cpp
-// Définir un handler
-void handle_target_position(byte* data, byte size) {
-    double x, y, theta;
-    memcpy(&x, data, sizeof(double));
-    memcpy(&y, data + 8, sizeof(double));
-    memcpy(&theta, data + 16, sizeof(double));
-    
-    Serial.printf("Nouvelle cible: X=%.2f Y=%.2f θ=%.3f\n", x, y, theta);
-}
-
-// Enregistrer le callback (dans setup())
-com.add_callback(Messages::SET_TARGET_POSITION, handle_target_position);
-
-// Dans loop()
-com.handle_callbacks();  // Traite les messages reçus
-```
+Il n'y a plus d'octet de taille ni de signature de fin : c'est le délimiteur qui borne la trame.
 
 ---
 
-##  Énumération `Messages` (include/messages.h)
-
-### Définition
+## Classe `Com` (include/com.h)
 
 ```cpp
-enum class Messages : byte {
-    // RPI → Teensy (0-126)
-    SET_TARGET_POSITION = 0,
-    SET_PID = 1,
-    SET_ODOMETRIE = 2,
-    SET_SERVO_ANGLE_I2C = 3,
-    STEPPER_STEP = 4,
-    SET_SERVO_ANGLE_DETACH = 5,
-    ATTACH_SWITCH = 6,
-    SET_SERVO_ANGLE = 7,
-    SET_STEPPER_DRIVER_ACTIVATION_STATE = 8,
-    
-    RESET_TEENSY = 126,
-    NACK = 127,
-    
-    // Teensy → RPI (128-255)
-    UPDATE_ROLLING_BASIS = 128,
-    SWITCH_STATE_RETURN = 129,
-    
-    PRINT = 254,
-    UNKNOWN_MSG_TYPE = 255
-};
-```
+#include <com.h>
 
-### Utilisation
+Com* com;
+void (*callback_functions[256])(byte* msg, byte size);  // indexé par ID, nullptr par défaut
 
-```cpp
-// Convertir en byte
-byte msg_id = static_cast<byte>(Messages::SET_TARGET_POSITION);
-
-// Comparer
-if (received_id == static_cast<byte>(Messages::UPDATE_ROLLING_BASIS)) {
-    // Traiter
-}
-```
-
----
-
-##  CRC8 (include/crc.h)
-
-### Calcul automatique
-
-```cpp
-#include "crc.h"
-
-byte data[] = {0x01, 0x02, 0x03};
-byte crc = CRC8::compute(data, 3);
-
-// Vérification
-bool is_valid = CRC8::verify(data, 3, crc);  // true
-```
-
-Le CRC8 utilise le polynôme **0x07** (standard CRC-8-ITU).
-
-### Intégration dans Com
-
-La classe `Com` gère automatiquement le CRC :
--  Ajout du CRC à l'envoi
--  Vérification à la réception
--  Envoi de `NACK` si CRC invalide
-
----
-
-##  Format des messages
-
-### Structure en mémoire
-
-```
-Offset    Contenu           Type        Taille
-─────────────────────────────────────────────────
-0         ID message        byte        1
-1         Payload           byte[]      N
-N+1       Taille payload    byte        1
-N+2       CRC8              byte        1
-N+3       Signature[0]      byte        1  (0xBA)
-N+4       Signature[1]      byte        1  (0xDD)
-N+5       Signature[2]      byte        1  (0x1C)
-N+6       Signature[3]      byte        1  (0xC5)
-```
-
-### Constantes
-
-```cpp
-// Dans com.h
-#define END_SIGNATURE_SIZE 4
-const byte END_SIGNATURE[END_SIGNATURE_SIZE] = {0xBA, 0xDD, 0x1C, 0xC5};
-```
-
----
-
-##  Exemple complet : Teensy Moteur
-
-```cpp
-#include <Arduino.h>
-#include "com.h"
-#include "messages.h"
-
-Com com(&Serial, true);
-
-void handle_set_target(byte* data, byte size) {
-    if (size != 24) return;  // 3 doubles = 24 bytes
-    
-    double x, y, theta;
-    memcpy(&x, data, 8);
-    memcpy(&y, data + 8, 8);
-    memcpy(&theta, data + 16, 8);
-    
-    // Déplacer le robot
-    move_to(x, y, theta);
+void set_target(byte* msg, byte size) {
+    if (size != sizeof(msg_set_target)) return;
+    msg_set_target* m = (msg_set_target*)msg;  // msg[0] est l'ID
+    // m->x, m->y, m->theta, m->vx, m->vy, m->omega
 }
 
 void setup() {
-    Serial.begin(115200);
-    com.init(115200);
-    
-    // Enregistrer les callbacks
-    com.add_callback(Messages::SET_TARGET_POSITION, handle_set_target);
+    com = new Com(&Serial, 115200);
+    callback_functions[SET_TARGET] = &set_target;
 }
 
 void loop() {
-    // Traiter les messages reçus
-    com.handle_callbacks();
-    
-    // Envoyer la position courante (10 Hz)
-    static unsigned long last_send = 0;
-    if (millis() - last_send > 100) {
-        double x = get_current_x();
-        double y = get_current_y();
-        double theta = get_current_theta();
-        
-        byte payload[24];
-        memcpy(payload, &x, 8);
-        memcpy(payload + 8, &y, 8);
-        memcpy(payload + 16, &theta, 8);
-        
-        com.send_message(Messages::UPDATE_ROLLING_BASIS, payload, 24);
-        last_send = millis();
-    }
+    com->handle_callback(callback_functions);
 }
 ```
 
----
+- `handle_callback()` lit ce qui est disponible jusqu'à la fin de la **première** trame complète
+  et appelle le callback de son ID, avec `size` = ID + données. Une trame incomplète est gardée
+  pour l'appel suivant.
+- Trame invalide (COBS invalide, CRC faux, trop longue, trop courte) : `NACK` envoyé, trame
+  comptée (`rejected_frames()`).
+- `NACK` reçu : renvoi du dernier message envoyé. ID sans callback : réponse `UNKNOWN_MSG_TYPE`.
+- `send_msg(msg, size)` : ajoute le CRC, encode, écrit la trame et son délimiteur. Aucune
+  allocation.
+- `print(text)` : message `PRINT`, texte coupé à 254 caractères.
 
-##  Gestion des erreurs
-
-### Timeout de réception
-
-```cpp
-// Dans com.h
-#define RECEIVE_TIMEOUT_MS 1000  // 1 seconde
-
-// La classe Com arrête d'attendre après le timeout
-```
-
-### Messages inconnus
-
-Si un message avec un ID inconnu est reçu, la Teensy envoie automatiquement :
-
-```cpp
-// Envoi automatique par la classe Com
-com.send_message(Messages::UNKNOWN_MSG_TYPE, &unknown_id, 1);
-```
-
-### CRC invalide
-
-```cpp
-// Envoi automatique d'un NACK
-com.send_message(Messages::NACK);
-```
+**`Serial` porte le protocole** : un `Serial.print` dans un firmware qui utilise `Com` sur
+`Serial` corrompt le flux. Passer par `com->print()`.
 
 ---
 
-##  Installation (PlatformIO)
+## Messages (include/messages.h)
 
-### Dans `platformio.ini`
+Unités : mm, rad, s, µs, rpm. Repère table sauf mention contraire.
 
-```ini
-[env:teensy41]
-platform = teensy
-board = teensy41
-framework = arduino
+### Rasp → Teensy
 
-lib_deps =
-    file:///<chemin_absolu>/CDR-Nantes/common/usb_com/cpp
-```
+| ID | Message | Contenu |
+| --- | --- | --- |
+| 0 | `SET_TARGET` | x, y, θ, vx, vy, ω (float). Vitesse de la trajectoire à la cible, nulle pour une simple cible de pose |
+| 1 | `SET_PID` | `pid_type`, kp, ki, kd |
+| 2 | `SET_ODOMETRIE` | x, y, θ (double) : recalage de la pose |
+| 3 à 8 | actionneurs | servos, pas-à-pas, switch (`teensy_actuator`) |
+| 9 | `STOP` | arrêt franc, retour à l'arrêt |
+| 10 | `SET_ESTIMATOR` | `ESTIMATOR_COMPLEMENTARY` (0) ou `ESTIMATOR_EKF6` (1), refusé si les roues tournent |
+| 11 | `SET_TRACE` | `PID_TRACE` activée (1) ou non (0) |
+| 12 | `HEARTBEAT` | entretient le watchdog quand rien d'autre n'est à envoyer |
+| 126 | `RESET_TEENSY` | redémarrage |
 
-### Ou copier manuellement
+### Teensy → Rasp
 
-```bash
-cp -r common/usb_com/cpp/* robot1/teensy_moteur/lib/usb_com/
-```
+| ID | Message | Contenu |
+| --- | --- | --- |
+| 128 | `ODOMETRY` | x, y, θ, vx, vy, ω (float), `t_us` |
+| 129 | `SWITCH_STATE_RETURN` | état d'un switch |
+| 130 | `STATUS` | `t_us`, drapeaux `STATUS_*`, estimateur actif et sa santé, échecs RS485 en lecture et en écriture |
+| 131 | `PID_TRACE` | une ligne par tick : consigne, pose, vitesse commandée, vitesses roues avant et après limiteur et mesurées, termes P / I / D, drapeaux `TRACE_*` |
+| 254 | `PRINT` | texte de debug |
+| 255 | `UNKNOWN_MSG_TYPE` | ID reçu sans callback |
 
----
-
-##  Débogage
-
-### Afficher les messages reçus
-
-```cpp
-// Activer le mode debug (définir avant #include "com.h")
-#define COM_DEBUG
-#include "com.h"
-
-// Affiche dans Serial les messages bruts
-```
-
-### Moniteur série
-
-```bash
-# PlatformIO
-pio device monitor -b 115200
-
-# Arduino IDE
-Outils > Moniteur série > 115200 baud
-```
+La liste fait foi dans `messages.h`. Un ID, une structure ou un drapeau modifié ici l'est aussi
+dans `python/messages.py`, dans le même commit.
 
 ---
 
-##  Voir aussi
+## Tests
 
-- [Protocole de communication](../../../PROTOCOLE_COMMUNICATION.md)
-- [Implémentation Python](../python/README.md)
-- [Documentation Teensy Moteur](../../../robot1/teensy_moteur/CONFIGURATION.md)
-- [Documentation complète](../../../Documentation_CDR_Nantes_2026.md)
+Pas de test natif PlatformIO pour cette lib. La compatibilité avec le côté Python est vérifiée
+par `python/tests/test_framing.py`, dont les trames de référence ont été produites par
+`cobs.cpp` + `crc.cpp` compilés sur PC, et dont les tailles de messages sont celles des
+`sizeof` de `messages.h`.

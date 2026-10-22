@@ -5,7 +5,7 @@ import struct
 import time
 import logging
 
-from usb_com import Com, Messages
+from usb_com import Com, Messages, pack_message, payload_size, unpack_message
 
 from robot1.rasp.comm import get_com_config
 
@@ -20,8 +20,8 @@ messages_received = 0
 def handle_position(data: bytes) -> None:
     """Callback pour recevoir la position."""
     global messages_received
-    if len(data) >= 24:
-        x, y, theta = struct.unpack('<ddd', data[:24])
+    if len(data) == payload_size(Messages.ODOMETRY):
+        x, y, theta = unpack_message(Messages.ODOMETRY, data)[:3]
         messages_received += 1
         logger.info(f" Position reçue #{messages_received}: X={x:.2f}mm, Y={y:.2f}mm, theta={theta:.4f}rad")
     else:
@@ -44,7 +44,7 @@ def main():
     )
 
     # Enregistrer le callback
-    com.add_callback(handle_position, Messages.UPDATE_ROLLING_BASIS.value)
+    com.add_callback(handle_position, Messages.ODOMETRY.value)
 
     logger.info("[OK] Connexion établie!")
     logger.info("=" * 70)
@@ -68,8 +68,7 @@ def main():
 
     for x, y, theta, description in positions:
         logger.info(f" Test : {description}")
-        msg = Messages.SET_TARGET_POSITION.to_bytes()
-        msg += struct.pack('<ddd', x, y, theta)
+        msg = pack_message(Messages.SET_TARGET, x, y, theta, 0.0, 0.0, 0.0)
         com.send_bytes(msg)
         messages_sent += 1
         logger.info(f" Commande envoyée: X={x}mm, Y={y}mm, theta={theta}rad")
@@ -97,7 +96,7 @@ def main():
         logger.warning("  Vérifications à faire :")
         logger.warning("   • Le firmware est-il bien flashé sur la Teensy ?")
         logger.warning("   • Le baudrate est-il correct (115200) ?")
-        logger.warning("   • La Teensy envoie-t-elle des messages UPDATE_ROLLING_BASIS ?")
+        logger.warning("   • La Teensy envoie-t-elle des messages ODOMETRY ?")
 
     logger.info("=" * 70)
 

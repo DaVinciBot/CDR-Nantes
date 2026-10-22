@@ -1,29 +1,31 @@
 """Pure frame encoding/decoding for the Teensy USB protocol.
 
-Wire format (unchanged, must stay byte-for-byte identical to the C++ side in
-``common/usb_com/cpp/src/com.cpp``)::
+Wire format (must stay byte-for-byte identical to the C++ side in
+``common/usb_com/cpp/src/com.cpp`` and ``cobs.cpp``)::
 
-    msg_type | msg_data | msg_length | CRC8 | END_BYTES_SIGNATURE
-       1     |    N     |     1      |  1   |         4
+    COBS( msg_type | msg_data | CRC8 ) | 0x00
+               1   |    N     |  1
 
-``msg_length`` counts the message type byte plus the data, i.e. ``1 + N``.
-The CRC8 is computed over ``msg_type | msg_data | msg_length``.
+The CRC8 (polynomial 0x07, init 0xFF) covers ``msg_type | msg_data``. COBS
+(Consistent Overhead Byte Stuffing) removes every 0x00 from the frame, at a
+cost of one byte per 254, so that 0x00 can delimit frames: whatever the payload
+holds, it cannot cut its own frame short, and a reader that lost track is back
+in sync at the next 0x00.
 
 These functions are deliberately free of any I/O, threading or shared state so
-they can be unit-tested without a serial port. They are also the single place
-where a future COBS / byte-stuffing layer would be added: today the end
-signature is written raw, so a payload that happens to contain the four bytes
-``BA DD 1C C5`` truncates its own frame. See the November firmware rework.
+they can be unit-tested without a serial port.
 """
 
 from __future__ import annotations
 
 import crc8
 
-from usb_com.python.messages import END_BYTES_SIGNATURE
+from usb_com.python.messages import FRAME_DELIMITER, MAX_PAYLOAD_SIZE
 
-# Smallest possible frame: 1 type byte + 1 length byte + 1 CRC + 4 signature
-MIN_FRAME_SIZE = 7
+# Initial value of the CRC8. Not 0: with 0, leading 0x00 bytes leave the CRC
+# unchanged, so a stray COBS byte 0x01 in front of a frame (decoded as a leading
+# zero) would pass as a valid message with ID 0.
+CRC8_INIT = 0xFF
 
 
 def compute_crc8(data: bytes) -> int:
@@ -40,9 +42,70 @@ def compute_crc8(data: bytes) -> int:
     Returns:
         int: The CRC8 value, as a single byte value.
     """
-    hasher = crc8.crc8()
+    hasher = crc8.crc8(initial_start=CRC8_INIT)
     hasher.update(data)
     return hasher.digest()[0]
+
+
+def cobs_encode(data: bytes) -> bytes:
+    """COBS-encodes ``data`` (delimiter not added).
+
+    Same algorithm as ``cobs_encode`` in ``cpp/src/cobs.cpp``, including the
+    trailing code byte after a full 254-byte block.
+
+    Args:
+        data (bytes): Bytes to encode.
+
+    Returns:
+        bytes: The encoded bytes, none of them 0x00.
+    """
+    out = bytearray([0])
+    code_index = 0
+    code = 1
+    for byte in data:
+        if byte == 0:
+            out[code_index] = code
+            code = 1
+            code_index = len(out)
+            out.append(0)
+        else:
+            out.append(byte)
+            code += 1
+            if code == 0xFF:  # noqa: PLR2004
+                out[code_index] = code
+                code = 1
+                code_index = len(out)
+                out.append(0)
+    out[code_index] = code
+    return bytes(out)
+
+
+def cobs_decode(data: bytes) -> bytes | None:
+    """Decodes COBS bytes (delimiter excluded).
+
+    Args:
+        data (bytes): Encoded bytes.
+
+    Returns:
+        bytes | None: The decoded bytes, or ``None`` if ``data`` is not valid
+        COBS (a 0x00 inside, a block running past the end).
+    """
+    out = bytearray()
+    index = 0
+    while index < len(data):
+        code = data[index]
+        index += 1
+        if code == 0:
+            return None
+        block = data[index : index + code - 1]
+        if len(block) != code - 1 or 0 in block:
+            return None
+        out += block
+        index += code - 1
+        # A block shorter than 254 stands for a zero, except the last one.
+        if code != 0xFF and index < len(data):  # noqa: PLR2004
+            out.append(0)
+    return bytes(out)
 
 
 def encode_frame(payload: bytes, *, enable_crc: bool = True) -> bytes:
@@ -51,74 +114,57 @@ def encode_frame(payload: bytes, *, enable_crc: bool = True) -> bytes:
     Args:
         payload (bytes): Message type byte followed by the message data.
         enable_crc (bool, optional): Append a CRC8 byte. Defaults to ``True``.
+            The Teensy always expects one: ``False`` is for tests only.
 
     Returns:
-        bytes: The frame, signature included, ready to be written.
+        bytes: The frame, delimiter included, ready to be written.
 
     Raises:
-        ValueError: If ``payload`` is empty or longer than 255 bytes (the
-            length field is a single byte).
+        ValueError: If ``payload`` is empty or longer than ``MAX_PAYLOAD_SIZE``.
     """
     if not payload:
         msg = "Cannot encode an empty payload"
         raise ValueError(msg)
-    if len(payload) > 255:  # noqa: PLR2004
-        msg = f"Payload too long for a one-byte length field: {len(payload)}"
+    if len(payload) > MAX_PAYLOAD_SIZE:
+        msg = f"Payload too long: {len(payload)} > {MAX_PAYLOAD_SIZE} bytes"
         raise ValueError(msg)
 
-    frame = payload + bytes([len(payload)])
-    if enable_crc:
-        frame += bytes([compute_crc8(frame)])
-
-    return frame + END_BYTES_SIGNATURE
+    body = payload + bytes([compute_crc8(payload)]) if enable_crc else payload
+    return cobs_encode(body) + FRAME_DELIMITER
 
 
 def decode_frame(raw: bytes, *, enable_crc: bool = True) -> tuple[int, bytes] | None:
     """Parses a complete wire frame.
 
     Args:
-        raw (bytes): A frame as returned by ``read_until``, i.e. everything up
-            to and including the end signature.
+        raw (bytes): A frame as returned by ``read_until(FRAME_DELIMITER)``:
+            the encoded bytes and, optionally, the delimiter that ends them.
         enable_crc (bool, optional): Verify the CRC8 byte. Defaults to ``True``.
 
     Returns:
         tuple[int, bytes] | None: ``(message_id, data)`` on success, ``None`` if
-        the frame is truncated, mis-sized or fails its checksum. Never raises,
-        so the receiver loop can simply skip a bad frame.
+        the frame is empty, not valid COBS, too short or fails its checksum.
+        Never raises, so the receiver loop can simply skip a bad frame.
     """
-    # 1 payload byte + length + [crc] + 4 signature bytes
-    min_size = MIN_FRAME_SIZE if enable_crc else MIN_FRAME_SIZE - 1
-
-    if len(raw) < min_size:
+    if raw.endswith(FRAME_DELIMITER):
+        raw = raw[: -len(FRAME_DELIMITER)]
+    if not raw:
         return None
 
-    if not raw.endswith(END_BYTES_SIGNATURE):
+    body = cobs_decode(raw)
+    if body is None:
         return None
 
-    received_crc = raw[-5] if enable_crc else None
-    body = raw[:-5] if enable_crc else raw[:-4]  # [leading noise?] payload + length
-
-    declared_length = body[-1]
-
-    # Everything is anchored on the END of the frame, because that is where the
-    # signature is. `raw` may start with leftovers: line noise, or the tail of
-    # a frame that was cut short. Locate the real start from the declared
-    # length instead of assuming the frame begins at index 0 - otherwise a
-    # single stray byte invalidates every following frame.
-    frame_start = len(body) - 1 - declared_length
-
-    if declared_length < 1 or frame_start < 0:
-        # A zero length carries no message type byte at all.
-        # Declared length larger than what we actually received: truncated
-        # frame, or a size byte read out of a corrupted stream.
-        return None
-
-    payload = body[frame_start:-1]
-
-    # Note: CRC-8 with init 0 is transparent to leading 0x00 bytes, so a size
-    # byte under-reporting by one is undetectable when the skipped byte is
-    # zero. Harmless (a sender never lies about its own size) but real.
-    if enable_crc and compute_crc8(body[frame_start:]) != received_crc:
-        return None
+    if enable_crc:
+        # At least the ID and the CRC
+        if len(body) < 2:  # noqa: PLR2004
+            return None
+        payload, received_crc = body[:-1], body[-1]
+        if compute_crc8(payload) != received_crc:
+            return None
+    else:
+        payload = body
+        if not payload:
+            return None
 
     return payload[0], payload[1:]

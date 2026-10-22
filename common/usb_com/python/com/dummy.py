@@ -31,16 +31,25 @@ class DummySerial:
         """Clears the output buffer."""
         self.output_buffer = b""
 
-    def read_until(self, signature: bytes) -> bytes:
-        """Reads data from the input buffer up to a given signature.
+    def read_until(self, expected: bytes) -> bytes:
+        """Reads data from the input buffer up to a delimiter, like pyserial.
+
+        The bytes returned are consumed, delimiter included. Without the
+        delimiter, everything available is returned (a read timeout).
 
         Args:
-            signature (bytes): The delimiter indicating where to stop reading.
+            expected (bytes): The delimiter indicating where to stop reading.
 
         Returns:
-            bytes: Data read up to the given signature.
+            bytes: Data read, delimiter included if it was found.
         """
-        return self.input_buffer.split(signature)[0]
+        end = self.input_buffer.find(expected)
+        if end < 0:
+            data, self.input_buffer = self.input_buffer, b""
+            return data
+        end += len(expected)
+        data, self.input_buffer = self.input_buffer[:end], self.input_buffer[end:]
+        return data
 
     def dummy_add_input(self, data: bytes) -> None:
         """Simulates incoming data by adding it to the input buffer.
@@ -53,3 +62,6 @@ class DummySerial:
     def reset_input_buffer(self) -> None:
         """Clears the input buffer."""
         self.input_buffer = b""
+
+    def close(self) -> None:
+        """Nothing to release."""

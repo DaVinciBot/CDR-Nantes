@@ -1,123 +1,79 @@
-#  Module Teensy - Classes Python
+# Module Teensy - Classes Python
 
-> Bibliothèque Python pour l'interaction avec les microcontrôleurs Teensy 4.1
+> Deux spécialisations de `usb_com.Com` pour parler à une Teensy 4.1. Le protocole lui-même
+> (trames, messages, callbacks) est décrit dans [../usb_com/python/](../usb_com/python/README.md).
 
 ---
 
-##  Contenu du module
+## Contenu du module
 
-```
+```text
 teensy/
 ├── __init__.py
-├── base_teensy.py      # Classe de base pour communication Teensy
-├── gpio_teensy.py      # Gestion des GPIO étendus
+├── base_teensy.py      # BaseComTeensy : Com + reset
+├── gpio_teensy.py      # GPIOComTeensy : Com + suivi des GPIO attribuées
 └── tools/
-    └── gpio_manager/   # Gestionnaire de pins et configuration
+    └── gpio_manager/   # GPIOManager : quelle pin sert à quel actionneur
 ```
 
 ---
 
-##  Classes principales
+## `BaseComTeensy` (base_teensy.py)
 
-### `BaseTeensy` (base_teensy.py)
-
-Classe de base pour la communication avec une Teensy via USB.
-
-**Fonctionnalités :**
--  Connexion automatique via numéro de série USB
--  Reset logiciel de la Teensy
--  Gestion des callbacks de messages
--  Détection et reconnexion automatique
-
-**Exemple d'utilisation :**
+Un `Com` qui sait redémarrer la Teensy : `reset()` envoie `RESET_TEENSY` (126). Constructeur,
+envoi et callbacks sont ceux de `Com`.
 
 ```python
-from common.teensy.base_teensy import BaseTeensy
-from common.usb_com.python.messages import Messages
+from teensy.base_teensy import BaseComTeensy
+from usb_com import Messages, pack_message
 
-# Connexion à la Teensy
-teensy = BaseTeensy(serial_number=17795370, baudrate=115200)
+teensy = BaseComTeensy(logger, 17795370, 5824, 1155, 115200)
 
-# Envoyer une commande
-teensy.send_message(Messages.SET_TARGET_POSITION, data)
+teensy.send_bytes(pack_message(Messages.SET_TARGET, 200.0, 0.0, 0.0, 0.0, 0.0, 0.0))
 
-# Définir un callback pour les retours
-def on_position_update(data):
-    print(f"Position reçue: {data}")
+def on_odometry(data: bytes) -> None:
+    print(f"Odométrie reçue : {len(data)} octets")
 
-teensy.add_callback(on_position_update, Messages.UPDATE_ROLLING_BASIS.value)
+teensy.add_callback(on_odometry, Messages.ODOMETRY.value)
+teensy.reset()
 ```
 
----
-
-### `GPIOTeensy` (gpio_teensy.py)
-
-Gestion avancée des GPIO pour contrôle des actuateurs et lecture des capteurs.
-
-**Fonctionnalités :**
--  Configuration des pins en entrée/sortie
--  Gestion PWM pour servomoteurs
--  Lecture d'état des switchs
--  Contrôle de drivers de moteurs pas-à-pas
-
-**Exemple d'utilisation :**
-
-```python
-from common.teensy.gpio_teensy import GPIOTeensy
-
-# Initialisation
-gpio = GPIOTeensy(serial_number=17795370)
-
-# Configurer un servo
-gpio.set_servo_angle(pin=14, angle=90, max_angle=180)
-
-# Lire un switch
-state = gpio.read_switch(pin=22)
-
-# Contrôler un stepper
-gpio.step_motor(pin=8, steps=200, direction=True, speed=1000)
-```
+Côté `robot1/rasp/`, la connexion se fait par `robot1.rasp.comm.init_robot()`, qui lit
+`config.json`.
 
 ---
 
-##  Dépendances
+## `GPIOComTeensy` (gpio_teensy.py)
 
-- `pyserial` : Communication USB série
-- `common.usb_com.python` : Protocole de communication
-
----
-
-##  Notes d'implémentation
-
-### Reset de la Teensy
-
-Le reset logiciel s'effectue via l'envoi du message `RESET_TEENSY (126)`. La Teensy redémarre automatiquement et la connexion est rétablie après ~2 secondes.
-
-### Gestion des erreurs
-
-Toutes les classes gèrent automatiquement :
-- Les déconnexions USB (tentative de reconnexion)
-- Les erreurs CRC (retransmission automatique)
-- Les timeouts de communication
+Un `Com` qui porte un `GPIOManager` (41 pins) pour tenir la liste des GPIO déclarées et de leur
+type d'actionneur, avec les pins I2C fixées (SDA 18, SCL 19). Les commandes d'actionneurs
+partent par `send_bytes()`, avec les messages 3 à 8 de `usb_com`.
 
 ---
 
-##  Tests
+## Dépendances
 
-Des scripts de test sont disponibles dans `robot1/rasp/tools/bringup/` :
+- `pyserial` : port série
+- `usb_com` : protocole (`pip install -e .` à la racine du dépôt)
+
+---
+
+## Notes
+
+- Après `RESET_TEENSY`, la Teensy redémarre et le port USB réapparaît. `Com` ne se reconnecte
+  pas tout seul : recréer l'objet.
+- Une trame reçue invalide est ignorée et la Teensy reçoit un `NACK`. Sur un `NACK` reçu, `Com`
+  renvoie son dernier message.
+
+---
+
+## Tests
+
+Scripts de bring-up face au robot, depuis `robot1/rasp/` :
 
 ```bash
-# Test de connexion basique
 python -m tools.bringup.test_usb_detection
-
-# Test de communication complète
 python -m tools.bringup.test_communication
 ```
 
----
-
-## Voir aussi
-
-- [Protocole de communication](../../PROTOCOLE_COMMUNICATION.md)
-- [Documentation complète](../../Documentation_CDR_Nantes_2026.md)
-- [Messages USB](../usb_com/python/README.md)
+Voir [../../robot1/rasp/tools/bringup/README.md](../../robot1/rasp/tools/bringup/README.md).

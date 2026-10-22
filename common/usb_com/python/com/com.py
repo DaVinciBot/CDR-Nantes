@@ -13,9 +13,19 @@ from serial.tools.list_ports import comports
 from usb_com.python.com.dummy import DummySerial
 from usb_com.python.com.exceptions import ComError
 from usb_com.python.com.framing import decode_frame, encode_frame
-from usb_com.python.messages import END_BYTES_SIGNATURE, Messages
+from usb_com.python.messages import FRAME_DELIMITER, Messages
 
 NACK_ID = 127
+
+# Serial read timeout: the receiver thread checks its stop flag at this pace.
+READ_TIMEOUT_S = 0.1
+
+# Longest run of bytes without a delimiter worth keeping: a frame is at most
+# 259 bytes encoded, anything longer is line noise.
+MAX_PENDING_BYTES = 1024
+
+# Default heartbeat period, well under the 3 s watchdog of the Teensy.
+HEARTBEAT_PERIOD_S = 0.5
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -27,6 +37,8 @@ class Com:
     """Handle USB exchanges with a Teensy microcontroller.
 
     Supports message transmission, CRC8 verification, and callback mechanisms.
+    Frames are COBS-encoded and delimited by 0x00 (see framing.py). Call
+    ``close()`` to stop the threads and release the port.
     """
 
     def __init__(
@@ -74,6 +86,14 @@ class Com:
         self.last_message: bytes | None = None
         self.message_id_callback: dict[int, Callable[[bytes], None]] = {}
 
+        # Bytes of a frame not complete yet: a read can stop on its timeout in
+        # the middle of a frame, the rest comes with the next read.
+        self._rx_pending = b""
+
+        # Set by close(): the receiver and heartbeat threads exit.
+        self._stop = threading.Event()
+        self._heartbeat_thread: threading.Thread | None = None
+
         # Start the receiver thread (if not in dummy mode),
         # it is responsible for handling the received data
         self._receiver_thread: threading.Thread | None = self._start_receiver()
@@ -98,7 +118,13 @@ class Com:
                 and port.serial_number is not None
                 and port.serial_number == str(self.serial_number)
             ):
-                device_found = Serial(port.device, baudrate=self.baudrate)
+                # Timeout: without it, a silent Teensy blocks the receiver
+                # thread forever, and close() could never stop it.
+                device_found = Serial(
+                    port.device,
+                    baudrate=self.baudrate,
+                    timeout=READ_TIMEOUT_S,
+                )
                 break
 
         if device_found is None:
@@ -122,26 +148,27 @@ class Com:
         if self.enable_dummy:
             return None
 
-        receiver = threading.Thread(target=self.__receiver, name="USBComReceiver")
+        receiver = threading.Thread(
+            target=self.__receiver,
+            name="USBComReceiver",
+            daemon=True,
+        )
         receiver.start()
         return receiver
 
     def __receiver(self) -> None:
         """Run in a thread and dispatch messages based on the protocol format.
 
-        Format: ``msg_type | msg_data | msg_length | CRC8 | MSG_END_BYTES``
-        with sizes ``1 | msg_length | 1 | 1 | 4`` bytes.
+        Format: ``COBS(msg_type | msg_data | CRC8) | 0x00`` (see framing.py).
+        Runs until ``close()``.
         """
-        while True:
+        while not self._stop.is_set():
             try:
                 raw = self.read_bytes()
 
-                # An empty or truncated read happens on disconnection or on a
-                # read timeout. Without this guard the code below sliced an
-                # empty buffer, always failed the CRC check and NACK-flooded
-                # the link in a tight 100 % CPU loop.
+                # No complete frame yet (read timeout, or a frame still
+                # arriving): read again. The timeout paces the loop.
                 if not raw:
-                    time.sleep(0.01)
                     continue
 
                 frame = decode_frame(raw, enable_crc=self.enable_crc)
@@ -239,12 +266,61 @@ class Com:
                 pass
 
     def read_bytes(self) -> bytes:
-        """Reads bytes from the serial connection until the END_BYTES_SIGNATURE.
+        """Reads one frame from the serial connection.
 
         Returns:
-            bytes: Received data.
+            bytes: A complete frame, delimiter included, or ``b""`` if the read
+            timed out before the delimiter. A partial frame is kept for the
+            next call.
         """
-        return self._device.read_until(END_BYTES_SIGNATURE)
+        chunk = self._device.read_until(FRAME_DELIMITER)
+        self._rx_pending += chunk
+        if not self._rx_pending.endswith(FRAME_DELIMITER):
+            if len(self._rx_pending) > MAX_PENDING_BYTES:
+                # Line noise: the next delimiter starts a clean frame anyway.
+                self._rx_pending = b""
+            return b""
+        frame, self._rx_pending = self._rx_pending, b""
+        return frame
+
+    def start_heartbeat(self, period_s: float = HEARTBEAT_PERIOD_S) -> None:
+        """Sends ``HEARTBEAT`` every ``period_s`` until ``close()``.
+
+        The Teensy stops the robot when it hears nothing for its watchdog
+        timeout; this keeps the link alive when no other message is due.
+
+        Args:
+            period_s (float, optional): Period, under the watchdog timeout.
+                Defaults to ``HEARTBEAT_PERIOD_S``.
+        """
+        if self._heartbeat_thread is not None:
+            self.logger.warning("Heartbeat already running")
+            return
+
+        def beat() -> None:
+            while not self._stop.wait(period_s):
+                try:
+                    # record=False: a heartbeat is not worth resending on NACK.
+                    self.send_bytes(Messages.HEARTBEAT.to_bytes(), record=False)
+                except Exception as e:  # noqa: BLE001
+                    self.logger.error(f"Heartbeat not sent: {e}")
+
+        self._heartbeat_thread = threading.Thread(
+            target=beat,
+            name="USBComHeartbeat",
+            daemon=True,
+        )
+        self._heartbeat_thread.start()
+
+    def close(self) -> None:
+        """Stops the receiver and heartbeat threads, then closes the port."""
+        self._stop.set()
+        for thread in (self._receiver_thread, self._heartbeat_thread):
+            if thread is not None and thread is not threading.current_thread():
+                thread.join(timeout=2 * READ_TIMEOUT_S + 1.0)
+        close = getattr(self._device, "close", None)
+        if close is not None:
+            close()
 
     def add_callback(self, func: Callable[[bytes], None], iid: int) -> None:
         """Registers a callback for a specific message ID.
