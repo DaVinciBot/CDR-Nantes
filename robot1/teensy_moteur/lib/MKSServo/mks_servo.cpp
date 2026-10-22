@@ -131,8 +131,13 @@ bool MKSServo::disable() {
 // Si UartRSP=Enable  → réponse reçue, debug disponible.
 
 bool MKSServo::setSpeed(double rpm, uint8_t acc) {
-    const bool ccw       = rpm < 0.0;
-    const uint16_t speed = static_cast<uint16_t>(fabs(rpm));
+    const bool ccw = rpm < 0.0;
+    // Rounded, not truncated: truncation biases every wheel towards zero by a
+    // different amount (up to 1 rpm = 3.1 mm/s) and skews the direction at low
+    // speed. The speed field is 12 bits.
+    long rounded = lround(fabs(rpm));
+    if (rounded > 0x0FFF) rounded = 0x0FFF;
+    const uint16_t speed = static_cast<uint16_t>(rounded);
 
     // Format F6 : [dir(7)|speed_high(3..0)] [speed_low] [acc 0-255]
     uint8_t payload[3];
@@ -145,11 +150,13 @@ bool MKSServo::setSpeed(double rpm, uint8_t acc) {
 }
 
 // ─── STOP / EMERGENCY STOP ───────────────────────────────────────────────────
-// stop()          → décélération contrôlée acc=5, fin de trajectoire normale
+// stop(acc)       → controlled deceleration on the driver ramp (the caller
+//                   passes MKS_ACC: at the old acc = 5, ~0.25 m/s^2, stopping
+//                   from 1 m/s took 4 s and 2 m)
 // emergencyStop() → coupure immédiate acc=0, réservé aux cas de sécurité
 
-bool MKSServo::stop() {
-    return setSpeed(0.0, 5);   // rampe douce, évite les à-coups mécaniques
+bool MKSServo::stop(uint8_t acc) {
+    return setSpeed(0.0, acc);
 }
 
 bool MKSServo::emergencyStop() {

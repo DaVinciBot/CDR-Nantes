@@ -63,6 +63,14 @@ class PID {
     double compute(double error);
 
     /**
+     * @brief Same, with the integral held when the output cannot act.
+     * @param error           Current error (setpoint - measurement)
+     * @param freeze_integral True to leave the integral unchanged this call
+     * @return PID output clamped to [minOutput, maxOutput]
+     */
+    double compute(double error, bool freeze_integral);
+
+    /**
      * @brief Reset internal integral and derivative history.
      */
     void reset();

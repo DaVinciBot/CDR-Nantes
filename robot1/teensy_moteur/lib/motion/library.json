@@ -1,0 +1,8 @@
+{
+    "name": "motion",
+    "version": "0.1.0",
+    "description": "Robot velocity command to wheel speeds: braking cap, inverse kinematics, proportional normalisation and an acceleration limit synchronised on the three wheels. Arduino-free, tested on the host.",
+    "keywords": "motion, holonomic, acceleration",
+    "frameworks": "*",
+    "platforms": "*"
+  }

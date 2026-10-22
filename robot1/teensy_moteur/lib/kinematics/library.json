@@ -1,0 +1,8 @@
+{
+    "name": "kinematics",
+    "version": "0.1.0",
+    "description": "Forward and inverse kinematics of the 3-wheel holonomic base, the single copy shared by the motor commands and the pose estimators. Arduino-free, tested on the host.",
+    "keywords": "kinematics, holonomic",
+    "frameworks": "*",
+    "platforms": "*"
+  }

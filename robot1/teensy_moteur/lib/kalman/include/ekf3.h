@@ -8,7 +8,7 @@
  *
  * MODEL
  *   u = (dx, dy, dtheta), the robot-frame displacement of one tick, from the
- *       wheel counts through the forward kinematics (kinematics.h).
+ *       wheel counts through the forward kinematics (ekf_kinematics.h).
  *   Prediction integrates u at the MID-TICK heading:
  *       x     += cos(m) dx - sin(m) dy        m = theta + dtheta / 2
  *       y     += sin(m) dx + cos(m) dy
@@ -36,7 +36,7 @@
 #include <stdint.h>
 
 #include "ekf.h"
-#include "kinematics.h"
+#include "ekf_kinematics.h"
 #include "matrix.h"
 
 namespace kalman {

@@ -17,6 +17,31 @@ double normalizeAngle(double theta) {
     return theta - M_PI;
 }
 
+namespace {
+
+// Control period, s: the ISR runs on a fixed timer, so the nominal period is
+// the tick duration.
+constexpr double CONTROL_PERIOD_S = ASSERVISSEMENT_FREQUENCY * 1e-6;
+
+// Dead zone around the target: closer than this, the robot is brought to rest.
+constexpr double ARRIVED_DISTANCE_MM = 10.0;
+constexpr double ARRIVED_ANGLE_RAD = 0.15;
+
+motion::MotionParams motion_params(double robot_radius, double wheel_diameter,
+                                   double max_speed_rpm) {
+    motion::MotionParams p;
+    p.robot_radius_mm = robot_radius;
+    p.wheel_diameter_mm = wheel_diameter;
+    p.max_wheel_rpm = max_speed_rpm;
+    p.max_wheel_accel_rpm_s = MAX_WHEEL_ACCEL_RPM_S;
+    p.max_accel_mm_s2 = ROBOT_MAX_ACCEL_MM_S2;
+    // The same wheel-level budget spent on rotation: a = alpha * R.
+    p.max_alpha_rad_s2 = ROBOT_MAX_ACCEL_MM_S2 / robot_radius;
+    return p;
+}
+
+}  // namespace
+
 // Constructor
 Holonomic_Basis::Holonomic_Basis(double robot_radius,
                                  double wheel_diameter,
@@ -29,15 +54,8 @@ Holonomic_Basis::Holonomic_Basis(double robot_radius,
       theta_pid(theta_pid),
       robot_radius(robot_radius),
       wheel_diameter(wheel_diameter),
-    max_speed_rpm(max_speed_rpm) {
-    
-    // Initialisation du filtre de lissage
-    #ifdef SPEED_FILTER_ALPHA
-        speed_filter_alpha = SPEED_FILTER_ALPHA;
-    #else
-        speed_filter_alpha = 0.3;  // Valeur par défaut
-    #endif
-    
+      max_speed_rpm(max_speed_rpm),
+      shaper(motion_params(robot_radius, wheel_diameter, max_speed_rpm)) {
     // Initialisation des pointeurs à null
     wheel1 = nullptr;
     wheel2 = nullptr;
@@ -182,7 +200,7 @@ void Holonomic_Basis::update_odometry() {
     } else {
         // Encoder counts increase in the opposite direction to commanded RPM on
         // all 3 motors. Negate so that positive d = forward wheel rotation, the
-        // convention of the estimators (lib/kalman/include/kinematics.h).
+        // convention of lib/kinematics.
         in.d1 = -static_cast<int32_t>(enc1 - odo_data.last_enc1);
         in.d2 = -static_cast<int32_t>(enc2 - odo_data.last_enc2);
         in.d3 = -static_cast<int32_t>(enc3 - odo_data.last_enc3);
@@ -237,155 +255,58 @@ void Holonomic_Basis::update_odometry() {
     this->X = p.x_mm;
     this->Y = p.y_mm;
     this->THETA = p.theta_rad;
-    #ifdef MODE_ODO_FIXE
-        // Test mode: position frozen at (0, 0), heading still estimated
-        this->X = 0.0;
-        this->Y = 0.0;
-    #endif
 }
 
-// Calcul de la boucle d'asservissement (PID + Cinématique Inverse)
 void Holonomic_Basis::handle(Point target_position, Com* com) {
-    // 1. Calcul des erreurs dans le référentiel Monde
-    #ifdef MODE_ODO_FIXE
-        // Mode test : ignore la position réelle, erreur = cible directement
-        double xerr        = target_position.x;
-        double yerr        = target_position.y;
-        double theta_error = normalizeAngle(target_position.theta);
-    #else
-        // Mode normal : erreur = cible - position réelle
-        double xerr        = target_position.x - this->X;
-        double yerr        = target_position.y - this->Y;
-        double theta_error = normalizeAngle(target_position.theta - this->THETA);
-    #endif
+    (void)com;
 
-    // 2. Calcul des vitesses cibles via PID (référentiel Monde)
-    double vx_world, vy_world, omega;
-    if (!this->use_pid_control) {
-        // Mode simple proportionnel sans PID
-        double gain_translation = 1.0; // Gain pour la translation (ajustable)
-        double gain_rotation = 1.0;    // Gain pour la rotation (ajustable)
-        
-        vx_world = gain_translation * xerr;
-        vy_world = gain_translation * yerr;
-        omega = gain_rotation * theta_error;
+    // Errors in the table frame
+    const double xerr = target_position.x - this->X;
+    const double yerr = target_position.y - this->Y;
+    const double theta_error = normalizeAngle(target_position.theta - this->THETA);
+    const double distance_error = sqrt(xerr * xerr + yerr * yerr);
 
-    double max_linear_speed = 100.0; // Limite la vitesse linéaire
-    double max_angular_speed = 1.0;   // Limite la vitesse angulaire
+    motion::VelocityCommand position_loop = {0.0, 0.0, 0.0};
+    motion::VelocityCommand ff = {0.0, 0.0, 0.0};
 
-
-    vx_world = constrain(vx_world, -max_linear_speed, max_linear_speed);
-    vy_world = constrain(vy_world, -max_linear_speed, max_linear_speed);
-    omega = constrain(omega, -max_angular_speed, max_angular_speed);
-    } else {
-        // Mode PID complet
-        vx_world = this->x_pid.compute(xerr);
-        vy_world = this->y_pid.compute(yerr);
-        omega = this->theta_pid.compute(theta_error);
-    }
-    
-    double distance_error = sqrt(xerr*xerr + yerr*yerr);
-    double angle_error = fabs(theta_error);
-    
-    // Zone morte
-    if (distance_error < 10.0 && angle_error < 0.15) {  // 1mm et ~1.15°
-        vx_world = 0.0;
-        vy_world = 0.0;
-        omega = 0.0;
-
-        last_wheel1_rpm = 0.0;
-        last_wheel2_rpm = 0.0;
-        last_wheel3_rpm = 0.0;
-        
-        // Réinitialiser aussi les vitesses filtrées pour un arrêt propre
-        filtered_wheel1_rpm = 0.0;
-        filtered_wheel2_rpm = 0.0;
-        filtered_wheel3_rpm = 0.0;
-        return;  // Sortie anticipée
-    }
-    
-
-
-    // 4. Changement de repère : Monde -> Robot
-    double cos_theta = cosf(this->THETA);
-    double sin_theta = sinf(this->THETA);
-    
-    double vx_robot = cos_theta * vx_world + sin_theta * vy_world;
-    double vy_robot = -sin_theta * vx_world + cos_theta * vy_world;
-    
-    // 5. Cinématique Inverse : Vitesse Robot -> Vitesse Roues (RPM)
-    double speed_factor = 60.0 / wheel_circumference();
-
-    double vx_rpm = vx_robot * speed_factor;
-    double vy_rpm = vy_robot * speed_factor;
-    double omega_rpm = omega * robot_radius * speed_factor;
-    
-    //Equation de mouvements
-    // Roue 1 avec axe à 120° : cos(120°) = -0.5, sin(120°) = +0.866
-    double w1 = -0.5*vx_rpm + 0.866*vy_rpm - omega_rpm;
-    double w2 = -0.5*vx_rpm - 0.866*vy_rpm - omega_rpm;
-    double w3 = +1.0*vx_rpm + 0.0*vy_rpm   - omega_rpm;
-    // DEBUG: Affichage des vitesses calculées
-    
-    // Normalisation proportionnelle pour préserver la direction du mouvement
-    // Si une roue dépasse max_speed_rpm, on réduit toutes les roues du même ratio
-    double max_wheel_speed = fmax(fmax(fabs(w1), fabs(w2)), fabs(w3));
-    if (max_wheel_speed > max_speed_rpm) {
-        double scale = max_speed_rpm / max_wheel_speed;
-        last_wheel1_rpm = w1 * scale;
-        last_wheel2_rpm = w2 * scale;
-        last_wheel3_rpm = w3 * scale;
-    } else {
-        last_wheel1_rpm = w1;
-        last_wheel2_rpm = w2;
-        last_wheel3_rpm = w3;
+    // Dead zone: close enough, the robot is brought to rest through the
+    // acceleration limit (zero command), not by a jump of the wheels to zero.
+    const bool arrived = distance_error < ARRIVED_DISTANCE_MM &&
+                         fabs(theta_error) < ARRIVED_ANGLE_RAD;
+    if (!arrived) {
+        // Anti-windup: while the previous command was capped after the PIDs,
+        // their error is not theirs to correct; hold the integrals.
+        const motion::ShapedCommand& previous = shaper.last();
+        const bool capped = previous.braking || previous.speed_saturated ||
+                            previous.accel_limited;
+        position_loop.vx_mm_s = this->x_pid.compute(xerr, capped);
+        position_loop.vy_mm_s = this->y_pid.compute(yerr, capped);
+        position_loop.omega_rad_s = this->theta_pid.compute(theta_error, capped);
+        ff = this->feed_forward;
     }
 
-    // Application du filtre passe-bas pour lisser les changements de vitesse
-    // Formule : filtered = alpha * new_value + (1 - alpha) * old_value
-    filtered_wheel1_rpm = speed_filter_alpha * last_wheel1_rpm + (1.0 - speed_filter_alpha) * filtered_wheel1_rpm;
-    filtered_wheel2_rpm = speed_filter_alpha * last_wheel2_rpm + (1.0 - speed_filter_alpha) * filtered_wheel2_rpm;
-    filtered_wheel3_rpm = speed_filter_alpha * last_wheel3_rpm + (1.0 - speed_filter_alpha) * filtered_wheel3_rpm;
-    
-    // Normalisation proportionnelle APRÈS filtrage pour garantir le respect des limites
-    // Cela préserve la direction du mouvement même après le lissage
-    double max_filtered_speed = fmax(fmax(fabs(filtered_wheel1_rpm), fabs(filtered_wheel2_rpm)), fabs(filtered_wheel3_rpm));
-    if (max_filtered_speed > max_speed_rpm) {
-        double scale_filtered = max_speed_rpm / max_filtered_speed;
-        filtered_wheel1_rpm *= scale_filtered;
-        filtered_wheel2_rpm *= scale_filtered;
-        filtered_wheel3_rpm *= scale_filtered;
-    }
-
-    static int i = 0;
-    if (i++ > 50) {  // ~0.5 seconde à 100Hz
-        #ifdef MODE_ODO_FIXE
-            Serial.printf("[HANDLE/FIXE] Target[%+6.0f,%+6.0f,%+.2f] Err[%+6.0f,%+6.0f,%+.2f] CMD[W1=%+6.0f W2=%+6.0f W3=%+6.0f]\n",
-        #else
-            Serial.printf("[HANDLE/ENC]  Target[%+6.0f,%+6.0f,%+.2f] Err[%+6.0f,%+6.0f,%+.2f] CMD[W1=%+6.0f W2=%+6.0f W3=%+6.0f]\n",
-        #endif
-                          target_position.x, target_position.y, target_position.theta,
-                          xerr, yerr, theta_error,
-                          filtered_wheel1_rpm, filtered_wheel2_rpm, filtered_wheel3_rpm);
-        i = 0;
-    }
-
+    const motion::ShapedCommand& command =
+        shaper.step(position_loop, ff, this->THETA, distance_error,
+                    fabs(theta_error), CONTROL_PERIOD_S);
+    filtered_wheel1_rpm = command.wheel_rpm[0];
+    filtered_wheel2_rpm = command.wheel_rpm[1];
+    filtered_wheel3_rpm = command.wheel_rpm[2];
 }
 
-// === EXÉCUTION DU MOUVEMENT (KARIBOU MOTION) ===
-
-void Holonomic_Basis::run_motors() {
-    // Obsolète avec KaribouMotion géré par interruption, mais gardé pour compatibilité API
+void Holonomic_Basis::set_velocity_feedforward(double vx_mm_s, double vy_mm_s,
+                                               double omega_rad_s) {
+    noInterrupts();
+    feed_forward.vx_mm_s = vx_mm_s;
+    feed_forward.vy_mm_s = vy_mm_s;
+    feed_forward.omega_rad_s = omega_rad_s;
+    interrupts();
 }
 
-// Envoie les vitesses roues directement aux MKS en RPM
-void Holonomic_Basis::execute_movement() {
-    if (mksGroup) {
-        mksGroup->setSpeedsSynced(filtered_wheel1_rpm,
-                                  filtered_wheel2_rpm,
-                                  filtered_wheel3_rpm,
-                                  MKS_ACC);
-    }
+motion::ShapedCommand Holonomic_Basis::last_command() {
+    noInterrupts();
+    const motion::ShapedCommand copy = shaper.last();
+    interrupts();
+    return copy;
 }
 
 // Arrêt d'urgence
@@ -393,6 +314,14 @@ void Holonomic_Basis::emergency_stop() {
     if (mksGroup) {
         mksGroup->emergencyStopAll();
     }
+    // The drivers stopped without a ramp: the shaper must restart from rest,
+    // not ramp down from speeds the wheels no longer have.
+    noInterrupts();
+    shaper.reset();
+    filtered_wheel1_rpm = 0.0;
+    filtered_wheel2_rpm = 0.0;
+    filtered_wheel3_rpm = 0.0;
+    interrupts();
 }
 
 // ===== ARCHITECTURE NON-BLOQUANTE: RS485 SORTIS DE L'ISR =====

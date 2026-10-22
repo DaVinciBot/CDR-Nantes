@@ -12,10 +12,7 @@
 #include <optical_world_integrator.h>
 #include <bno085_sensor.h>
 #include <otos_sensor.h>
-
-// ===== MODE DE TEST =====
-//#define MODE_ODO_FIXE    // Tester cinématique inverse sans odométrie (position fixe)
-#define MODE_ODO_ENC  // Utiliser les encodeurs RS485 pour l'odométrie
+#include <wheel_command_shaper.h>
 
 class Holonomic_Basis {
    public:
@@ -27,9 +24,11 @@ class Holonomic_Basis {
     // Sensor gates: a disabled sensor is never read and reaches the estimator
     // with its validity flag cleared. Whether the encoders alone move the pose
     // is the complementary filter's own setting (ComplementaryParams).
-    bool use_optical_flow = false; 
-    bool use_imu = false;            
-    bool use_pid_control = false;    
+    bool use_optical_flow = false;
+    bool use_imu = false;
+    // Ignored: the position PIDs always run. Still set by the test firmware,
+    // kept until that firmware is replaced.
+    bool use_pid_control = false;
 
     // PID controllers (3 for X, Y, THETA)
     PID x_pid;
@@ -49,16 +48,12 @@ class Holonomic_Basis {
     double wheel_diameter;    // Wheel diameter (mm)
     double max_speed_rpm;     // Maximum wheel speed (RPM)
 
-    // Variables pour stocker les vitesses calculées par le PID
-    double last_wheel1_rpm = 0.0;
-    double last_wheel2_rpm = 0.0;
-    double last_wheel3_rpm = 0.0;
-
-    // Variables pour le filtre passe-bas (lissage des commandes)
+    // Wheel speeds sent to the drivers, rpm: the output of the command shaper
+    // (braking, normalisation, acceleration limit). Written by handle() in the
+    // ISR. The name is historical: there is no low-pass filter any more.
     double filtered_wheel1_rpm = 0.0;
     double filtered_wheel2_rpm = 0.0;
     double filtered_wheel3_rpm = 0.0;
-    double speed_filter_alpha = 0.3;  // Coefficient de filtrage (0 = pas de filtre, 1 = pas de lissage)
 
     // Constructor
     Holonomic_Basis(double robot_radius,
@@ -96,13 +91,22 @@ class Holonomic_Basis {
     // new estimator starts from the pose of the old one; only the active one runs.
     bool select_estimator(pose::PoseEstimator* next);
     pose::PoseEstimator* active_estimator() const { return estimator; }
-    //Boucle principale
+    // One control tick, called from the ISR after update_odometry(): position
+    // PIDs on the error to the target, plus the velocity feed-forward, shaped
+    // into wheel speeds by lib/motion. No I/O. `com` is unused.
     void handle(Point target_position, Com* com);
 
-    // Mouvement
-    void run_motors();        // Obsolète (gardé pour compatibilité)
-    void execute_movement();
+    // Velocity of the trajectory at the target, table frame (mm/s, rad/s),
+    // added to the PID output after the braking cap. Zero for a plain pose
+    // target. Call from loop(), not from the ISR.
+    void set_velocity_feedforward(double vx_mm_s, double vy_mm_s, double omega_rad_s);
+
+    // Last shaped command (wheel speeds and limiter flags). Copy, ISR-safe.
+    motion::ShapedCommand last_command();
+
     Point get_current_position();
+    // Immediate stop of the drivers (no ramp); the command shaper restarts
+    // from rest.
     void emergency_stop();
 
     // ===== ARCHITECTURE NON-BLOQUANTE : RS485 HORS ISR =====
@@ -132,6 +136,9 @@ class Holonomic_Basis {
     }
 
    private:
+    motion::WheelCommandShaper shaper;
+    motion::VelocityCommand feed_forward = {0.0, 0.0, 0.0};
+
     pose::PoseEstimator* estimator = nullptr;
     sensors::Bno085Sensor* imu = nullptr;
     sensors::OtosSensor* optical = nullptr;

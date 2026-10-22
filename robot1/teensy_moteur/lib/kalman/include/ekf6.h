@@ -24,7 +24,7 @@
  *
  * MEASUREMENTS, all scalar, in this order at every tick:
  *   wheels  : three wheel speeds, counts * counts_to_mm / dt. Row = inverse
- *             kinematics, same convention as the motor board (kinematics.h).
+ *             kinematics, same convention as the motor commands (ekf_kinematics.h).
  *   optical : two velocities at the sensor, vx - omega r_y and vy + omega r_x,
  *             r = lever arm from the centre of rotation. Robot frame; rotating
  *             the sensor's own axes into it is the sensor layer's job.
@@ -67,7 +67,7 @@
 #include <stdint.h>
 
 #include "ekf.h"
-#include "kinematics.h"
+#include "ekf_kinematics.h"
 #include "matrix.h"
 
 namespace kalman {

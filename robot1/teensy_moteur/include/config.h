@@ -59,14 +59,14 @@
 // MKS CONFIGURATION 
 #define MKS_BAUDRATE 115200
 #define MKS_MSTEP 32
-#define MKS_MAX_RPM 100.0
-#define MKS_ACC 5
+#define MKS_ACC 225
 #define MKS_COUNTS_PER_REV 16384.0
 
 #define COUNTS_TO_MM ((WHEEL_DIAMETER * PI) / MKS_COUNTS_PER_REV)
 
-// Vitesse max utile en RPM (consigne logicielle)
-#define MAX_SPEED_RPM 100.0
+// Software wheel speed ceiling, rpm. 1 m/s needs 318.3 rpm with 60 mm wheels;
+#define MAX_SPEED_RPM 350.0
+// Wheel acceleration limit, rpm/s: 1 m/s^2 at the wheel (318.3) rounded up.
 
 //  ROBOT GEOMETRY
 // WARNING: INDEPENDENT homonym of ROBOT_RADIUS_MM in robot1/rasp/world.py
@@ -101,7 +101,7 @@
 
 //  CONTROL LOOP 
 // Asservissement échantillonnage fréquence (en microsecondes)
-#define ASSERVISSEMENT_FREQUENCY 10000  // 10ms = 100Hz
+#define ASSERVISSEMENT_FREQUENCY 15000  // 15 ms = 66.7 Hz
 
 // Fréquence d'exécution des mouvements moteurs (en microsecondes)
 #define MOVEMENT_FREQUENCY 5000         // 5ms = 200Hz
@@ -119,7 +119,10 @@
 
 // WATCHDOG & TIMEOUT MOUVEMENT
 #define WATCHDOG_TIMEOUT_MS     3000   // 3s sans message = crash Python
-#define ROBOT_MAX_SPEED_MM_S    200.0  // Vitesse max réelle estimée (mm/s)
-#define ROBOT_MAX_RAD_S         2.0    // Vitesse angulaire max (rad/s)
+#define ROBOT_MAX_SPEED_MM_S    1000.0 // Translation speed target, mm/s
+// Rotation speed target, rad/s. A chosen command, below the physical ceiling
+// (MAX_SPEED_RPM in pure rotation: ~6.9 rad/s with ROBOT_RADIUS = 160).
+#define ROBOT_MAX_RAD_S         3.0
+#define ROBOT_MAX_ACCEL_MM_S2   1000.0 // Translation acceleration, mm/s^2 (braking distance)
 #define MOVEMENT_TIMEOUT_MARGIN 2.0    // Multiplicateur sécurité (x2 le temps théorique)
 #define MOVEMENT_TIMEOUT_MIN_MS 2000   // Minimum 2s même pour petits déplacements

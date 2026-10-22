@@ -33,13 +33,13 @@ void MKSGroup::setSpeedsSynced(double w1, double w2, double w3, uint8_t acc) {
 
 void MKSGroup::stopAll() {
     if (wheel1) {
-        wheel1->stop();
+        wheel1->stop(MKS_ACC);
     }
     if (wheel2) {
-        wheel2->stop();
+        wheel2->stop(MKS_ACC);
     }
     if (wheel3) {
-        wheel3->stop();
+        wheel3->stop(MKS_ACC);
     }
 }
 
