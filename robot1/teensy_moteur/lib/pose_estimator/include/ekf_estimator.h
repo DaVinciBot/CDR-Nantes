@@ -7,8 +7,8 @@
  *      model carrying the pose through a missed read;
  *   2. the IMU heading, when valid (the filter drops a sample whose timestamp it
  *      has already seen, so a buffer that was not refreshed is harmless);
- *   3. the optical velocity, when valid. The optical POSE of the input is never
- *      used: an integrated pose is not a measurement.
+ *   3. the optical velocity, when valid. The optical step of the input is never
+ *      used: it is the same measurement, integrated.
  *
  * The parameters are lib/kalman's provisional ones until R and Q are measured.
  *

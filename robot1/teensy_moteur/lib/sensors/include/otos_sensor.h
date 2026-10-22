@@ -51,6 +51,8 @@ struct OpticalSample {
     /** Step since the previous read, mm. */
     float dx_mm;
     float dy_mm;
+    /** Time covered by the step (since the previous read), us. */
+    uint32_t step_dt_us;
     /** Velocity, mm/s. */
     float vx_mm_s;
     float vy_mm_s;
@@ -113,9 +115,10 @@ private:
     bool has_reference_ = false;
     float last_x_m_ = 0.0f;
     float last_y_m_ = 0.0f;
+    uint32_t last_read_us_ = 0;
 
     // Written by poll() (loop), read by latest() (ISR).
-    OpticalSample sample_ = {false, 0.0f, 0.0f, 0.0f, 0.0f, 0, 0};
+    OpticalSample sample_ = {false, 0.0f, 0.0f, 0, 0.0f, 0.0f, 0, 0};
 
     ReadStats stats_ = {0, 0, 0xFFFFFFFFu, 0, 0.0f};
     uint64_t stats_sum_us_ = 0;

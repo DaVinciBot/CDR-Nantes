@@ -102,7 +102,6 @@ void Holonomic_Basis::init_holonomic_basis(double x, double y, double theta) {
     this->Y = y;
     this->THETA = theta;
     if (estimator) estimator->reset(x, y, theta);
-    optical_integrator.reset(x, y);
     interrupts();
 
     if (optical) optical->reset_tracking();
@@ -222,23 +221,20 @@ void Holonomic_Basis::update_odometry() {
         in.imu_timestamp_us = h.timestamp_us;
     }
 
-    // Optical: robot-frame velocity for the EKF, and a table-frame pose for the
-    // complementary filter, rebuilt by rotating each new robot-frame step by the
-    // heading of the previous tick. A sample is integrated once only.
+    // Optical: a NEW sample only, handed over once. Robot-frame step for the
+    // complementary filter, robot-frame velocity for the EKF.
     if (use_optical_flow && optical) {
         const sensors::OpticalSample o = optical->latest();
-        if (o.valid) {
-            if (o.seq != odo_data.last_optical_seq) {
-                odo_data.last_optical_seq = o.seq;
-                optical_integrator.add(o.dx_mm, o.dy_mm, this->THETA);
-                in.optical_velocity_valid = true;
-                in.optical_vx_mm_s = o.vx_mm_s;
-                in.optical_vy_mm_s = o.vy_mm_s;
-            }
-            in.optical_pose_valid = true;
-            in.optical_x_mm = static_cast<float>(optical_integrator.x_mm());
-            in.optical_y_mm = static_cast<float>(optical_integrator.y_mm());
+        if (o.valid && o.seq != odo_data.last_optical_seq) {
+            odo_data.last_optical_seq = o.seq;
             in.optical_timestamp_us = o.timestamp_us;
+            in.optical_step_valid = true;
+            in.optical_dx_mm = o.dx_mm;
+            in.optical_dy_mm = o.dy_mm;
+            in.optical_step_dt_us = o.step_dt_us;
+            in.optical_velocity_valid = true;
+            in.optical_vx_mm_s = o.vx_mm_s;
+            in.optical_vy_mm_s = o.vy_mm_s;
         }
     }
 

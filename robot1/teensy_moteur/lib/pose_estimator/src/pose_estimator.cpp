@@ -29,10 +29,11 @@ EstimatorInput empty_input() {
     in.imu_valid = false;
     in.heading_rad = 0.0f;
     in.imu_timestamp_us = 0;
-    in.optical_pose_valid = false;
-    in.optical_x_mm = 0.0f;
-    in.optical_y_mm = 0.0f;
     in.optical_timestamp_us = 0;
+    in.optical_step_valid = false;
+    in.optical_dx_mm = 0.0f;
+    in.optical_dy_mm = 0.0f;
+    in.optical_step_dt_us = 0;
     in.optical_velocity_valid = false;
     in.optical_vx_mm_s = 0.0f;
     in.optical_vy_mm_s = 0.0f;

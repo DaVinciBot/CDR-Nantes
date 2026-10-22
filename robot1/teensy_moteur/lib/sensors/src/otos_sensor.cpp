@@ -133,6 +133,7 @@ bool OtosSensor::poll() {
         has_reference_ = true;
         last_x_m_ = pos.x;
         last_y_m_ = pos.y;
+        last_read_us_ = now_us;
         return false;
     }
 
@@ -144,11 +145,14 @@ bool OtosSensor::poll() {
     to_robot(vel.x * 1000.0f, vel.y * 1000.0f, vx_mm_s, vy_mm_s);
     last_x_m_ = pos.x;
     last_y_m_ = pos.y;
+    const uint32_t step_dt_us = now_us - last_read_us_;
+    last_read_us_ = now_us;
 
     noInterrupts();
     sample_.valid = true;
     sample_.dx_mm = dx_mm;
     sample_.dy_mm = dy_mm;
+    sample_.step_dt_us = step_dt_us;
     sample_.vx_mm_s = vx_mm_s;
     sample_.vy_mm_s = vy_mm_s;
     sample_.timestamp_us = now_us;

@@ -9,7 +9,6 @@
 #include "structures.h"
 #include <com.h>
 #include <pose_estimator.h>
-#include <optical_world_integrator.h>
 #include <bno085_sensor.h>
 #include <otos_sensor.h>
 #include <wheel_command_shaper.h>
@@ -142,9 +141,6 @@ class Holonomic_Basis {
     pose::PoseEstimator* estimator = nullptr;
     sensors::Bno085Sensor* imu = nullptr;
     sensors::OtosSensor* optical = nullptr;
-    // Table-frame optical pose for the complementary filter, rebuilt from the
-    // robot-frame optical steps (the sensor does not rotate them itself).
-    pose::OpticalWorldIntegrator optical_integrator;
 
     struct OdometryData {
         // Encoder values of the previous tick, reference of the deltas
@@ -166,6 +162,6 @@ class Holonomic_Basis {
         uint32_t last_tick_us = 0;
         uint32_t last_seq = 0;             // buffer_seq seen at the previous tick
         bool     prev_read_fresh = false;  // the previous tick had a fresh read
-        uint32_t last_optical_seq = 0;     // optical sample already integrated
+        uint32_t last_optical_seq = 0;     // optical sample already handed over
     } odo_data;
 };

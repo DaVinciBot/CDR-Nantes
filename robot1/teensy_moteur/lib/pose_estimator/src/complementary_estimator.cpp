@@ -1,6 +1,5 @@
 /*
- * Complementary filter. See include/complementary_estimator.h: the behaviour is
- * the 2026 one of holonomic_basis, step for step.
+ * Complementary filter. See include/complementary_estimator.h.
  *
  * No Arduino dependency: this file must build in the "native" environment.
  */
@@ -12,160 +11,115 @@
 namespace pose {
 
 ComplementaryEstimator::ComplementaryEstimator(const ComplementaryParams &params)
-    : params_(params) {}
+    : params_(params) {
+    geometry_.robot_radius_mm = static_cast<float>(params.robot_radius_mm);
+    geometry_.counts_to_mm = static_cast<float>(params.counts_to_mm);
+}
 
 void ComplementaryEstimator::reset(float x_mm, float y_mm, float theta_rad) {
     x_ = x_mm;
     y_ = y_mm;
     theta_ = normalize_angle(theta_rad);
-    last_theta_ = theta_;
-    // The next optical sample is the new reference: the sensor's tracking is
-    // reset along with the pose.
-    optical_seen_ = false;
-    optical_active_ = false;
+    vx_ = 0.0;
+    vy_ = 0.0;
+    omega_ = 0.0;
+    optical_used_ = false;
     optical_rejected_ = false;
 }
 
-void ComplementaryEstimator::integrate_optical(double x_mm, double y_mm) {
-    const double dx_mm = x_mm - last_optical_x_;
-    const double dy_mm = y_mm - last_optical_y_;
-    last_optical_x_ = x_mm;
-    last_optical_y_ = y_mm;
+bool ComplementaryEstimator::is_pure_rotation(double d1, double d2, double d3) const {
+    const double rotation =
+        (d1 + d2 + d3) * params_.counts_to_mm / (3.0 * params_.robot_radius_mm);
+    if (fabs(rotation) <= params_.pure_rotation_min_rad) return false;
 
-    // The first sample only sets the reference.
-    if (!optical_seen_) {
-        optical_seen_ = true;
-        return;
-    }
+    const bool same_sign = (d1 * d2 > 0) && (d2 * d3 > 0);
+    const double d_avg = (fabs(d1) + fabs(d2) + fabs(d3)) / 3.0;
+    if (!same_sign || d_avg <= params_.pure_rotation_min_counts) return false;
 
-    // Already in the table frame (OpticalWorldIntegrator): no rotation here.
-    const double magnitude = sqrt(dx_mm * dx_mm + dy_mm * dy_mm);
-    if (magnitude > params_.optical_outlier_mm) {
-        ++optical_outlier_count_;
-        optical_rejected_ = true;
-    } else {
-        const double dx_world = (magnitude >= params_.optical_noise_mm) ? dx_mm : 0.0;
-        const double dy_world = (magnitude >= params_.optical_noise_mm) ? dy_mm : 0.0;
-        optical_x_acc_ += dx_world;
-        optical_y_acc_ += dy_world;
-        if (dx_world != 0.0 || dy_world != 0.0) {
-            ++optical_valid_count_;
-        }
-    }
+    const double tol = params_.pure_rotation_tolerance;
+    return fabs(fabs(d1) - d_avg) / d_avg < tol && fabs(fabs(d2) - d_avg) / d_avg < tol &&
+           fabs(fabs(d3) - d_avg) / d_avg < tol;
 }
 
 void ComplementaryEstimator::step(const EstimatorInput &in) {
+    optical_used_ = false;
     optical_rejected_ = false;
-    optical_active_ = false;
 
     // The first tick only sets the encoder reference, which the caller holds.
     if (in.first_frame) {
         return;
     }
     ready_ = true;
+    const double dt_s = static_cast<double>(in.dt_us) * 1e-6;
 
-    double d1 = static_cast<double>(in.d1);
-    double d2 = static_cast<double>(in.d2);
-    double d3 = static_cast<double>(in.d3);
-    if (fabs(d1) < params_.encoder_noise_counts) d1 = 0.0;
-    if (fabs(d2) < params_.encoder_noise_counts) d2 = 0.0;
-    if (fabs(d3) < params_.encoder_noise_counts) d3 = 0.0;
-
-    const double ctm = params_.counts_to_mm;
-    const double radius = params_.robot_radius_mm;
-
-    // --- Optical, before the encoder check, so that it is logged at rest too ---
-    double dx_optical_world = 0.0;
-    double dy_optical_world = 0.0;
-    if (in.optical_pose_valid) {
-        const double prev_acc_x = optical_x_acc_;
-        const double prev_acc_y = optical_y_acc_;
-
-        // Provisional rotation, 0 while the encoders are still.
-        double omega_temp = 0.0;
-        if (d1 != 0.0 || d2 != 0.0 || d3 != 0.0) {
-            omega_temp = (d1 * ctm + d2 * ctm + d3 * ctm) / (3.0 * radius);
-        }
-
-        integrate_optical(in.optical_x_mm, in.optical_y_mm);
-
-        const double diff_opt_x = optical_x_acc_ - prev_acc_x;
-        const double diff_opt_y = optical_y_acc_ - prev_acc_y;
-
-        // Pure rotation: the three wheels turn the same way at similar speeds.
-        bool is_pure_rotation = false;
-        if (fabs(omega_temp) > params_.pure_rotation_min_rad) {
-            const double d1_abs = fabs(d1);
-            const double d2_abs = fabs(d2);
-            const double d3_abs = fabs(d3);
-            const bool same_sign = (d1 * d2 > 0) && (d2 * d3 > 0);
-            const double d_avg = (d1_abs + d2_abs + d3_abs) / 3.0;
-            if (d_avg > params_.pure_rotation_min_counts) {
-                const double d1_diff = fabs(d1_abs - d_avg) / d_avg;
-                const double d2_diff = fabs(d2_abs - d_avg) / d_avg;
-                const double d3_diff = fabs(d3_abs - d_avg) / d_avg;
-                if (same_sign && d1_diff < params_.pure_rotation_tolerance &&
-                    d2_diff < params_.pure_rotation_tolerance &&
-                    d3_diff < params_.pure_rotation_tolerance) {
-                    is_pure_rotation = true;
-                }
-            }
-        }
-
-        // Pure rotation: the optical X/Y is parasitic motion, drop it.
-        if (!is_pure_rotation &&
-            (fabs(diff_opt_x) > params_.optical_motion_mm ||
-             fabs(diff_opt_y) > params_.optical_motion_mm)) {
-            dx_optical_world = diff_opt_x;
-            dy_optical_world = diff_opt_y;
-            optical_active_ = true;
-        }
+    // --- Encoders: noise floor, then forward kinematics (robot frame) ---
+    int32_t d[3] = {in.d1, in.d2, in.d3};
+    for (int i = 0; i < 3; ++i) {
+        if (fabs(static_cast<double>(d[i])) < params_.encoder_noise_counts) d[i] = 0;
     }
-
-    // --- Encoders: forward kinematics, wheels at 120, 240 and 0 deg ---
-    const double w1_mm = d1 * ctm;
-    const double w2_mm = d2 * ctm;
-    const double w3_mm = d3 * ctm;
-    const double dx_enc = (-w1_mm - w2_mm + 2.0 * w3_mm) / 3.0;
-    const double dy_enc = (w1_mm - w2_mm) / sqrt(3.0);
-    const double omega_enc = -(w1_mm + w2_mm + w3_mm) / (3.0 * radius);
-
-    // To the world frame, at the heading of the previous tick.
-    const double dx_enc_world = dx_enc * cos(theta_) - dy_enc * sin(theta_);
-    const double dy_enc_world = dx_enc * sin(theta_) + dy_enc * cos(theta_);
-    encoder_x_acc_ += dx_enc_world;
-    encoder_y_acc_ += dy_enc_world;
-
-    // --- Fusion ---
-    double dx_final_world = dx_enc_world;
-    double dy_final_world = dy_enc_world;
-    if (optical_active_ && optical_valid_count_ > 0) {
-        // A stale encoder buffer gets no share: 100 % optical.
-        const bool encoder_fresh = in.encoder_age_us < params_.encoder_max_age_us;
-        const double alpha = encoder_fresh ? params_.alpha_encoders : 0.0;
-        dx_final_world = alpha * dx_enc_world + (1.0 - alpha) * dx_optical_world;
-        dy_final_world = alpha * dy_enc_world + (1.0 - alpha) * dy_optical_world;
-    }
+    const kinematics::BodyDelta enc = kinematics::forward_kinematics(geometry_, d[0], d[1], d[2]);
 
     // --- Heading: IMU when available, encoder rotation otherwise ---
-    if (in.imu_valid) {
-        theta_ = normalize_angle(in.heading_rad);
-    } else {
-        theta_ = normalize_angle(theta_ + omega_enc);
+    const double theta_new = in.imu_valid ? normalize_angle(in.heading_rad)
+                                          : normalize_angle(theta_ + enc.dtheta);
+    // Mean heading of the tick, across +-pi: half the wrapped change.
+    const double dtheta = normalize_angle(theta_new - theta_);
+    const double theta_mean = normalize_angle(theta_ + 0.5 * dtheta);
+    const double c = cos(theta_mean);
+    const double s = sin(theta_mean);
+
+    // --- Optical: speed of the new sample, displacement over this tick ---
+    double optical_dx = 0.0;
+    double optical_dy = 0.0;
+    if (in.optical_step_valid && in.optical_step_dt_us > 0 && dt_s > 0.0) {
+        const double step_s = static_cast<double>(in.optical_step_dt_us) * 1e-6;
+        const double vx = in.optical_dx_mm / step_s;
+        const double vy = in.optical_dy_mm / step_s;
+        const double speed = sqrt(vx * vx + vy * vy);
+        if (speed > params_.optical_outlier_mm_s) {
+            ++optical_outlier_count_;
+            optical_rejected_ = true;
+        } else if (speed >= params_.optical_noise_mm_s &&
+                   !is_pure_rotation(d[0], d[1], d[2])) {
+            optical_dx = vx * dt_s;
+            optical_dy = vy * dt_s;
+            optical_used_ = true;
+            ++optical_valid_count_;
+            optical_x_acc_ += optical_dx * c - optical_dy * s;
+            optical_y_acc_ += optical_dx * s + optical_dy * c;
+        }
     }
 
-    // --- Position ---
-    const double theta_mean = (last_theta_ + theta_) / 2.0;
-    if (optical_active_) {
-        x_ += dx_final_world;
-        y_ += dy_final_world;
+    encoder_x_acc_ += enc.dx * c - enc.dy * s;
+    encoder_y_acc_ += enc.dx * s + enc.dy * c;
+
+    // --- Fusion, robot frame ---
+    bool moves = false;
+    double bx = 0.0;
+    double by = 0.0;
+    if (optical_used_) {
+        // Encoder deltas that do not span exactly this tick get no share.
+        const double alpha = in.encoders_fresh ? params_.alpha_encoders : 0.0;
+        bx = alpha * enc.dx + (1.0 - alpha) * optical_dx;
+        by = alpha * enc.dy + (1.0 - alpha) * optical_dy;
+        moves = true;
     } else if (params_.use_encoders) {
-        const double c = cos(theta_mean);
-        const double s = sin(theta_mean);
-        x_ += dx_enc * c - dy_enc * s;
-        y_ += dx_enc * s + dy_enc * c;
+        bx = enc.dx;
+        by = enc.dy;
+        moves = true;
     }
-    last_theta_ = theta_;
+
+    // --- Pose and velocity, table frame ---
+    const double dx_table = moves ? bx * c - by * s : 0.0;
+    const double dy_table = moves ? bx * s + by * c : 0.0;
+    x_ += dx_table;
+    y_ += dy_table;
+    theta_ = theta_new;
+    if (dt_s > 0.0) {
+        vx_ = dx_table / dt_s;
+        vy_ = dy_table / dt_s;
+        omega_ = dtheta / dt_s;
+    }
 }
 
 PoseEstimate ComplementaryEstimator::pose() const {
@@ -173,13 +127,16 @@ PoseEstimate ComplementaryEstimator::pose() const {
     p.x_mm = static_cast<float>(x_);
     p.y_mm = static_cast<float>(y_);
     p.theta_rad = static_cast<float>(theta_);
+    p.vx_mm_s = static_cast<float>(vx_);
+    p.vy_mm_s = static_cast<float>(vy_);
+    p.omega_rad_s = static_cast<float>(omega_);
     return p;
 }
 
 uint8_t ComplementaryEstimator::health_flags() const {
     uint8_t flags = 0;
     if (ready_) flags |= FILTER_READY;
-    if (optical_active_) flags |= OPTICAL_OK;
+    if (optical_used_) flags |= OPTICAL_OK;
     if (optical_rejected_) flags |= MEAS_REJECTED;
     return flags;
 }

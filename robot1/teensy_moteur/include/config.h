@@ -59,14 +59,25 @@
 // MKS CONFIGURATION 
 #define MKS_BAUDRATE 115200
 #define MKS_MSTEP 32
+#define MKS_MAX_RPM 350.0
+// Internal ramp of the MKS drivers, a safety net only: the acceleration limiter
+// of the control loop shapes the command, the drivers must follow it. Assuming
+// the manual's ramp (+1 rpm every (256 - acc) x 50 us), acc = 256 - 20000 / rpm_per_s:
+// 225 gives ~640 rpm/s, twice MAX_WHEEL_ACCEL_RPM_S. Also used by stop().
 #define MKS_ACC 225
 #define MKS_COUNTS_PER_REV 16384.0
 
 #define COUNTS_TO_MM ((WHEEL_DIAMETER * PI) / MKS_COUNTS_PER_REV)
 
 // Software wheel speed ceiling, rpm. 1 m/s needs 318.3 rpm with 60 mm wheels;
+// the extra ~30 rpm leaves room for rotation during a full-speed translation
+// (the proportional normalisation scales the whole command down as soon as one
+// wheel exceeds this).
 #define MAX_SPEED_RPM 350.0
+
 // Wheel acceleration limit, rpm/s: 1 m/s^2 at the wheel (318.3) rounded up.
+// Applied to the three wheels with the same factor, so the direction holds.
+#define MAX_WHEEL_ACCEL_RPM_S 320.0
 
 //  ROBOT GEOMETRY
 // WARNING: INDEPENDENT homonym of ROBOT_RADIUS_MM in robot1/rasp/world.py

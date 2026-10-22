@@ -1,20 +1,21 @@
 /*
- * Host tests for lib/pose_estimator: the complementary filter moved out of
- * holonomic_basis, the EKF wrapper, and the hand-over between the two.
+ * Host tests for lib/pose_estimator: the complementary filter, the EKF wrapper,
+ * and the hand-over between the two.
  *
  * Run with: pio test -e native   (from robot1/teensy_moteur/)
  *
- * COMPLEMENTARY: the behaviour is the 2026 one and these tests pin it down,
- * weaknesses included (noise floors, outlier bound, use_encoders), so that the
- * rewrite of the filter changes them on purpose and visibly.
+ * COMPLEMENTARY: the 20/80 filter on the common contract (robot-frame optical
+ * step, thresholds as speeds). The 2026 weaknesses (optical blind below
+ * 0.2 m/s, outlier bound at full speed, mean heading wrong across +-pi) are
+ * gone, and the tests below say so.
  *
  * EKF WRAPPER: the mapping from EstimatorInput to Ekf6 (fresh encoders, IMU,
- * flags). The filter itself is covered by test_ekf6.
+ * flags, velocity in the table frame). The filter itself is covered by
+ * test_ekf6.
  *
  * HAND-OVER: an estimator selected at run time starts from the pose it is given.
  *
- * OPTICAL WORLD INTEGRATOR: the table-frame pose rebuilt from robot-frame
- * optical steps, which feeds the complementary filter.
+ * The tick is the motor board's 15 ms.
  */
 
 #include <math.h>
@@ -23,7 +24,6 @@
 #include "complementary_estimator.h"
 #include "ekf_estimator.h"
 #include "kinematics.h"
-#include "optical_world_integrator.h"
 
 using namespace pose;
 
@@ -33,7 +33,8 @@ void tearDown(void) {}
 // === FIXTURE ===
 
 static constexpr float PI_F = 3.14159265358979f;
-static constexpr uint32_t DT_US = 10000;
+static constexpr uint32_t DT_US = 15000;
+static constexpr float DT_S = 0.015f;
 
 /** Geometry of the 2026 base: R = 160 mm, 60 mm wheels, 16384 counts/rev. */
 static constexpr float RADIUS_MM = 160.0f;
@@ -184,45 +185,58 @@ static void test_complementary_without_use_encoders_position_is_frozen(void) {
     TEST_ASSERT_TRUE(est.pose().theta_rad > 0.9f);
 }
 
+/** A tick with a new optical sample: robot-frame step over step_dt_us. */
+static EstimatorInput with_optical(EstimatorInput in, float dx_mm, float dy_mm,
+                                   uint32_t step_dt_us = DT_US) {
+    in.optical_step_valid = true;
+    in.optical_dx_mm = dx_mm;
+    in.optical_dy_mm = dy_mm;
+    in.optical_step_dt_us = step_dt_us;
+    return in;
+}
+
 /**
  * Runs a straight line with optical steps of optical_step_mm per tick and
- * encoder steps of 2 mm, the encoder read being encoder_age_us old.
+ * encoder steps of encoder_step_mm, the encoders alone not integrated.
  */
-static float fused_x_after(float optical_step_mm, uint32_t encoder_age_us, int ticks) {
+static float fused_x_after(float optical_step_mm, float encoder_step_mm,
+                           bool encoders_fresh, int ticks) {
     ComplementaryParams p = complementary_params();
     p.use_encoders = false;
     ComplementaryEstimator est(p);
     est.reset(0.0f, 0.0f, 0.0f);
     est.step(first_tick());
-
-    // Optical reference sample: no optical motion yet.
-    EstimatorInput ref = empty_input();
-    ref.dt_us = DT_US;
-    ref.optical_pose_valid = true;
-    est.step(ref);
-
-    for (int i = 1; i <= ticks; ++i) {
-        EstimatorInput in = motion_tick(2.0f, 0.0f, 0.0f);
-        in.encoder_age_us = encoder_age_us;
-        in.optical_pose_valid = true;
-        in.optical_x_mm = optical_step_mm * static_cast<float>(i);
-        est.step(in);
+    for (int i = 0; i < ticks; ++i) {
+        EstimatorInput in = motion_tick(encoder_step_mm, 0.0f, 0.0f);
+        in.encoders_fresh = encoders_fresh;
+        est.step(with_optical(in, optical_step_mm, 0.0f));
     }
     return est.pose().x_mm;
 }
 
 static void test_complementary_fuses_20_percent_encoders_80_percent_optical(void) {
     // 0.2 * 2 + 0.8 * 5 = 4.4 mm per tick.
-    TEST_ASSERT_FLOAT_WITHIN(0.5f, 44.0f, fused_x_after(5.0f, 2000, 10));
+    TEST_ASSERT_FLOAT_WITHIN(0.5f, 44.0f, fused_x_after(5.0f, 2.0f, true, 10));
 }
 
-static void test_complementary_stale_encoders_trust_the_optical_alone(void) {
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, 50.0f, fused_x_after(5.0f, 100000, 10));
+static void test_complementary_missed_encoder_read_trusts_the_optical_alone(void) {
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 50.0f, fused_x_after(5.0f, 2.0f, false, 10));
 }
 
-static void test_complementary_optical_under_2_mm_is_zeroed(void) {
-    // 1.5 mm optical steps are noise: no optical motion, and use_encoders is off.
-    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, fused_x_after(1.5f, 2000, 10));
+static void test_complementary_optical_sees_slow_motion(void) {
+    // 1.5 mm per 15 ms tick = 100 mm/s: the 2026 floor (2 mm per tick) zeroed
+    // it, the robot was optically blind below 0.2 m/s.
+    TEST_ASSERT_FLOAT_WITHIN(0.5f, 15.0f, fused_x_after(1.5f, 1.5f, true, 10));
+}
+
+static void test_complementary_optical_under_the_speed_floor_is_noise(void) {
+    // 0.03 mm per tick = 2 mm/s, under the 5 mm/s floor; encoders alone off.
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, fused_x_after(0.03f, 0.0f, true, 10));
+}
+
+static void test_complementary_full_speed_is_not_an_outlier(void) {
+    // 1 m/s at 15 ms = 15 mm per tick, which sat right on the 2026 bound.
+    TEST_ASSERT_FLOAT_WITHIN(1.0f, 150.0f, fused_x_after(15.0f, 15.0f, true, 10));
 }
 
 static void test_complementary_optical_outlier_is_rejected_and_counted(void) {
@@ -232,28 +246,35 @@ static void test_complementary_optical_outlier_is_rejected_and_counted(void) {
     est.reset(0.0f, 0.0f, 0.0f);
     est.step(first_tick());
 
+    // 30 mm in 15 ms = 2 m/s, above 1.5 m/s.
     EstimatorInput in = empty_input();
     in.dt_us = DT_US;
-    in.optical_pose_valid = true;
-    est.step(in);  // reference
-
-    in.optical_x_mm = 20.0f;  // above 15 mm in one tick
-    est.step(in);
+    est.step(with_optical(in, 30.0f, 0.0f));
 
     TEST_ASSERT_EQUAL_UINT32(1, est.optical_outlier_count());
     TEST_ASSERT_TRUE(est.health_flags() & MEAS_REJECTED);
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, est.pose().x_mm);
 }
 
+static void test_complementary_missed_optical_read_is_rescaled_to_the_tick(void) {
+    ComplementaryParams p = complementary_params();
+    p.use_encoders = false;
+    p.alpha_encoders = 0.0;  // optical only, to read its share directly
+    ComplementaryEstimator est(p);
+    est.reset(0.0f, 0.0f, 0.0f);
+    est.step(first_tick());
+
+    // One tick without an optical sample, then one step covering two ticks:
+    // 10 mm in 30 ms is 333 mm/s, i.e. 5 mm over this tick.
+    est.step(motion_tick(5.0f, 0.0f, 0.0f));
+    est.step(with_optical(motion_tick(5.0f, 0.0f, 0.0f), 10.0f, 0.0f, 2 * DT_US));
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 5.0f, est.pose().x_mm);
+}
+
 static void test_complementary_pure_rotation_drops_the_optical(void) {
     ComplementaryEstimator est(complementary_params());
     est.reset(0.0f, 0.0f, 0.0f);
     est.step(first_tick());
-
-    EstimatorInput ref = empty_input();
-    ref.dt_us = DT_US;
-    ref.optical_pose_valid = true;
-    est.step(ref);
 
     for (int i = 1; i <= 10; ++i) {
         EstimatorInput in = empty_input();
@@ -262,9 +283,7 @@ static void test_complementary_pure_rotation_drops_the_optical(void) {
         in.d3 = 200;
         in.dt_us = DT_US;
         in.encoders_fresh = true;
-        in.optical_pose_valid = true;
-        in.optical_x_mm = 5.0f * static_cast<float>(i);
-        est.step(in);
+        est.step(with_optical(in, 5.0f, 0.0f));
         TEST_ASSERT_EQUAL_UINT8(0, est.health_flags() & OPTICAL_OK);
     }
     // Equal wheel deltas: no translation from the encoders, optical dropped.
@@ -272,37 +291,74 @@ static void test_complementary_pure_rotation_drops_the_optical(void) {
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, est.pose().y_mm);
 }
 
+static void test_complementary_mean_heading_across_pi(void) {
+    // Heading crosses +-pi during the tick: the robot faces -x all along. The
+    // 2026 plain average gave a mean heading of 0, i.e. motion towards +x.
+    ComplementaryEstimator est(complementary_params());
+    est.reset(0.0f, 0.0f, PI_F - 0.01f);
+    est.step(first_tick());
+
+    EstimatorInput in = motion_tick(10.0f, 0.0f, 0.0f);
+    in.imu_valid = true;
+    in.heading_rad = -PI_F + 0.01f;
+    est.step(in);
+
+    TEST_ASSERT_FLOAT_WITHIN(0.1f, -10.0f, est.pose().x_mm);
+    TEST_ASSERT_FLOAT_WITHIN(0.1f, 0.0f, est.pose().y_mm);
+}
+
+static void test_complementary_reports_its_velocity_in_the_table_frame(void) {
+    ComplementaryEstimator est(complementary_params());
+    est.reset(0.0f, 0.0f, PI_F / 2.0f);
+    est.step(first_tick());
+    for (int i = 0; i < 10; ++i) {
+        EstimatorInput in = motion_tick(3.0f, 0.0f, 0.0f);  // 200 mm/s forward
+        in.imu_valid = true;
+        in.heading_rad = PI_F / 2.0f;
+        est.step(in);
+    }
+    TEST_ASSERT_FLOAT_WITHIN(3.0f, 0.0f, est.pose().vx_mm_s);
+    TEST_ASSERT_FLOAT_WITHIN(3.0f, 200.0f, est.pose().vy_mm_s);
+    TEST_ASSERT_FLOAT_WITHIN(1e-4f, 0.0f, est.pose().omega_rad_s);
+}
+
 // === EKF WRAPPER ===
 
 /**
  * Straight line from rest, ramped at 1 m/s^2 up to 200 mm/s. A ramp, not a
- * step: 0 to 200 mm/s in one tick is 20 m/s^2, far outside the process noise,
+ * step: 0 to 200 mm/s in one tick is over 10 m/s^2, far outside the process noise,
  * and the gate rightly rejects the wheels until the velocity variance has grown
- * (13 mm of lag measured). The reference is the forward kinematics of the very
+ * (13 mm of lag measured). The reference is the pose integrated from the very
  * counts fed in, so count rounding does not enter the tolerance.
  */
 static void test_ekf_straight_line_on_encoders(void) {
-    EkfEstimator ekf(geometry(), kalman::provisional_ekf6_params());
+    EkfEstimator ekf(geometry(), kalman::provisional_ekf6_params(DT_S));
     ekf.reset(0.0f, 0.0f, 0.0f);
     ekf.step(first_tick());
 
-    float truth_x = 0.0f;
+    // The rounded counts carry a small constant rotation per tick: the
+    // reference integrates the full pose they describe, not a straight line.
+    double truth_x = 0.0, truth_y = 0.0, truth_theta = 0.0;
     for (int i = 0; i < 200; ++i) {
-        const float speed_mm_s = fminf(200.0f, 10.0f * static_cast<float>(i + 1));
-        const EstimatorInput in = motion_tick(speed_mm_s * 0.01f, 0.0f, 0.0f);
+        const float speed_mm_s = fminf(200.0f, 15.0f * static_cast<float>(i + 1));
+        const EstimatorInput in = motion_tick(speed_mm_s * DT_S, 0.0f, 0.0f);
         ekf.step(in);
-        truth_x += kalman::forward_kinematics(geometry(), in.d1, in.d2, in.d3).dx;
+        const kalman::BodyDelta d = kalman::forward_kinematics(geometry(), in.d1, in.d2, in.d3);
+        const double mid = truth_theta + 0.5 * d.dtheta;
+        truth_x += d.dx * cos(mid) - d.dy * sin(mid);
+        truth_y += d.dx * sin(mid) + d.dy * cos(mid);
+        truth_theta += d.dtheta;
     }
     // About 1 mm of lag: the constant-velocity model trails a ramp.
-    TEST_ASSERT_FLOAT_WITHIN(2.0f, truth_x, ekf.pose().x_mm);
-    TEST_ASSERT_FLOAT_WITHIN(1.0f, 0.0f, ekf.pose().y_mm);
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, ekf.pose().theta_rad);
+    TEST_ASSERT_FLOAT_WITHIN(2.0f, static_cast<float>(truth_x), ekf.pose().x_mm);
+    TEST_ASSERT_FLOAT_WITHIN(1.0f, static_cast<float>(truth_y), ekf.pose().y_mm);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, static_cast<float>(truth_theta), ekf.pose().theta_rad);
     TEST_ASSERT_EQUAL_UINT32(0, ekf.filter().wheel_stats().rejected);
     TEST_ASSERT_TRUE(ekf.health_flags() & FILTER_READY);
 }
 
 static void test_ekf_stale_encoders_predict_without_wheel_updates(void) {
-    EkfEstimator ekf(geometry(), kalman::provisional_ekf6_params());
+    EkfEstimator ekf(geometry(), kalman::provisional_ekf6_params(DT_S));
     ekf.reset(0.0f, 0.0f, 0.0f);
     ekf.step(first_tick());
     ekf.step(motion_tick(2.0f, 0.0f, 0.0f));
@@ -319,7 +375,7 @@ static void test_ekf_stale_encoders_predict_without_wheel_updates(void) {
 }
 
 static void test_ekf_takes_the_imu_heading(void) {
-    EkfEstimator ekf(geometry(), kalman::provisional_ekf6_params());
+    EkfEstimator ekf(geometry(), kalman::provisional_ekf6_params(DT_S));
     ekf.reset(0.0f, 0.0f, 0.0f);
     ekf.step(first_tick());
     for (int i = 1; i <= 50; ++i) {
@@ -333,7 +389,7 @@ static void test_ekf_takes_the_imu_heading(void) {
 }
 
 static void test_ekf_optical_ok_needs_an_optical_sample(void) {
-    EkfEstimator ekf(geometry(), kalman::provisional_ekf6_params());
+    EkfEstimator ekf(geometry(), kalman::provisional_ekf6_params(DT_S));
     ekf.reset(0.0f, 0.0f, 0.0f);
     ekf.step(first_tick());
     ekf.step(motion_tick(2.0f, 0.0f, 0.0f));
@@ -347,6 +403,24 @@ static void test_ekf_optical_ok_needs_an_optical_sample(void) {
     TEST_ASSERT_TRUE(ekf.health_flags() & OPTICAL_OK);
 }
 
+static void test_ekf_reports_its_velocity_in_the_table_frame(void) {
+    EkfEstimator ekf(geometry(), kalman::provisional_ekf6_params(DT_S));
+    ekf.reset(0.0f, 0.0f, PI_F / 2.0f);
+    ekf.step(first_tick());
+    for (int i = 0; i < 200; ++i) {
+        const float speed_mm_s = fminf(200.0f, 15.0f * static_cast<float>(i + 1));
+        EstimatorInput in = motion_tick(speed_mm_s * DT_S, 0.0f, 0.0f);
+        in.imu_valid = true;
+        in.heading_rad = PI_F / 2.0f;
+        in.imu_timestamp_us = static_cast<uint32_t>(i + 1) * DT_US;
+        ekf.step(in);
+    }
+    // Forward in the robot frame is +y in the table at 90 deg.
+    TEST_ASSERT_FLOAT_WITHIN(5.0f, 0.0f, ekf.pose().vx_mm_s);
+    TEST_ASSERT_FLOAT_WITHIN(5.0f, 200.0f, ekf.pose().vy_mm_s);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, ekf.pose().omega_rad_s);
+}
+
 // === HAND-OVER ===
 
 static void hand_over(const PoseEstimator &from, PoseEstimator &to) {
@@ -356,7 +430,7 @@ static void hand_over(const PoseEstimator &from, PoseEstimator &to) {
 
 static void test_hand_over_keeps_the_pose_both_ways(void) {
     ComplementaryEstimator comp(complementary_params());
-    EkfEstimator ekf(geometry(), kalman::provisional_ekf6_params());
+    EkfEstimator ekf(geometry(), kalman::provisional_ekf6_params(DT_S));
 
     comp.reset(1000.0f, 500.0f, 1.0f);
     comp.step(first_tick());
@@ -383,47 +457,11 @@ static void test_hand_over_keeps_the_pose_both_ways(void) {
 
 static void test_reset_wraps_the_heading(void) {
     ComplementaryEstimator comp(complementary_params());
-    EkfEstimator ekf(geometry(), kalman::provisional_ekf6_params());
+    EkfEstimator ekf(geometry(), kalman::provisional_ekf6_params(DT_S));
     comp.reset(0.0f, 0.0f, 4.0f);
     ekf.reset(0.0f, 0.0f, 4.0f);
     TEST_ASSERT_FLOAT_WITHIN(1e-5f, 4.0f - 2.0f * PI_F, comp.pose().theta_rad);
     TEST_ASSERT_FLOAT_WITHIN(1e-5f, 4.0f - 2.0f * PI_F, ekf.pose().theta_rad);
-}
-
-// === OPTICAL WORLD INTEGRATOR ===
-
-static void test_integrator_rotates_the_step_by_the_heading(void) {
-    OpticalWorldIntegrator integ;
-    integ.reset(0.0, 0.0);
-    for (int i = 0; i < 100; ++i) {
-        integ.add(2.0, 0.0, PI_F / 2.0);  // forward, robot facing +y
-    }
-    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, static_cast<float>(integ.x_mm()));
-    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 200.0f, static_cast<float>(integ.y_mm()));
-
-    integ.add(0.0, 10.0, 0.0);  // sideways (robot +y) at heading 0
-    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 210.0f, static_cast<float>(integ.y_mm()));
-}
-
-static void test_integrator_closes_a_circle(void) {
-    // Forward steps with the heading turning a full revolution: back to start.
-    OpticalWorldIntegrator integ;
-    integ.reset(100.0, -50.0);
-    const int steps = 360;
-    for (int i = 0; i < steps; ++i) {
-        const double theta = 2.0 * PI_F * (i + 0.5) / steps;
-        integ.add(5.0, 0.0, theta);
-    }
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, 100.0f, static_cast<float>(integ.x_mm()));
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, -50.0f, static_cast<float>(integ.y_mm()));
-}
-
-static void test_integrator_reset_sets_the_pose(void) {
-    OpticalWorldIntegrator integ;
-    integ.add(10.0, 10.0, 0.3);
-    integ.reset(1500.0, 1000.0);
-    TEST_ASSERT_FLOAT_WITHIN(1e-9f, 1500.0f, static_cast<float>(integ.x_mm()));
-    TEST_ASSERT_FLOAT_WITHIN(1e-9f, 1000.0f, static_cast<float>(integ.y_mm()));
 }
 
 int main(void) {
@@ -437,22 +475,24 @@ int main(void) {
     RUN_TEST(test_complementary_ignores_deltas_under_the_noise_floor);
     RUN_TEST(test_complementary_without_use_encoders_position_is_frozen);
     RUN_TEST(test_complementary_fuses_20_percent_encoders_80_percent_optical);
-    RUN_TEST(test_complementary_stale_encoders_trust_the_optical_alone);
-    RUN_TEST(test_complementary_optical_under_2_mm_is_zeroed);
+    RUN_TEST(test_complementary_missed_encoder_read_trusts_the_optical_alone);
+    RUN_TEST(test_complementary_optical_sees_slow_motion);
+    RUN_TEST(test_complementary_optical_under_the_speed_floor_is_noise);
+    RUN_TEST(test_complementary_full_speed_is_not_an_outlier);
     RUN_TEST(test_complementary_optical_outlier_is_rejected_and_counted);
+    RUN_TEST(test_complementary_missed_optical_read_is_rescaled_to_the_tick);
     RUN_TEST(test_complementary_pure_rotation_drops_the_optical);
+    RUN_TEST(test_complementary_mean_heading_across_pi);
+    RUN_TEST(test_complementary_reports_its_velocity_in_the_table_frame);
 
     RUN_TEST(test_ekf_straight_line_on_encoders);
     RUN_TEST(test_ekf_stale_encoders_predict_without_wheel_updates);
     RUN_TEST(test_ekf_takes_the_imu_heading);
     RUN_TEST(test_ekf_optical_ok_needs_an_optical_sample);
+    RUN_TEST(test_ekf_reports_its_velocity_in_the_table_frame);
 
     RUN_TEST(test_hand_over_keeps_the_pose_both_ways);
     RUN_TEST(test_reset_wraps_the_heading);
-
-    RUN_TEST(test_integrator_rotates_the_step_by_the_heading);
-    RUN_TEST(test_integrator_closes_a_circle);
-    RUN_TEST(test_integrator_reset_sets_the_pose);
 
     return UNITY_END();
 }

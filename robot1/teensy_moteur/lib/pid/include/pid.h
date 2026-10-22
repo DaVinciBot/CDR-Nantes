@@ -64,6 +64,12 @@ class PID {
 
     /**
      * @brief Same, with the integral held when the output cannot act.
+     *
+     * Conditional integration (anti-windup): when what comes after the PID
+     * caps its output (speed ceiling, acceleration limit, braking), the error
+     * stays large for reasons the PID cannot change, and integrating it would
+     * only wind the integral up and overshoot once the cap is released.
+     *
      * @param error           Current error (setpoint - measurement)
      * @param freeze_integral True to leave the integral unchanged this call
      * @return PID output clamped to [minOutput, maxOutput]

@@ -119,11 +119,16 @@ struct Ekf6Params {
 /**
  * @brief Starting values, NOT tuned values.
  *
- * Measurement noises are placeholders until the bench measurement of R (IMU
- * first, optical once the sensor is available). The two process noises are set
- * on the table by NIS. Everything else is a reasoned default.
+ * The IMU heading noise is set from the bench (robot still, 2026 belt drive,
+ * wheels in the air), with a floor for the error in motion; the other
+ * measurement noises are placeholders until the optical sensor is measured. The two process noises are set on the table by
+ * NIS. Everything else is a reasoned default.
+ *
+ * @param sample_period_s Period of the control loop, which is also the period
+ *     of the optical samples: the optical diagnostics count samples, and are
+ *     sized here from a duration. The default is the motor board's 15 ms.
  */
-Ekf6Params provisional_ekf6_params();
+Ekf6Params provisional_ekf6_params(float sample_period_s = 0.015f);
 
 /** @brief Outcome of one optical sample (two scalar updates). */
 struct OpticalUpdate {

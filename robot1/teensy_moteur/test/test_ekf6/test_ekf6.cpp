@@ -112,7 +112,7 @@ static OdometryTick wheel_tick(const Ekf6 &filter, const Ekf6Params &params,
 // === MODEL ===
 
 void test_wheel_rows_match_the_inverse_kinematics(void) {
-    const Ekf6 filter(GEOMETRY, provisional_ekf6_params());
+    const Ekf6 filter(GEOMETRY, provisional_ekf6_params(DT));
     for (int trial = 0; trial < 100; ++trial) {
         const Vec<6> s = make_state(0.0f, 0.0f, 0.0f, static_cast<float>(uniform(-300, 300)),
                                     static_cast<float>(uniform(-300, 300)),
@@ -149,7 +149,7 @@ void test_jacobian_matches_finite_differences(void) {
 }
 
 void test_predicted_covariance_matches_dense_reference(void) {
-    const Ekf6Params params = provisional_ekf6_params();
+    const Ekf6Params params = provisional_ekf6_params(DT);
     for (int trial = 0; trial < 50; ++trial) {
         Mat<6> P = Mat<6>::zero();
         float a[6][6];
@@ -194,7 +194,7 @@ void test_predicted_covariance_matches_dense_reference(void) {
 }
 
 void test_process_noise_is_positive_definite(void) {
-    const Ekf6 filter(GEOMETRY, provisional_ekf6_params());
+    const Ekf6 filter(GEOMETRY, provisional_ekf6_params(DT));
     const Vec<6> s = make_state(0.0f, 0.0f, 1.0f, 200.0f, -50.0f, 0.5f);
     const dense::DMat<6, 6> Q = dense::from(filter.process_noise(s, DT));
     const dense::DMat<6, 6> L = dense::cholesky(Q);
@@ -210,7 +210,7 @@ void test_process_noise_is_positive_definite(void) {
 // === MEAN PROPAGATION ===
 
 void test_constant_body_velocity_goes_straight_along_the_heading(void) {
-    Ekf6 filter(GEOMETRY, provisional_ekf6_params());
+    Ekf6 filter(GEOMETRY, provisional_ekf6_params(DT));
     filter.reset(make_state(0.0f, 0.0f, 0.5f * PI_F, 200.0f, 0.0f, 0.0f), Mat<6>::zero());
     for (int k = 0; k < 100; ++k) {
         filter.predict(DT);
@@ -224,7 +224,7 @@ void test_constant_body_velocity_and_rate_draw_a_closed_circle(void) {
     // One turn in 10 s: radius 200 / (2 pi / 10).
     const float omega = TWO_PI_F / 10.0f;
     const float radius = 200.0f / omega;
-    Ekf6 filter(GEOMETRY, provisional_ekf6_params());
+    Ekf6 filter(GEOMETRY, provisional_ekf6_params(DT));
     filter.reset(make_state(0.0f, 0.0f, 0.0f, 200.0f, 0.0f, omega), Mat<6>::zero());
 
     for (int k = 0; k < 500; ++k) {
@@ -243,7 +243,7 @@ void test_constant_body_velocity_and_rate_draw_a_closed_circle(void) {
 // === TIME AND SAMPLES ===
 
 void test_first_frame_and_bad_dt_are_refused(void) {
-    Ekf6 filter(GEOMETRY, provisional_ekf6_params());
+    Ekf6 filter(GEOMETRY, provisional_ekf6_params(DT));
     filter.reset(make_state(0.0f, 0.0f, 0.0f, 200.0f, 0.0f, 0.0f), Mat<6>::zero());
     const int32_t counts[3] = {-87, -87, 174};
 
@@ -262,7 +262,7 @@ void test_first_frame_and_bad_dt_are_refused(void) {
 }
 
 void test_invalid_encoders_still_predict_but_skip_the_wheels(void) {
-    Ekf6 filter(GEOMETRY, provisional_ekf6_params());
+    Ekf6 filter(GEOMETRY, provisional_ekf6_params(DT));
     filter.reset(make_state(0.0f, 0.0f, 0.0f, 200.0f, 0.0f, 0.0f), Mat<6>::zero());
     const int32_t counts[3] = {0, 0, 0};
     OdometryTick tick = make_tick(counts, DT_US);
@@ -277,7 +277,7 @@ void test_invalid_encoders_still_predict_but_skip_the_wheels(void) {
 }
 
 void test_samples_not_newer_than_the_last_are_dropped(void) {
-    Ekf6 filter(GEOMETRY, provisional_ekf6_params());
+    Ekf6 filter(GEOMETRY, provisional_ekf6_params(DT));
     filter.reset(0.0f, 0.0f, 0.0f, 0.0f, 0.1f, 10.0f, 0.1f);
 
     TEST_ASSERT_FALSE(filter.update_optical(0.0f, 0.0f, 1000).stale);
@@ -297,7 +297,7 @@ void test_samples_not_newer_than_the_last_are_dropped(void) {
 // === MEASUREMENTS ===
 
 void test_heading_update_crosses_pi_the_short_way(void) {
-    Ekf6Params params = provisional_ekf6_params();
+    Ekf6Params params = provisional_ekf6_params(DT);
     params.heading_sigma_rad = 1.0f * DEG;
     Ekf6 filter(GEOMETRY, params);
     filter.reset(0.0f, 0.0f, 179.0f * DEG, 0.0f, 5.0f * DEG, 10.0f, 0.1f);
@@ -312,7 +312,7 @@ void test_heading_update_crosses_pi_the_short_way(void) {
 static Ekf6 spin_with_offset_sensor(float configured_lever_x_mm) {
     const float true_lever_x = 15.0f;
     const float omega = 3.0f;
-    Ekf6Params params = provisional_ekf6_params();
+    Ekf6Params params = provisional_ekf6_params(DT);
     params.optical_lever_x_mm = configured_lever_x_mm;
     Ekf6 filter(GEOMETRY, params);
     Vec<6> truth = make_state(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, omega);
@@ -347,7 +347,7 @@ void test_lever_arm_removes_the_phantom_velocity_of_a_spinning_robot(void) {
 // === COVARIANCE HEALTH ===
 
 void test_health_ignores_position_growth_but_catches_velocity_blow_up(void) {
-    const Ekf6Params params = provisional_ekf6_params();
+    const Ekf6Params params = provisional_ekf6_params(DT);
     Ekf6 filter(GEOMETRY, params);
     Vec<6> truth = make_state(0.0f, 0.0f, 0.0f, 200.0f, 0.0f, 0.2f);
     filter.reset(truth, make_diagonal(0.0f, 1e-4f, 25.0f, 1e-3f));
@@ -380,7 +380,7 @@ void test_monte_carlo_filter_is_consistent(void) {
     // The truth follows the filter's own model exactly: process noise drawn
     // from Q, measurements drawn from R. Then, and only then, the filter must
     // be consistent on every source and every state.
-    const Ekf6Params params = provisional_ekf6_params();
+    const Ekf6Params params = provisional_ekf6_params(DT);
     const int runs = 400;
     const int ticks = 300;
 
@@ -497,7 +497,7 @@ struct Outcome {
  * noise, one defect injected. The truth itself is noise-free.
  */
 static Outcome run_scenario(const Scenario &scenario) {
-    const Ekf6Params params = provisional_ekf6_params();
+    const Ekf6Params params = provisional_ekf6_params(DT);
     Ekf6 filter(GEOMETRY, params);
     Vec<6> truth = make_state(0.0f, 0.0f, 0.0f, 200.0f, 0.0f, 0.2f);
     filter.reset(truth, make_diagonal(1.0f, 1e-4f, 25.0f, 1e-3f));

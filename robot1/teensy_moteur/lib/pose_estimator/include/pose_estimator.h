@@ -7,8 +7,8 @@
  * loop(), never in the ISR) and hands it to the active estimator, then reads the
  * pose back. Two estimators implement the contract:
  *
- *   ComplementaryEstimator  the 2026 complementary filter (20 % encoders,
- *                           80 % optical), moved out of holonomic_basis as is;
+ *   ComplementaryEstimator  complementary filter, 20 % encoders / 80 % optical
+ *                           on the displacement of the tick;
  *   EkfEstimator            the 6-state EKF of lib/kalman.
  *
  * Both are compiled in, only one runs: the board picks one at boot and may
@@ -58,14 +58,18 @@ struct EstimatorInput {
     /** Local time of the sample, us (wraps). */
     uint32_t imu_timestamp_us;
 
-    // --- Optical sensor, absolute pose (what the complementary filter reads) ---
-    bool optical_pose_valid;
-    /** Position reported by the sensor since its last tracking reset, mm. */
-    float optical_x_mm;
-    float optical_y_mm;
+    // --- Optical sensor: one NEW sample, or both flags cleared ---
+    /** Local time of the sample, us (wraps). */
     uint32_t optical_timestamp_us;
 
-    // --- Optical sensor, robot-frame velocity (what the EKF reads) ---
+    /** Robot-frame step since the previous sample (what the complementary
+     *  filter reads), and the time it covers. */
+    bool optical_step_valid;
+    float optical_dx_mm;
+    float optical_dy_mm;
+    uint32_t optical_step_dt_us;
+
+    /** Robot-frame velocity (what the EKF reads). */
     bool optical_velocity_valid;
     float optical_vx_mm_s;
     float optical_vy_mm_s;
@@ -74,11 +78,14 @@ struct EstimatorInput {
 /** @return An input with every flag cleared and every value at zero. */
 EstimatorInput empty_input();
 
-/** @brief Pose of the robot centre in the table frame. */
+/** @brief Pose and velocity of the robot centre, table frame. */
 struct PoseEstimate {
     float x_mm;
     float y_mm;
     float theta_rad;
+    float vx_mm_s;
+    float vy_mm_s;
+    float omega_rad_s;
 };
 
 /** Health flags, OR-ed into the byte returned by health_flags(). */

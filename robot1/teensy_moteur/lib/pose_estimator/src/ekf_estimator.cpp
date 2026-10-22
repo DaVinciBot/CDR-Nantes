@@ -7,6 +7,8 @@
 
 #include "ekf_estimator.h"
 
+#include <math.h>
+
 namespace pose {
 
 EkfEstimator::EkfEstimator(const kalman::Geometry &geometry,
@@ -68,6 +70,14 @@ PoseEstimate EkfEstimator::pose() const {
     p.x_mm = x[kalman::Ekf6::X];
     p.y_mm = x[kalman::Ekf6::Y];
     p.theta_rad = x[kalman::Ekf6::THETA];
+    // The filter keeps its velocity in the robot frame: to the table frame.
+    const float c = cosf(p.theta_rad);
+    const float s = sinf(p.theta_rad);
+    const float vx = x[kalman::Ekf6::VX];
+    const float vy = x[kalman::Ekf6::VY];
+    p.vx_mm_s = c * vx - s * vy;
+    p.vy_mm_s = s * vx + c * vy;
+    p.omega_rad_s = x[kalman::Ekf6::OMEGA];
     return p;
 }
 

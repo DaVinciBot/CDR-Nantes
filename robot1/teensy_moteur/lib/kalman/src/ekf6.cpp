@@ -74,14 +74,31 @@ bool is_later(uint32_t a, uint32_t b) {
 
 }  // namespace
 
-Ekf6Params provisional_ekf6_params() {
+namespace {
+
+/** Samples of period sample_period_s in duration_s, at least one. */
+uint32_t samples_in(float duration_s, float sample_period_s) {
+    if (!(sample_period_s > 0.0f)) return 1;
+    const float n = duration_s / sample_period_s + 0.5f;
+    return n < 1.0f ? 1u : static_cast<uint32_t>(n);
+}
+
+}  // namespace
+
+Ekf6Params provisional_ekf6_params(float sample_period_s) {
     Ekf6Params p;
     p.accel_noise = 200.0f;
     p.alpha_noise = 2.0f;
     p.wheel_sigma_counts = 10.0f;
     p.wheel_slip_ratio = 0.02f;
     p.optical_sigma_mm_s = 10.0f;
-    p.heading_sigma_rad = 0.01f;
+    // The bench (robot still, 60 s) gave a heading variance of 6.325e-9 rad^2,
+    // i.e. 1.26e-4 rad once inflated 2.5 times. Not used as is: a still robot
+    // does not show the BNO085's error in motion, and with R that small the
+    // filter becomes overconfident on theta (Monte Carlo coverage 0.933
+    // instead of 0.954). 1e-3 rad (0.06 deg) keeps it consistent; to revise
+    // with the heading NIS on the robot.
+    p.heading_sigma_rad = 1.0e-3f;
     p.optical_lever_x_mm = 0.0f;
     p.optical_lever_y_mm = 0.0f;
     // A tick longer than 50 ms means the control loop stalled (several periods
@@ -90,14 +107,15 @@ Ekf6Params provisional_ekf6_params() {
     p.max_sigma_theta_rad = 0.2f;
     p.max_sigma_v_mm_s = 200.0f;
     p.max_sigma_omega_rad_s = 1.0f;
-    // 10 samples = 100 ms of a sensor that disagrees with everything else.
-    p.optical_max_consecutive_rejections = 10;
+    // 100 ms of a sensor that disagrees with everything else.
+    p.optical_max_consecutive_rejections = samples_in(0.1f, sample_period_s);
     // The SparkFun OTOS linear scalar normally sits within 0.95-1.05; a ratio
     // outside +-7 % over a second is a physical problem, not noise.
     p.optical_ratio_min = 0.93f;
     p.optical_ratio_max = 1.07f;
     p.optical_ratio_min_speed_mm_s = 50.0f;
-    p.optical_ratio_window = 100;
+    // One second of samples.
+    p.optical_ratio_window = samples_in(1.0f, sample_period_s);
     return p;
 }
 
