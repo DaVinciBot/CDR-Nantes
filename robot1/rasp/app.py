@@ -2,13 +2,11 @@ import struct
 import math
 import logging
 import threading
-import time
-
-from gpiozero import Button
 
 from usb_com import Messages
 
-from robot1.rasp.comm import init_robot
+from robot1.rasp.clock import RealClock
+from robot1.rasp.comm import get_button, init_robot
 from robot1.rasp.nav import PathFinder
 from robot1.rasp.strategy import StratManager, TypeAction
 from robot1.rasp.vision import detection as lidar
@@ -37,32 +35,47 @@ def lire_couleur_equipe() -> str:
 
     Switch pressé (pin LOW) -> BLUE
     Switch relâché (pin HIGH) -> YELLOW
+
+    Hors mode hardware, l'état du pin vient de comm.set_fake_button().
     """
-    pin = Button(PIN_COULEUR, pull_up=True)
+    pin = get_button(PIN_COULEUR, pull_up=True)
     couleur = "BLUE" if pin.is_pressed else "YELLOW"
     pin.close()
     return couleur
 
 
 class Robot:
-    def __init__(self, couleur_equipe: str):
+    def __init__(self, couleur_equipe: str, clock=None):
+        """Construit le robot et ouvre ses périphériques.
+
+        Args:
+            couleur_equipe: "BLUE" ou "YELLOW".
+            clock: source de temps (voir robot1.rasp.clock). RealClock par
+                défaut, donc comportement matériel inchangé ; sim2d passe une
+                horloge virtuelle pour jouer un match plus vite que le temps
+                réel, de façon reproductible.
+        """
         self.logger = logging.getLogger("ROBOT")
         self.logger.info(f"Initialisation du robot en mode {couleur_equipe}...")
 
         self.couleur = couleur_equipe.upper()
+        self.clock   = clock if clock is not None else RealClock()
         self.x       = 0.0
         self.y       = 0.0
         self.theta   = 0.0
         self.lock    = threading.Lock()
 
         # GPIO tirette (kept open pendant tout le match)
-        self._pin_tirette = Button(PIN_TIRETTE, pull_up=True)
+        self._pin_tirette = get_button(PIN_TIRETTE, pull_up=True)
 
         # 1. Terrain et pathfinding
         self.terrain = Terrain(self.couleur)
         self.cerveau = PathFinder(self.terrain)
 
         # 2. Demarrer LiDAR (detection adversaire)
+        # La detection doit partager l'horloge de la boucle : son gating de
+        # vitesse compare des horodatages qu'elle produit elle-meme.
+        lidar.set_clock(self.clock)
         # start() waits for the connection and returns False when the LiDAR
         # does not answer. Without this check the acquisition thread died on
         # its own and get_opponent() returned None for the whole match,
@@ -88,7 +101,7 @@ class Robot:
         self._initialiser_position_depart()
 
         # 6. Stratégie
-        self.strategie = StratManager(self.couleur)
+        self.strategie = StratManager(self.couleur, clock=self.clock)
         self.logger.info("Robot entièrement initialisé.")
 
     # ── INITIALISATION ────────────────────────────────────────────────────────
@@ -112,7 +125,7 @@ class Robot:
         msg += struct.pack('<ddd', start_x, start_y, start_theta)
         self.com.send_bytes(msg)
 
-        time.sleep(0.3)
+        self.clock.sleep(0.3)
         self.logger.info("Position de départ transmise à la Teensy.")
 
     # ── TIRETTE ───────────────────────────────────────────────────────────────
@@ -289,6 +302,8 @@ class Robot:
         self.logger.info("Arrêt du LiDAR…")
         lidar.stop()
 
-        # None in simulation: patched_init creates no GPIO pin.
+        # get_button() always returns an object, real or simulated, so this is
+        # never None on the production path. The guard stays for the historical
+        # tests that patch __init__ and create no pin at all.
         if self._pin_tirette is not None:
             self._pin_tirette.close()
