@@ -122,16 +122,8 @@ ligne noyee dans le log. Detail : [vision/README.md](vision/README.md).
 
 Il n'y a plus de dossier `doc/` : ce README et les README de chaque module sont la seule doc du
 code. La doc du projet (architecture, choix techniques, branches) est publiee depuis
-`DocVB/cdr/nantes/Info/`.
+`DocVB/cdr/nantes/Info/` : https://docs.davincibot.fr/cdr/nantes/2026/Info/.
 
-- `doc/TESTING_LIDAR_INTEGRATION.md` et `ODOMETRY_CORRECTION_IMPLEMENTATION.md` : **supprimes**
-  (09/09 et 11/09/2026).
-- Les 4 `telemetry/RERUN_*.md` (96 Ko) : **supprimes** le 11/09/2026, voir
-  [telemetry/README.md](telemetry/README.md).
-- Les analyses d'etat des lieux (`CODEBASE_ANALYSIS_2026*`, `ETAT_DES_LIEUX_PYTHON`,
-  `PLAN_REDUCTION_RASP`) : retirees le 09/09/2026, perimees.
-
-Detail de chaque suppression : voir `git log`.
 
 ## Trois emplacements de scripts, trois usages
 
