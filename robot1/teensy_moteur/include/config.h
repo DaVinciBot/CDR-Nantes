@@ -84,10 +84,9 @@
 // (120 mm). Here: a physical quantity, center to wheel axis, used by the
 // holonomic kinematics and the rotational odometry. There: the obstacle
 // inflation radius for the A*. NEVER "align" them.
-// Value still to be calibrated on the real chassis (160.0 here, 156.9 in tag
-// archive/precoupe-2026-05, ~158 measured by mechanics).
+// Value still to be calibrated on the real chassis
 #define ROBOT_RADIUS 160.0  // mm - Distance du centre aux roues
-#define WHEEL_DIAMETER  60.0 // mm - Diameter effectif (28mm main + 2mm rouleaux)
+#define WHEEL_DIAMETER  60.0 // mm - Diameter effectif 
 
 //  PID CONTROLLERS 
 // PID X (déplacement horizontal) - Augmenté pour corriger les dérives
