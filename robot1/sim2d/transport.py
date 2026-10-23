@@ -2,7 +2,8 @@
 
 comm/context.py returns this class when ROBOT_MODE=sim2d. It satisfies
 comm.link.ComLink, so app.py cannot tell it from the real Com: same three
-methods, same message identifiers, same `<ddd` payloads.
+methods, same message identifiers, same payload layouts
+(usb_com.PAYLOAD_FORMATS).
 
 Handing over the robot: create_com() builds every transport with the USB
 signature and nothing else, so the simulated robot cannot be passed as an
@@ -12,9 +13,8 @@ alternative -- a second construction path in production code -- is worse.
 """
 
 import logging
-import struct
 
-from usb_com import Messages
+from usb_com import Messages, pack_message, payload_size, unpack_message
 
 from .robot import SimulatedRobot
 
@@ -90,8 +90,8 @@ class Sim2dCom:
 
         Args:
             data: [id][payload], exactly what app.py builds. The framing
-                (size, CRC, signature) is added by the real Com below this
-                level, so it never appears here.
+                (CRC8, COBS, 0x00 delimiter) is added by the real Com
+                below this level, so it never appears here.
             record: accepted for signature compatibility, unused.
         """
         if not data:
@@ -99,13 +99,18 @@ class Sim2dCom:
         message_id = data[0]
         payload = data[1:]
 
-        if message_id == Messages.SET_TARGET_POSITION.value:
-            x, y, theta = self._unpack_pose(payload, "SET_TARGET_POSITION")
-            if x is not None:
+        if message_id == Messages.SET_TARGET.value:
+            fields = self._unpack(Messages.SET_TARGET, payload)
+            if fields is not None:
+                # The trajectory velocity (fields 3 to 5) is a feed-forward
+                # of the firmware PID. The simulated base approaches its
+                # target proportionally instead, so it has no use for it.
+                x, y, theta = fields[:3]
                 self.robot.set_target(x, y, theta)
         elif message_id == Messages.SET_ODOMETRIE.value:
-            x, y, theta = self._unpack_pose(payload, "SET_ODOMETRIE")
-            if x is not None:
+            fields = self._unpack(Messages.SET_ODOMETRIE, payload)
+            if fields is not None:
+                x, y, theta = fields
                 self.robot.reset_odometry(x, y, theta)
                 logger.info(
                     "Odometrie forcee a (%.0f, %.0f, %.2f).", x, y, theta
@@ -121,7 +126,11 @@ class Sim2dCom:
     # ── Simulation side ───────────────────────────────────────────────────
 
     def publish_odometry(self, sim_time: float, *, force: bool = False) -> bool:
-        """Send UPDATE_ROLLING_BASIS if it is due at this simulated time.
+        """Send ODOMETRY if it is due at this simulated time.
+
+        The pose is the drifting odometry, as on the real link. The velocity
+        is the true one: the simulator has no velocity estimator, and the
+        match loop only reads the pose today.
 
         Args:
             sim_time: current simulated time, in seconds.
@@ -136,21 +145,30 @@ class Sim2dCom:
             return False
 
         self._next_odom_time = sim_time + 1.0 / ODOM_RATE_HZ
-        callback = self._callbacks.get(Messages.UPDATE_ROLLING_BASIS.value)
+        callback = self._callbacks.get(Messages.ODOMETRY.value)
         if callback is None:
             return False
 
         x, y, theta = self.robot.odometry_pose()
-        callback(struct.pack("<ddd", x, y, theta))
+        # t_us is the micros() of the Teensy: a uint32 that wraps.
+        t_us = int(sim_time * 1e6) & 0xFFFFFFFF
+        message = pack_message(
+            Messages.ODOMETRY, x, y, theta,
+            self.robot.vx, self.robot.vy, self.robot.omega, t_us,
+        )
+        # A callback receives the data without the ID byte, as with Com.
+        callback(message[1:])
         self.frames_sent += 1
         return True
 
     @staticmethod
-    def _unpack_pose(payload: bytes, name: str) -> tuple:
-        """Decode a `<ddd` pose payload, or complain and return (None,)*3."""
-        if len(payload) < 24:
+    def _unpack(message: Messages, payload: bytes):
+        """Decode a payload of known layout, or complain and return None."""
+        expected = payload_size(message)
+        if len(payload) != expected:
             logger.warning(
-                "%s : payload trop court (%d octets).", name, len(payload)
+                "%s : %d octets recus, %d attendus.",
+                message.name, len(payload), expected,
             )
-            return None, None, None
-        return struct.unpack("<ddd", payload[:24])
+            return None
+        return unpack_message(message, payload)

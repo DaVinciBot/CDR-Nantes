@@ -10,7 +10,7 @@ class MKSServo {
     bool enable();
     bool disable();
     bool setSpeed(double rpm, uint8_t acc);
-    bool stop();           // décélération douce acc=5
+    bool stop(uint8_t acc);  // controlled deceleration on the driver ramp
     bool emergencyStop();  // coupure immédiate acc=0
     bool readEncoder(int64_t& encoderCount);
     

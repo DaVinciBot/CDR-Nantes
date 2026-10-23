@@ -1,114 +1,90 @@
 #include <Arduino.h>
 #include <com.h>
 #include <crc.h>
-#include <cstring>  // To use memcpy()
+#include <cstring>  // To use memcpy() / strlen()
 
 /**
  * @brief Constructor for USB serial communication.
- *
- * Initializes the communication stream for USB serial and sets up the internal
- * buffer.
  *
  * @param stream Pointer to the USB serial class.
  * @param baudrate Baud rate for serial communication.
  */
 Com::Com(usb_serial_class* stream, uint32_t baudrate) {
-    memcpy(this->signature, END_BYTES_SIGNATURE, sizeof(this->signature));
-
     this->stream = stream;
     stream->begin(baudrate);
-
-    // Initialize the buffer
-    for (uint16_t k = 0; k < 256; k++)
-        this->buffer[k] = 0;
 }
 
 /**
  * @brief Constructor for hardware serial communication.
  *
- * Initializes the communication stream for hardware serial and sets up the
- * internal buffer.
- *
  * @param stream Pointer to the hardware serial class.
  * @param baudrate Baud rate for serial communication.
  */
 Com::Com(HardwareSerial* stream, uint32_t baudrate) {
-    // Without this memcpy, `signature` stays uninitialized: outgoing frames
-    // carry a garbage signature and are never recognized by the peer.
-    memcpy(this->signature, END_BYTES_SIGNATURE, sizeof(this->signature));
-
     this->stream = stream;
     stream->begin(baudrate);
+}
 
-    // Initialize the buffer
-    for (uint16_t k = 0; k < 256; k++)
-        this->buffer[k] = 0;
+void Com::reject_frame() {
+    ++this->rx_rejected;
+    byte invalid_msg = NACK;
+    // is_nack = true: a NACK must never overwrite the stored message,
+    // otherwise a NACK from the peer makes us resend a NACK instead of the
+    // real payload.
+    send_msg(&invalid_msg, 1, true);
 }
 
 /**
  * @brief Handles incoming data from the communication stream.
  *
- * Processes incoming data byte by byte, checks for valid messages based on the
- * signature and CRC, and extracts the message size if a valid message is
- * detected.
+ * Bytes are accumulated until a FRAME_DELIMITER closes the frame. The frame is
+ * then COBS-decoded and its CRC8 checked. Since COBS keeps 0x00 out of the
+ * encoded bytes, the delimiter always marks a frame boundary: after line noise
+ * or a cut frame, the stream is back in sync at the next delimiter.
  *
- * @return The size of the valid message, or 0 if no valid message is found.
+ * @return The size of the valid message (ID + data), or 0 if no complete
+ *     valid message arrived.
  */
 byte Com::handle() {
     while (this->stream->available()) {
-        byte data = this->stream->read();
-        this->buffer[this->pointer++] = data;
+        const byte data = this->stream->read();
 
-        // Wait until at least 6 bytes are received
-        if (this->pointer < 6)
+        if (data != FRAME_DELIMITER) {
+            if (this->rx_length < sizeof(this->rx_encoded))
+                this->rx_encoded[this->rx_length++] = data;
+            else
+                this->rx_overflow = true;  // dropped at its delimiter
             continue;
-
-        // Check for signature validity
-        bool is_signature = true;
-        for (int i = 0; i < 4 && is_signature; i++)
-            is_signature =
-                this->buffer[pointer - 1 - i] == this->signature[3 - i];
-
-        if (!is_signature)
-            continue;
-
-        // Extract message size
-        byte msg_size = this->buffer[pointer - 6];
-
-        // The size byte is located relative to the END of the frame, but the
-        // CRC below is checked relative to the START of the buffer. Those two
-        // conventions only agree when the frame begins exactly at index 0, so
-        // realign it first: any leading noise (line garbage, tail of a frame
-        // that was rejected earlier) would otherwise make the CRC read the
-        // wrong bytes and NACK a perfectly valid frame.
-        int frame_start = (int)this->pointer - 6 - (int)msg_size;
-
-        if (frame_start >= 0) {
-            if (frame_start > 0) {
-                // Move [msg | size | crc] to the start of the buffer
-                memmove(this->buffer, this->buffer + frame_start, msg_size + 2);
-            }
-
-            CRC crc;
-            byte crc_b = crc.digest(this->buffer, msg_size + 1);
-
-            // Validate CRC
-            if (crc_b != this->buffer[msg_size + 1]) {
-                byte invalid_crc_msg = NACK;
-                // is_nack = true: a NACK must never overwrite the stored
-                // message, otherwise a NACK from the peer makes us resend
-                // a NACK instead of the real payload.
-                send_msg(&invalid_crc_msg, 1, true);
-                this->pointer = 0;
-                continue;
-            }
-
-            // Reset the pointer and return the message size
-            this->pointer = 0;
-            return msg_size;
-        } else {
-            this->pointer = 0;
         }
+
+        // End of a frame
+        const uint16_t length = this->rx_length;
+        const bool overflow = this->rx_overflow;
+        this->rx_length = 0;
+        this->rx_overflow = false;
+
+        if (length == 0)
+            continue;  // two delimiters in a row: nothing in between
+
+        const int decoded =
+            overflow ? -1
+                     : cobs_decode(this->rx_encoded, length, this->buffer,
+                                   sizeof(this->buffer));
+
+        // At least the ID and the CRC
+        if (decoded < 2) {
+            reject_frame();
+            continue;
+        }
+
+        const byte msg_size = static_cast<byte>(decoded - 1);
+        CRC crc;
+        if (crc.digest(this->buffer, msg_size) != this->buffer[msg_size]) {
+            reject_frame();
+            continue;
+        }
+
+        return msg_size;
     }
     return 0;
 }
@@ -142,7 +118,7 @@ void Com::handle_callback(void (*functions[256])(byte* msg, byte size)) {
                               size);  // Call the function
         } else if (msg_id == NACK) {
             // Resend the last message in case of NACK
-            if (this->last_msg != nullptr) {
+            if (this->last_msg != nullptr && this->last_msg->size > 0) {
                 this->send_msg((byte*)&this->last_msg->msg,
                                this->last_msg->size, true);
             }
@@ -163,7 +139,7 @@ void Com::handle_callback(void (*functions[256])(byte* msg, byte size)) {
 /**
  * @brief Provides access to the internal buffer.
  *
- * @return Pointer to the internal buffer.
+ * @return Pointer to the last valid message: ID first, then the data.
  */
 byte* Com::read_buffer() {
     return this->buffer;
@@ -172,22 +148,17 @@ byte* Com::read_buffer() {
 /**
  * @brief Sends a message over the communication stream.
  *
- * Prepares the message with size and CRC, stores it as the last message (if not
- * a NACK), and sends it over the stream.
+ * Appends the CRC8, COBS-encodes, stores the message as the last message (if
+ * not a NACK), and writes the frame followed by its delimiter. No allocation:
+ * this runs at the rate of the telemetry.
  *
- * @param msg Pointer to the message data to send.
- * @param size The size of the message data.
+ * @param msg Pointer to the message data to send (ID first).
+ * @param size The size of the message data (at most COM_MAX_PAYLOAD).
  * @param is_nack Indicates if the message is a retransmission due to a NACK.
  */
 void Com::send_msg(byte* msg, byte size, bool is_nack) {
-    CRC crc;
-
-    // Prepare the full message with size, used only to compute the CRC.
-    // `_crc_buffer` is a fixed member: no heap allocation on the send path,
-    // which runs at ~100 Hz.
-    for (byte i = 0; i < size; i++)
-        this->_crc_buffer[i] = msg[i];
-    this->_crc_buffer[size] = size;
+    if (size == 0)
+        return;
 
     // Store the message for retransmission, unless this send is itself a
     // retransmission or an error report. Both `size` and `msg` must be kept
@@ -195,18 +166,18 @@ void Com::send_msg(byte* msg, byte size, bool is_nack) {
     // content is stale or empty.
     if (!is_nack) {
         this->last_msg->size = size;
-        for (byte i = 0; i < size; i++)
-            this->last_msg->msg[i] = msg[i];
+        memcpy(this->last_msg->msg, msg, size);
     }
 
-    // Compute CRC
-    byte crc_b = crc.digest(this->_crc_buffer, size + 1);
+    // [ID][data][CRC8]
+    CRC crc;
+    memcpy(this->_tx_raw, msg, size);
+    this->_tx_raw[size] = crc.digest(msg, size);
 
-    // Send the message
-    this->stream->write(msg, size);
-    this->stream->write(size);
-    this->stream->write(crc_b);
-    this->stream->write(this->signature, 4);
+    const size_t encoded = cobs_encode(this->_tx_raw, size + 1, this->_tx_encoded);
+
+    this->stream->write(this->_tx_encoded, encoded);
+    this->stream->write(FRAME_DELIMITER);
     this->stream->flush();
 }
 
@@ -214,18 +185,17 @@ void Com::send_msg(byte* msg, byte size, bool is_nack) {
  * @brief Sends a debug text message.
  *
  * This function sends a text message for debugging purposes. The message must
- * be in ASCII format and cannot exceed 253 characters.
+ * be in ASCII format; it is cut at 254 characters.
  *
  * @param text Pointer to the null-terminated ASCII text string to send.
  */
-void Com::print(char* text) {
-    // Use send_msg to send the text input
+void Com::print(const char* text) {
+    byte msg[COM_MAX_PAYLOAD];
     size_t text_len = strlen(text);
-    byte* msg = new byte[text_len + 2];
+    if (text_len > COM_MAX_PAYLOAD - 1)
+        text_len = COM_MAX_PAYLOAD - 1;
+
     msg[0] = PRINT;
-    for (size_t i = 0; i <= text_len; i++) {
-        msg[i + 1] = (byte)text[i];
-    }
-    this->send_msg(msg, text_len + 1);
-    delete[] msg;
+    memcpy(msg + 1, text, text_len);
+    this->send_msg(msg, static_cast<byte>(text_len + 1));
 }

@@ -8,9 +8,10 @@ import serial
 import time
 from serial.tools.list_ports import comports
 
-from robot1.rasp.comm import get_com_config
+from usb_com import FRAME_DELIMITER, Messages, payload_size, unpack_message
+from usb_com.python.com.framing import cobs_decode, compute_crc8
 
-END_SIGNATURE = bytes([0xBA, 0xDD, 0x1C, 0xC5])
+from robot1.rasp.comm import get_com_config
 
 
 def find_teensy_port(config):
@@ -64,63 +65,55 @@ try:
             data = ser.read(ser.in_waiting)
             buffer.extend(data)
 
-            # Chercher la signature de fin
-            while END_SIGNATURE in buffer:
-                # Trouver la position de la signature
-                sig_pos = buffer.find(END_SIGNATURE)
-
-                # Extraire le message complet
-                full_msg = buffer[:sig_pos + 4]
-
-                # Supprimer ce message du buffer
-                buffer = buffer[sig_pos + 4:]
+            # Each frame ends with the delimiter: COBS([ID][data][CRC8]) 0x00
+            while FRAME_DELIMITER in buffer:
+                end = buffer.find(FRAME_DELIMITER)
+                encoded = bytes(buffer[:end])
+                buffer = buffer[end + 1:]
+                if not encoded:
+                    continue  # two delimiters in a row
 
                 message_count += 1
 
                 print(f"\n{'='*70}")
                 print(f" MESSAGE #{message_count}")
                 print(f"{'='*70}")
-                print(f"Longueur totale: {len(full_msg)} bytes")
-                print(f"Hex complet: {full_msg.hex(' ')}")
+                print(f"Longueur encodée : {len(encoded)} bytes (+ délimiteur)")
+                print(f"Hex encodé       : {encoded.hex(' ')}")
 
-                if len(full_msg) >= 6:
-                    # Format attendu: [data...] [length] [crc] [signature(4 bytes)]
-                    signature = full_msg[-4:]
-                    crc_byte = full_msg[-5:-4]
-                    length_byte = full_msg[-6:-5]
-                    message_data = full_msg[:-6]
+                body = cobs_decode(encoded)
+                if body is None:
+                    print("  [FAIL] COBS invalide")
+                    print(f"{'='*70}\n")
+                    continue
+                if len(body) < 2:
+                    print(f"  [FAIL] Trame trop courte : {len(body)} byte(s) décodé(s)")
+                    print(f"{'='*70}\n")
+                    continue
 
-                    print(f"\n Décomposition:")
-                    print(f"  Signature    : {signature.hex(' ')} {'[OK]' if signature == END_SIGNATURE else '[FAIL]'}")
-                    print(f"  CRC          : {crc_byte.hex()}")
-                    print(f"  Length décl. : {length_byte[0] if length_byte else 'N/A'}")
-                    print(f"  Data length  : {len(message_data)}")
-                    print(f"  Data (hex)   : {message_data.hex(' ')}")
+                message_data, crc_byte = body[:-1], body[-1]
+                crc_ok = compute_crc8(message_data) == crc_byte
 
-                    if message_data:
-                        msg_id = message_data[0]
-                        print(f"\n  Message ID   : {msg_id} (0x{msg_id:02x})")
+                print(f"\n Décomposition:")
+                print(f"  CRC          : {crc_byte:02x} {'[OK]' if crc_ok else '[FAIL]'}")
+                print(f"  Data length  : {len(message_data)}")
+                print(f"  Data (hex)   : {message_data.hex(' ')}")
 
-                        if msg_id == 128:  # UPDATE_ROLLING_BASIS
-                            print(f"  Type         : UPDATE_ROLLING_BASIS")
-                            payload = message_data[1:]
-                            print(f"  Payload      : {len(payload)} bytes")
+                msg_id = message_data[0]
+                print(f"\n  Message ID   : {msg_id} (0x{msg_id:02x})")
 
-                            if len(payload) >= 24:
-                                import struct
-                                x, y, theta = struct.unpack('<ddd', payload[:24])
-                                print(f"  [OK] X={x:.6f}, Y={y:.6f}, theta={theta:.6f}")
-                            else:
-                                print(f"  [WARN]  Payload trop court pour 3 doubles")
+                if msg_id == Messages.ODOMETRY.value:
+                    print(f"  Type         : ODOMETRY")
+                    payload = message_data[1:]
+                    expected = payload_size(Messages.ODOMETRY)
+                    print(f"  Payload      : {len(payload)} bytes (attendu {expected})")
 
-                    # Vérifier la cohérence
-                    if length_byte:
-                        declared_len = length_byte[0]
-                        actual_len = len(full_msg) - 6  # Sans length, crc, signature
-                        if declared_len != actual_len:
-                            print(f"\n  [WARN]  INCOHÉRENCE: Length déclarée={declared_len}, réelle={actual_len}")
-                        else:
-                            print(f"\n  [OK] Length cohérente: {declared_len} bytes")
+                    if len(payload) == expected:
+                        x, y, theta, vx, vy, omega, t_us = unpack_message(Messages.ODOMETRY, payload)
+                        print(f"  [OK] X={x:.3f}, Y={y:.3f}, theta={theta:.5f}")
+                        print(f"       vx={vx:.1f}, vy={vy:.1f}, omega={omega:.4f}, t={t_us} us")
+                    else:
+                        print(f"  [WARN]  Taille de payload inattendue")
 
                 print(f"{'='*70}\n")
 

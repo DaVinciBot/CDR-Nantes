@@ -3,7 +3,7 @@ import math
 import logging
 import threading
 
-from usb_com import Messages
+from usb_com import Messages, pack_message, payload_size, unpack_message
 
 from robot1.rasp.clock import RealClock
 from robot1.rasp.comm import get_button, init_robot
@@ -94,7 +94,7 @@ class Robot:
 
         self.com.add_callback(
             self._handle_position,
-            self.Messages.UPDATE_ROLLING_BASIS.value,
+            self.Messages.ODOMETRY.value,
         )
 
         # 5. Position de départ
@@ -142,8 +142,8 @@ class Robot:
 
     def _handle_position(self, data: bytes) -> None:
         """Callback USB — mise à jour odométrie Teensy."""
-        if len(data) >= 24:
-            x, y, theta = struct.unpack('<ddd', data[:24])
+        if len(data) == payload_size(self.Messages.ODOMETRY):
+            x, y, theta = unpack_message(self.Messages.ODOMETRY, data)[:3]
             with self.lock:
                 self.x     = x
                 self.y     = y
@@ -151,14 +151,14 @@ class Robot:
             lidar.update_robot_pose(x, y, theta)
         else:
             self.logger.warning(
-                f"Message odométrie trop court: {len(data)} bytes"
+                f"Message odométrie de taille inattendue: {len(data)} bytes"
             )
 
     def _envoyer_position_moteurs(
         self, x: float, y: float, theta: float, description: str = ""
     ) -> None:
-        msg  = self.Messages.SET_TARGET_POSITION.to_bytes()
-        msg += struct.pack('<ddd', x, y, theta)
+        # Plain pose target: no trajectory velocity yet.
+        msg = pack_message(self.Messages.SET_TARGET, x, y, theta, 0.0, 0.0, 0.0)
         self.com.send_bytes(msg)
         self.logger.debug(f"{description}: X={x:.1f}, Y={y:.1f}, theta={theta:.2f}")
 

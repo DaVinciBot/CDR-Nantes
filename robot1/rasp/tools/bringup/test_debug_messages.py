@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Test avec logs détaillés pour debugger les messages."""
 
-import struct
 import time
 import logging
 
-from usb_com import Com, Messages
+from usb_com import Com, Messages, payload_size, unpack_message
 
 from robot1.rasp.comm import get_com_config
 
@@ -22,14 +21,14 @@ def handle_position(data: bytes) -> None:
     logger.info(f" Message reçu: {len(data)} bytes")
     logger.info(f"  Hex: {data.hex(' ')}")
 
-    if len(data) >= 24:
-        x, y, theta = struct.unpack('<ddd', data[:24])
+    if len(data) == payload_size(Messages.ODOMETRY):
+        x, y, theta = unpack_message(Messages.ODOMETRY, data)[:3]
         logger.info(f"  [OK] Décodé: X={x:.6f}mm, Y={y:.6f}mm, theta={theta:.6f}rad")
 
         if x == 0.0 and y == 0.0 and theta == 0.0:
             logger.warning("  [WARN]  Toutes les valeurs sont à zéro !")
     else:
-        logger.error(f"  [FAIL] Message trop court: attendu 24 bytes, reçu {len(data)}")
+        logger.error(f"  [FAIL] Taille inattendue: attendu {payload_size(Messages.ODOMETRY)} bytes, reçu {len(data)}")
 
 def main():
     serial_config = get_com_config()   # honore ROBOT_MODE (hardware | dummy)
@@ -56,8 +55,8 @@ def main():
     )
 
     # Enregistrer le callback
-    com.add_callback(handle_position, Messages.UPDATE_ROLLING_BASIS.value)
-    logger.info("[OK] Callback enregistré pour UPDATE_ROLLING_BASIS (ID=128)")
+    com.add_callback(handle_position, Messages.ODOMETRY.value)
+    logger.info("[OK] Callback enregistré pour ODOMETRY (ID=128)")
 
     logger.info("[OK] Connexion établie!")
     logger.info("\n Écoute des messages pendant 15 secondes...\n")

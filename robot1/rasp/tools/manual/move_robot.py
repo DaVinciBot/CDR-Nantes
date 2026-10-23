@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Test de déplacement : entre x, y, theta en interactif ou via liste."""
 
-import struct
 import time
 import logging
 
-from usb_com import Messages
+from usb_com import Messages, pack_message, payload_size, unpack_message
 
 from robot1.rasp.comm import init_robot
 
@@ -16,22 +15,21 @@ com, mode = init_robot(logger)
 
 
 def handle_position(data: bytes) -> None:
-    if len(data) >= 24:
-        x, y, theta = struct.unpack('<ddd', data[:24])
+    if len(data) == payload_size(Messages.ODOMETRY):
+        x, y, theta = unpack_message(Messages.ODOMETRY, data)[:3]
         logger.info(f"  Position reçue : X={x:.1f}mm  Y={y:.1f}mm  theta={theta:.4f}rad ({theta*57.2958:.1f}°)")
     else:
         logger.warning(f"  Message trop court : {len(data)} bytes")
 
 
 def send_position(x: float, y: float, theta: float, description: str = "") -> None:
-    msg = Messages.SET_TARGET_POSITION.to_bytes()
-    msg += struct.pack('<ddd', x, y, theta)
+    msg = pack_message(Messages.SET_TARGET, x, y, theta, 0.0, 0.0, 0.0)
     com.send_bytes(msg)
     label = f" [{description}]" if description else ""
     logger.info(f"-> Envoi{label} : X={x}mm  Y={y}mm  theta={theta}rad ({theta*57.2958:.1f}°)")
 
 
-com.add_callback(handle_position, Messages.UPDATE_ROLLING_BASIS.value)
+com.add_callback(handle_position, Messages.ODOMETRY.value)
 
 # ── LISTE DE DÉPLACEMENTS ─────────────────────────────────────────────────────
 # Remplis cette liste pour jouer une séquence automatique,

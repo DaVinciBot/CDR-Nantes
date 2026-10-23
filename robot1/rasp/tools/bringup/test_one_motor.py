@@ -5,7 +5,7 @@ import struct
 import time
 import logging
 
-from usb_com import Com, Messages
+from usb_com import Com, Messages, pack_message, payload_size, unpack_message
 
 from robot1.rasp.comm import get_com_config
 
@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 
 def handle_position(data: bytes) -> None:
     """Affiche la position reçue de la Teensy."""
-    if len(data) >= 24:
-        x, y, theta = struct.unpack('<ddd', data[:24])
+    if len(data) == payload_size(Messages.ODOMETRY):
+        x, y, theta = unpack_message(Messages.ODOMETRY, data)[:3]
         logger.info(f" Position: X={x:.2f}mm, Y={y:.2f}mm, theta={theta:.4f}rad")
 
 def main():
@@ -38,7 +38,7 @@ def main():
         enable_dummy=serial_config['enable_dummy']
     )
 
-    com.add_callback(handle_position, Messages.UPDATE_ROLLING_BASIS.value)
+    com.add_callback(handle_position, Messages.ODOMETRY.value)
     logger.info("[OK] Connexion établie!\n")
 
     # Réinitialiser l'odométrie à (0, 0, 0)
@@ -52,8 +52,7 @@ def main():
     logger.info(" TEST 1 : Mouvement en X (avancer)")
     logger.info("=" * 70)
     logger.info("Commande : Avancer de 50mm en ligne droite")
-    msg = Messages.SET_TARGET_POSITION.to_bytes()
-    msg += struct.pack('<ddd', 50.0, 0.0, 0.0)  # 50mm en X, 0 en Y, 0 rotation
+    msg = pack_message(Messages.SET_TARGET, 50.0, 0.0, 0.0, 0.0, 0.0, 0.0)  # 50mm en X, 0 en Y, 0 rotation
     com.send_bytes(msg)
     logger.info(" Attente de 5 secondes...\n")
     time.sleep(5)
@@ -62,8 +61,7 @@ def main():
     logger.info(" TEST 2 : Mouvement en Y (gauche)")
     logger.info("=" * 70)
     logger.info("Commande : Se déplacer de 50mm vers la gauche")
-    msg = Messages.SET_TARGET_POSITION.to_bytes()
-    msg += struct.pack('<ddd', 50.0, 50.0, 0.0)  # Position (50, 50, 0)
+    msg = pack_message(Messages.SET_TARGET, 50.0, 50.0, 0.0, 0.0, 0.0, 0.0)  # Position (50, 50, 0)
     com.send_bytes(msg)
     logger.info(" Attente de 5 secondes...\n")
     time.sleep(5)
@@ -72,8 +70,7 @@ def main():
     logger.info(" TEST 3 : Rotation sur place")
     logger.info("=" * 70)
     logger.info("Commande : Tourner de 90° (pi/2 rad)")
-    msg = Messages.SET_TARGET_POSITION.to_bytes()
-    msg += struct.pack('<ddd', 50.0, 50.0, 1.5708)  # pi/2 ~ 1.5708 rad
+    msg = pack_message(Messages.SET_TARGET, 50.0, 50.0, 1.5708, 0.0, 0.0, 0.0)  # pi/2 ~ 1.5708 rad
     com.send_bytes(msg)
     logger.info(" Attente de 5 secondes...\n")
     time.sleep(5)
@@ -82,8 +79,7 @@ def main():
     logger.info(" TEST 4 : Retour à l'origine")
     logger.info("=" * 70)
     logger.info("Commande : Retour à (0, 0, 0)")
-    msg = Messages.SET_TARGET_POSITION.to_bytes()
-    msg += struct.pack('<ddd', 0.0, 0.0, 0.0)
+    msg = pack_message(Messages.SET_TARGET, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     com.send_bytes(msg)
     logger.info(" Attente de 5 secondes...\n")
     time.sleep(5)

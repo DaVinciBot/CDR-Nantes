@@ -5,6 +5,10 @@
 #include <Arduino.h>
 #include <holonomic_basis.h>
 #include <config.h>
+#include <complementary_estimator.h>
+#include <ekf_estimator.h>
+#include <bno085_sensor.h>
+#include <otos_sensor.h>
 
 // ===== PID =====
 PID x_pid    (KP_X,     KI_X,     KD_X,     -MAX_SPEED_RPM, MAX_SPEED_RPM, 5.0);
@@ -15,6 +19,39 @@ Holonomic_Basis* hb = new Holonomic_Basis(
     ROBOT_RADIUS, WHEEL_DIAMETER, MAX_SPEED_RPM,
     x_pid, y_pid, theta_pid
 );
+
+// ===== POSE ESTIMATORS =====
+// Both live for the whole run; Holonomic_Basis steps the active one only.
+static pose::ComplementaryParams complementary_params() {
+    pose::ComplementaryParams p;
+    p.robot_radius_mm = ROBOT_RADIUS;
+    p.counts_to_mm    = COUNTS_TO_MM;
+    p.use_encoders    = false;  // was hb->use_encoders = false in this test
+    return p;
+}
+
+static kalman::Geometry ekf_geometry() {
+    kalman::Geometry g;
+    g.robot_radius_mm = static_cast<float>(ROBOT_RADIUS);
+    g.counts_to_mm    = static_cast<float>(COUNTS_TO_MM);
+    return g;
+}
+
+pose::ComplementaryEstimator complementary(complementary_params());
+pose::EkfEstimator ekf(ekf_geometry(), kalman::provisional_ekf6_params());
+
+// ===== SENSORS =====
+static sensors::OtosConfig otos_config() {
+    sensors::OtosConfig c;
+    c.linear_scalar   = OTOS_LINEAR_SCALAR;
+    c.angular_scalar  = OTOS_ANGULAR_SCALAR;
+    c.mount_angle_rad = OTOS_MOUNT_ANGLE_RAD;
+    c.i2c_clock_hz    = OTOS_I2C_CLOCK_HZ;
+    return c;
+}
+
+sensors::Bno085Sensor imu(BNO085_RESET_PIN);
+sensors::OtosSensor otos(otos_config());
 
 enum TestState {
     TEST_INIT,
@@ -48,10 +85,21 @@ void setup() {
     hb->define_wheel2(W2_SERIAL, W2_ADDR);
     hb->define_wheel3(W3_SERIAL, W3_ADDR);
     hb->init_motors();
-    hb->init_holonomic_basis(0.0, 0.0, 0.0);
-    hb->init_sensors();
 
-    hb->use_encoders     = false;
+    // Sensors: robot still during begin() (the OTOS calibrates its IMU)
+    bool imu_ok  = imu.begin(IMU_REPORT_PERIOD_US);
+    bool otos_ok = otos.begin(OTOS_WIRE);
+    Serial.printf("[CAPTEURS] IMU %s, OTOS %s\n", imu_ok ? "OK" : "absente",
+                  otos_ok ? "OK" : "absent");
+    hb->attach_sensors(imu_ok ? &imu : nullptr, otos_ok ? &otos : nullptr);
+
+#if POSE_ESTIMATOR_DEFAULT == POSE_ESTIMATOR_EKF6
+    hb->set_estimator(&ekf);
+#else
+    hb->set_estimator(&complementary);
+#endif
+    hb->init_holonomic_basis(0.0, 0.0, 0.0);
+
     hb->use_optical_flow = false;
     hb->use_imu          = false;
     hb->use_pid_control  = true;
@@ -67,6 +115,7 @@ void setup() {
     Serial.println("║    → Cible  : target.y = -100 mm                ║");
     Serial.println("║    → Attendu: ligne droite en -Y, X stable       ║");
     Serial.println("╚══════════════════════════════════════════════════╝\n");
+    Serial.printf("[ESTIMATEUR] %s\n", hb->active_estimator()->name());
 
     hb->calibrate_imu_origin();
     Serial.println("[ZERO] Angle 0 defini sur l'orientation actuelle (X+)");
@@ -97,9 +146,12 @@ void display_odometry() {
     double w2 = hb->filtered_wheel2_rpm;
     double w3 = hb->filtered_wheel3_rpm;
 
-    double opt_x, opt_y;
-    uint32_t opt_valid, opt_outliers;
-    hb->get_optical_data(opt_x, opt_y, opt_valid, opt_outliers);
+    noInterrupts();
+    double opt_x          = complementary.optical_x_acc();
+    double opt_y          = complementary.optical_y_acc();
+    uint32_t opt_valid    = complementary.optical_valid_count();
+    uint32_t opt_outliers = complementary.optical_outlier_count();
+    interrupts();
 
     double dist = fabs(pos.y + 100.0);
 
@@ -123,6 +175,17 @@ void loop() {
     if (hb->need_send_movement) {
         hb->send_movement_commands_nonblocking();
         hb->need_send_movement = false;
+    }
+
+    // Raised only for the enabled sensors (use_imu / use_optical_flow)
+    if (hb->need_read_imu) {
+        imu.poll();
+        hb->need_read_imu = false;
+    }
+
+    if (hb->need_read_optical) {
+        otos.poll();
+        hb->need_read_optical = false;
     }
 
     display_odometry();

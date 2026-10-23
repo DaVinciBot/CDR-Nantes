@@ -1,13 +1,22 @@
 """USB communication utilities."""
 
 from usb_com.python.com import Com
-from usb_com.python.messages import END_BYTES_SIGNATURE, Messages
+from usb_com.python.messages import (
+    FRAME_DELIMITER,
+    Messages,
+    pack_message,
+    payload_size,
+    unpack_message,
+)
 
 __all__ = [
-    "END_BYTES_SIGNATURE",
+    "FRAME_DELIMITER",
     "Com",
     "Messages",
     "get_all_serial_number",
+    "pack_message",
+    "payload_size",
+    "unpack_message",
 ]
 
 

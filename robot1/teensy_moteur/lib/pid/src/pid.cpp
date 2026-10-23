@@ -60,7 +60,10 @@ void PID::reset() {
 }
 
 double PID::compute(double error) {
-    
+    return compute(error, false);
+}
+
+double PID::compute(double error, bool freeze_integral) {
     unsigned long now = micros();
     double dt = (now - _lastTime) * 1e-6;  // convert µs to s
     _lastTime = now;
@@ -73,7 +76,7 @@ double PID::compute(double error) {
         dt = _dtMax;
 
     // Integral update + clamp
-    _integral += error * dt;
+    if (!freeze_integral) _integral += error * dt;
     if (_ki != 0.0) {
         double iMin = _minOutput / _ki;
         double iMax = _maxOutput / _ki;

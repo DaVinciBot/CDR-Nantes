@@ -22,7 +22,6 @@ import argparse
 import logging
 import math
 import os
-import struct
 import sys
 import time
 
@@ -31,7 +30,12 @@ import time
 # run from ever touching a serial port by accident.
 os.environ["ROBOT_MODE"] = "sim2d"
 
-from usb_com import Messages                                          # noqa: E402
+from usb_com import (                                                 # noqa: E402
+    Messages,
+    pack_message,
+    payload_size,
+    unpack_message,
+)
 
 from robot1.rasp.comm import init_robot                               # noqa: E402
 from robot1.rasp.world import FIELD_HEIGHT_MM, FIELD_WIDTH_MM         # noqa: E402
@@ -111,13 +115,13 @@ def scenario_carre(args) -> int:
     reported = {"pose": (x0, y0, 0.0), "frames": 0}
 
     def on_odometry(data: bytes) -> None:
-        if len(data) >= 24:
-            reported["pose"] = struct.unpack("<ddd", data[:24])
+        if len(data) == payload_size(Messages.ODOMETRY):
+            reported["pose"] = unpack_message(Messages.ODOMETRY, data)[:3]
             reported["frames"] += 1
 
-    com.add_callback(on_odometry, Messages.UPDATE_ROLLING_BASIS.value)
+    com.add_callback(on_odometry, Messages.ODOMETRY.value)
 
-    send_pose(com, Messages.SET_ODOMETRIE, x0, y0, 0.0)
+    com.send_bytes(pack_message(Messages.SET_ODOMETRIE, x0, y0, 0.0))
 
     if args.rerun:
         viz.init()
@@ -127,8 +131,9 @@ def scenario_carre(args) -> int:
         target_x, target_y = corners[index]
         previous_x, previous_y = corners[index - 1]
         heading = math.atan2(target_y - previous_y, target_x - previous_x)
-        send_pose(com, Messages.SET_TARGET_POSITION, target_x, target_y,
-                  heading)
+        # Plain pose target, as app.py sends it: no trajectory velocity.
+        com.send_bytes(pack_message(Messages.SET_TARGET, target_x,
+                                    target_y, heading, 0.0, 0.0, 0.0))
 
         deadline = clock.now() + LEG_TIMEOUT_S
         while clock.now() < deadline:
@@ -342,19 +347,6 @@ def report_match(sim, com, start_pose, ticks, wall_elapsed, time_in_sim,
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────
-
-def send_pose(com, message, x: float, y: float, theta: float) -> None:
-    """Send a pose message the way app.py builds it.
-
-    Args:
-        com: the transport.
-        message: a usb_com.Messages member taking a `<ddd` payload.
-        x: X in mm.
-        y: Y in mm.
-        theta: heading in rad.
-    """
-    com.send_bytes(message.to_bytes() + struct.pack("<ddd", x, y, theta))
-
 
 def main() -> int:
     """Parse the command line and run the requested scenario."""

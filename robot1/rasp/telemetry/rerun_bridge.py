@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import argparse
 import math
-import struct
 import threading
 import time
 import logging
@@ -357,10 +356,12 @@ def update_fused(x: float, y: float, theta: float) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def make_odom_callback():
-    """com.add_callback(make_odom_callback(), Messages.UPDATE_ROLLING_BASIS.value)"""
+    """com.add_callback(make_odom_callback(), Messages.ODOMETRY.value)"""
+    from usb_com import Messages, payload_size, unpack_message
+
     def cb(data: bytes):
-        if len(data) >= 24:
-            x, y, t = struct.unpack("<ddd", data[:24])
+        if len(data) == payload_size(Messages.ODOMETRY):
+            x, y, t = unpack_message(Messages.ODOMETRY, data)[:3]
             update_odom(x, y, t)
     return cb
 
@@ -755,7 +756,7 @@ def main() -> None:
             from robot1.rasp.comm import init_robot
             com, mode = init_robot(logger)
             com.add_callback(make_odom_callback(),
-                             Messages.UPDATE_ROLLING_BASIS.value)
+                             Messages.ODOMETRY.value)
             logger.info("Teensy connectee (mode %s)", mode)
         except Exception as e:
             if lidar_poll is not None:
