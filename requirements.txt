@@ -1,7 +1,7 @@
 # Core communication
 pyserial==3.5          # module `serial` (+ serial.tools.list_ports)
 crc8==0.1.0
-loggerplusplus==1.7.0
+loggerplusplus>=1.2.0
 pyusb==1.2.1
 
 # Lidar and visualization
