@@ -43,8 +43,8 @@ class DriftModel:
     systematic scale error, which grows with distance and is what a wrong wheel
     diameter produces, and a random walk, which is sensor noise.
 
-    Defaults are plausible placeholders, NOT measured values. They will be
-    fitted against real logs in lot 8 (replay).
+    Defaults are plausible placeholders, NOT measured values. They are to be
+    fitted against real robot logs, once those can be replayed.
     """
 
     translation_scale: float = 0.002        # 0.2 %, i.e. 2 mm per metre

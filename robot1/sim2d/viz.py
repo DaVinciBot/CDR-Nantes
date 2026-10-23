@@ -2,7 +2,7 @@
 
 Best effort, exactly like telemetry/ is for the robot: if rerun is missing or
 the viewer will not start, the simulation runs anyway. A visualisation that can
-abort a run would make the headless campaigns of lot 5 fragile for no reason.
+abort a run would make headless campaigns of runs fragile for no reason.
 
 The table, the robot, the target and the trajectory are already published by
 telemetry/rerun_bridge.py, which the match loop feeds on its own. All that is

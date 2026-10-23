@@ -8,8 +8,9 @@ Rerun ne fait **aucun calcul de fusion** : il recoit des donnees deja calculees 
 haut niveau (`robot.py` / pathfinder) et les affiche.
 
 > Etat : pont fonctionnel sur `main`, non branche sur la boucle de match, jamais teste sur
-> robot. Sort a trancher (TODO §7 : stress test CPU Rasp 5). Le bas + haut niveau seront
-> reecrits a partir de novembre 2026 ; `rerun_bridge.py` sera repris elague.
+> robot. Le garder ou non en match depend d'un stress test CPU sur la Raspberry Pi 5, pas
+> encore fait. Le bas + haut niveau seront reecrits a partir de novembre 2026 ;
+> `rerun_bridge.py` sera repris elague.
 
 ---
 

@@ -34,7 +34,7 @@ aussi qu'un run simulé n'ouvre jamais un port série par accident.
 ## Les deux scénarios
 
 Ils répondent à deux questions différentes, et chacun **imprime un verdict et sort en code retour
-non nul en cas d'échec** — pour être enchaînés dans une campagne (lot 5) sans framework de test.
+non nul en cas d'échec** — pour être enchaînés dans une campagne de runs sans framework de test.
 
 **`carre`** teste le simulateur lui-même. Il pilote le lien directement, sans pathfinding ni
 stratégie : 4 côtés de 800 mm, un quart de tour à chaque coin. Il vérifie que la cinématique déplace
@@ -74,7 +74,8 @@ Trois niveaux de confiance dans les constantes, à connaître avant de croire un
 2. **Issu du matériel** — rayon, diamètre de roue, 100 rpm, 200 mm/s, 2 rad/s, lus dans
    `teensy_moteur/include/config.h`.
 3. **Inventé** — gains d'approche, accélérations, zones mortes, et **tout le modèle de dérive**.
-   Valeurs plausibles, jamais mesurées. Elles seront recalées sur de vrais logs au lot 8 (`replay`).
+   Valeurs plausibles, jamais mesurées. Elles seront recalées sur de vrais logs du robot, une fois
+   ceux-ci rejouables (`replay`).
 
 À noter, trouvé en écrivant le bridage : à 100 rpm sur des roues de 60 mm une roue plafonne à
 314,2 mm/s, donc la rotation pure plafonne à **1,963 rad/s**. Le `ROBOT_MAX_RAD_S = 2.0` de
@@ -110,6 +111,6 @@ Trois niveaux de confiance dans les constantes, à connaître avant de croire un
 - **Le budget « 100 s en moins d'1 s » est tenu à 0,98 s, mais A\* en représente 98 %.** Il ne tombe
   aujourd'hui que sur 25 % des ticks parce que le stub de stratégie s'arrête au bout de ~25 s. Avec
   une vraie stratégie, compter 3,8 s. Correctif prévu dans la ré-API du pathfinder, pas ici.
-- **Le lot 2 n'est pas fait** : aucun scan LiDAR n'est produit, donc `match` ne teste **pas**
-  l'évitement. `detection.use_pushed_scans()` est appelé pour n'ouvrir aucun LiDAR, et rien n'est
-  poussé. Ne pas conclure quoi que ce soit sur l'évitement avant le lot 2.
+- **Aucun scan LiDAR n'est simulé** : `match` ne teste **pas** l'évitement.
+  `detection.use_pushed_scans()` est appelé pour n'ouvrir aucun LiDAR, et rien n'est poussé. Ne
+  rien conclure sur l'évitement tant que le simulateur ne produit pas de scans.

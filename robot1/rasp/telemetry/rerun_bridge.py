@@ -12,7 +12,7 @@ Modes :
   --mode serve        -> serve_grpc port 9876 (stream vers PC distant)
   --mode connect      -> connect_grpc vers viewer externe
 
-Depuis test_sim_mode.py :
+Depuis un autre script (exemple complet : robot1/sim2d/viz.py) :
   from robot1.rasp.telemetry import rerun_bridge as rb
   rb.rr.init(...)  +  rb.rr.spawn() ou rb.rr.serve_grpc()
   rb.rr.send_blueprint(rb.create_blueprint())

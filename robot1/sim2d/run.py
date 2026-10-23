@@ -6,7 +6,7 @@
 Run from the repository root (sim2d and replay launch from there, tools/ and
 tests/ from robot1/rasp/).
 
-Two scenarios in lot 1, and they answer two different questions:
+Two scenarios, and they answer two different questions:
 
     carre  the simulator itself. Drives the link directly, no pathfinding, no
            strategy. Checks the kinematics moves the robot and that the
@@ -15,7 +15,7 @@ Two scenarios in lot 1, and they answer two different questions:
            Checks it survives, and measures what it costs.
 
 The scenarios print a verdict and return a non-zero exit code on failure, so
-they can be chained in a campaign (lot 5) with no test framework in the way.
+they can be chained in a campaign of runs with no test framework in the way.
 """
 
 import argparse
@@ -239,8 +239,8 @@ def scenario_match(args) -> int:
 
     # The colour switch is read, not wired: pressed means BLUE (app.py).
     set_fake_button(app.PIN_COULEUR, args.color.upper() == "BLUE")
-    # No LiDAR to open, and no acquisition thread: lot 2 will push real scans
-    # here. Until then the match runs without opponent detection, which is
+    # No LiDAR to open, and no acquisition thread: simulated scans will be
+    # pushed here. Until then the match runs without opponent detection, which is
     # honest -- it is not pretending to test avoidance.
     detection.use_pushed_scans()
 
