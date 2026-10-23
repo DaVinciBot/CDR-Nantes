@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "cdr-nantes-common"
 version = "0.1.0"
 description = "Briques partagees du robot holonome CDR-Nantes (liaison USB Teensy, helpers Teensy)"
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 
 # Volontairement vide : les dependances tierces restent dans requirements.txt.
 # gpiozero ne s'installe que sur Raspberry Pi, le declarer ici casserait
