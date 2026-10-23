@@ -69,9 +69,6 @@ qui ne parle pas a sa Teensy ne doit pas sembler demarrer.
 4. [ ] `test_one_motor.py` -> les trois roues tournent, la position remontee evolue
 5. [ ] `python -m tools.manual.move_robot` -> pilotage interactif x/y/theta
 
-La fiche de validation complete du lien USB (T-USB-01, T-USB-02) est tenue dans le suivi de
-validation interne, hors depot.
-
 ## Depannage
 
 **Port serie introuvable.** Lancer `test_usb_detection.py` : il liste *tous* les ports, meme non
@@ -95,7 +92,7 @@ promettait un dump serie brut, il listait des ports USB. Le vrai dump brut est
 ## Ajouter un nouveau test
 
 Aucun `sys.path` a bricoler : `usb_com` vient de `pip install -e .` (racine du depot) et
-`robot1.rasp.comm` s'importe de partout depuis l'etape B.
+`robot1.rasp.comm` s'importe de partout.
 
 ```python
 #!/usr/bin/env python3

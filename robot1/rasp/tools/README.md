@@ -21,7 +21,7 @@ python -m tools.manual.move_robot
 
 Le `-m` est requis : c'est ce qui met `robot1/rasp` dans `sys.path`, donc ce qui rend
 `tools.bringup.<script>` resolvable. Le code du robot, lui, s'importe en
-`from robot1.rasp.comm import get_com_config` depuis l'etape B (11/09/2026) : ces scripts ne
+`from robot1.rasp.comm import get_com_config` : ces scripts ne
 dependent plus du repertoire courant pour ca, uniquement pour se trouver eux-memes.
 
 Voir [bringup/README.md](bringup/README.md) pour le detail de chaque script de bring-up.

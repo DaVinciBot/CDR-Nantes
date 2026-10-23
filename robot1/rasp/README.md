@@ -4,8 +4,9 @@ Boucle de match, navigation, LiDAR, strategie et visualisation, cote Raspberry P
 
 > Etat : base issue de la CDR 2026. Fonctionnelle par morceaux, pas de bout en bout.
 > Le haut niveau (`app.py`, `vision/`, `nav/`, `strategy/`) sera **reecrit a partir
-> de la refonte**. Bugs connus non corriges, calibrations en attente et audit de code :
-> suivi interne, hors depot.
+> de la refonte**. D'ici la, des bugs connus restent volontairement non corriges, pour ne
+> pas investir dans du code qui sera reecrit, et plusieurs calibrations restent a faire sur
+> table.
 
 ## Installation (une fois)
 
@@ -78,7 +79,7 @@ python -m tools.manual.move_robot               # pilotage manuel x/y/theta
 
 Le `-m` sert ici a resoudre `vision`, `telemetry`, `tools` et `tests` **en tant que chemins**,
 via le repertoire courant : d'ou l'obligation d'etre dans `robot1/rasp/`. Le code du robot,
-lui, ne depend plus du repertoire courant depuis l'etape B (11/09/2026) — il s'importe en
+lui, ne depend plus du repertoire courant — il s'importe en
 `robot1.rasp.<module>` et fonctionne de partout :
 
 ```bash
@@ -120,17 +121,9 @@ ligne noyee dans le log. Detail : [vision/README.md](vision/README.md).
 ## Ou est passee la doc de `rasp/`
 
 Il n'y a plus de dossier `doc/` : ce README et les README de chaque module sont la seule doc du
-code. Le reste vit dans un suivi interne hors depot et sur `DocVB/cdr/nantes/Info/` (publie).
+code. La doc du projet (architecture, choix techniques, branches) est publiee depuis
+`DocVB/cdr/nantes/Info/` : https://docs.davincibot.fr/cdr/nantes/2026/Info/.
 
-- `doc/TESTING_LIDAR_INTEGRATION.md` et `ODOMETRY_CORRECTION_IMPLEMENTATION.md` : **supprimes**
-  (09/09 et 11/09/2026). Ce qui valait d'etre garde - seuils d'acceptation du LiDAR, courbe alpha
-  du filtre complementaire adaptatif - a ete extrait dans le suivi interne avant suppression.
-- Les 4 `telemetry/RERUN_*.md` (96 Ko) : **supprimes** le 11/09/2026, voir
-  [telemetry/README.md](telemetry/README.md).
-- Les analyses d'etat des lieux (`CODEBASE_ANALYSIS_2026*`, `ETAT_DES_LIEUX_PYTHON`,
-  `PLAN_REDUCTION_RASP`) : retirees le 09/09/2026, perimees et redondantes avec le suivi interne.
-
-Detail de chaque suppression et de ce qui a ete extrait : voir `git log`.
 
 ## Trois emplacements de scripts, trois usages
 
