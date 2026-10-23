@@ -61,7 +61,9 @@ sous `data/sim2d/`.
 
 **Simulé** : géométrie de table, cinématique holonome 3 roues (W1 120°, W2 240°, W3 0°, rayon
 160 mm), plafonds de vitesse des roues, dérive d'odométrie, et le protocole USB au niveau message
-(`SET_TARGET_POSITION`, `SET_ODOMETRIE`, `UPDATE_ROLLING_BASIS` à 10 Hz comme la vraie Teensy).
+(`SET_TARGET`, `SET_ODOMETRIE`, `ODOMETRY` à 10 Hz comme la vraie Teensy). La vitesse de
+trajectoire de `SET_TARGET` est ignorée, et la vitesse publiée dans `ODOMETRY` est la vitesse
+vraie, faute d'estimateur de vitesse simulé.
 
 **Pas simulé, et ça ne le sera pas** : le firmware, l'EKF, les steppers, la physique des
 actionneurs, la 3D, aucun moteur physique. Le déplacement est une approche proportionnelle bornée,

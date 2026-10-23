@@ -106,7 +106,7 @@ class SimulatedRobot:
     # ── Commands, as they arrive from the match loop ──────────────────────
 
     def set_target(self, x: float, y: float, theta: float) -> None:
-        """Set the target pose, in field coordinates (SET_TARGET_POSITION)."""
+        """Set the target pose, in field coordinates (SET_TARGET)."""
         self.target_x = x
         self.target_y = y
         self.target_theta = theta
@@ -287,7 +287,7 @@ class SimulatedRobot:
     def wheel_speeds(self) -> tuple:
         """Return the three wheel speeds matching the current motion, mm/s.
 
-        Lot 4 will log these as one of the synthetic sensor streams; they are
+        Meant to be logged as one of the synthetic sensor streams; they are
         exposed now because they cost nothing and they prove the kinematics is
         actually in the loop.
         """
