@@ -1,25 +1,20 @@
 #!/usr/bin/env python3
-"""
-test_complet_lidar.py — CDR 2026
-===============================================================================
-Test complet du stack robot avec LiDAR réel uniquement.
-Teensy simulée via poses fictives injectées directement dans lidar_logic.
+"""Tests CDR avec acquisition LiDAR commune.
 
-Modules testés :
-  [OK] world          — terrain, obstacles, balises, symétrie BLEU/JAUNE
-  [OK] pathfinder      — A*, grille, inflation, chemin, lookahead
-  [OK] localization    — thread, scan, extraction balises, SVD, adversaire
-  [OK] robot.py        — filtre complémentaire, logique de correction odométrie
-  [OK] strategy        — StratManager, chrono, validation actions
-  [OK] loader          — chargement config.json
-  [OK] intégration     — pipeline complet LiDAR -> SVD -> filtre -> correction
+Placer dans robot1/rasp/tests/test_complet_lidar.py.
+Depuis la racine CDR-Nantes :
+  python -m robot1.rasp.tests.test_complet_lidar --level 6 --duration 20
+  python -m robot1.rasp.tests.test_complet_lidar --no-lidar
 
-Usage :
-    python test_complet_lidar.py [--level 1-8] [--duration 20] [--color BLUE]
-    python test_complet_lidar.py           # tous les tests (non-LiDAR d'abord)
-    python test_complet_lidar.py --level 7 --duration 60  # intégration complète
+Niveaux : 1 terrain, 2 navigation, 3 strategie, 4 formule de reference,
+5 localisation synthetique, 6 acquisition reelle, 7 detection observee,
+8 integration localisation + detection + navigation (adaptation requise).
+Par defaut : niveau 6 uniquement. --level 0 selectionne tous les niveaux.
 
-===============================================================================
+7 et 8 : robot IMMOBILE, fournir sa pose mesuree via --x --y --theta-deg.
+Le niveau 8 exige localization.process_scan(mesures) synchrone : il ne demarre
+jamais l'ancien lecteur et n'applique aucune correction aux moteurs.
+Le niveau 7 observe les candidats : il ne certifie pas leur identification.
 """
 
 import sys
@@ -27,11 +22,14 @@ import time
 import math
 import logging
 import argparse
-import threading
-import struct
 from pathlib import Path
-from typing import Optional, List, Tuple, Dict
-from collections import deque
+from typing import Dict
+
+# Cherche la racine du depot depuis le fichier, pas depuis le terminal.
+for parent in Path(__file__).resolve().parents:
+    if (parent / "robot1" / "rasp").is_dir():
+        sys.path.insert(0, str(parent))
+        break
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -119,6 +117,8 @@ def test_terrain(color: str = "BLUE") -> bool:
             bx_yl, by_yl = BeaconLayout.get_beacon(bid, "YELLOW")
             assert abs((bx_bl + bx_yl) - 3000) < 1, \
                 f"Symétrie X incorrecte balise {bid}: {bx_bl}+{bx_yl}!=3000"
+            # AJOUT : vérifie que la symétrie selon X conserve aussi la coordonnée Y.
+            assert abs(by_bl - by_yl) < 1, "La symetrie X ne doit pas modifier Y"
             ok(f"  Balise #{bid} BLEU=({bx_bl:.0f},{by_bl:.0f}) JAUNE=({bx_yl:.0f},{by_yl:.0f})")
 
         print()
@@ -154,6 +154,8 @@ def test_pathfinder(color: str = "BLUE") -> bool:
         start = {"x": 1500, "y": 1000, "theta": 0.0}
         goal  = {"x": 2800, "y": 1000}
         chemin = pf.get_path(start, goal, [])
+        # AJOUT : l’absence de chemin entre les positions libres fait maintenant échouer le test.
+        assert chemin and len(chemin) > 1, "Aucun chemin entre deux positions libres"
         if chemin and len(chemin) > 1:
             ok(f"Chemin trouvé : {len(chemin)} waypoints")
         else:
@@ -161,19 +163,28 @@ def test_pathfinder(color: str = "BLUE") -> bool:
 
         section("Chemin avec obstacle dynamique")
         obstacles_dyn = [(1800, 1000)]  # adversaire entre start et goal
+        # AJOUT : inspecte la grille, au lieu de seulement afficher qu’un chemin a été calculé.
+        grille_dyn = pf.create_dynamic_grid(obstacles_dyn)
+        # Repère la case correspondant à l’obstacle dynamique injecté.
+        gx, gy = pf._to_grid(1800, 1000)
+        # AJOUT : exige que cette case soit réellement marquée comme occupée.
+        assert grille_dyn[gy][gx] == 1, "Obstacle dynamique absent de la grille"
         chemin2 = pf.get_path(start, goal, obstacles_dyn)
         if chemin2:
             ok(f"Chemin avec obstacle : {len(chemin2)} waypoints")
         else:
             warn("Chemin bloqué par obstacle (normal si zone trop étroite)")
 
-        section("Chemin impossible (goal dans mur)")
-        goal_wall = {"x": 0, "y": 0}
+        section("Chemin impossible (goal hors terrain)")
+        # MODIFICATION : utilise un objectif vraiment hors terrain ; (0,0) n’était pas forcément un mur.
+        goal_wall = {"x": -1000, "y": -1000}  # hors terrain
         chemin3 = pf.get_path(start, goal_wall, [])
+        # AJOUT : un chemin vers cet objectif invalide doit être rejeté.
+        assert not chemin3, "Un chemin hors terrain a ete accepte"
         if not chemin3:
-            ok("Chemin vers mur correctement rejeté (retourne [])")
+            ok("Chemin hors terrain correctement rejeté (retourne [])")
         else:
-            warn(f"Chemin vers mur retourné avec {len(chemin3)} pts — vérifier inflation")
+            warn(f"Chemin hors terrain retourné avec {len(chemin3)} pts — vérifier inflation")
 
         section("Test aller-retour (plusieurs points)")
         waypoints = [
@@ -278,7 +289,7 @@ def test_strategy(color: str = "BLUE") -> bool:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def test_complementary_filter(color: str = "BLUE") -> bool:
-    header("TEST 4 — filtre complémentaire adaptatif (courbe alpha de référence)")
+    header("TEST 4 — courbe de référence uniquement, PAS le filtre du robot")
     try:
         # Copie locale de la courbe, volontairement autonome : la méthode
         # d'origine Robot._apply_complementary_filter n'existe plus, et la
@@ -296,7 +307,7 @@ def test_complementary_filter(color: str = "BLUE") -> bool:
             return x_fused, y_fused, alpha
 
         cases = [
-            (0.00, 0.85, "conf=0.00 -> alpha=0.85 (100% Teensy)"),
+            (0.00, 0.85, "conf=0.00 -> alpha=0.85 (85% Teensy)"),
             (0.10, 0.85, "conf=0.10 -> alpha=0.85"),
             (0.20, 0.85, "conf=0.20 -> alpha=0.85 (boundary bas)"),
             (0.35, None, "conf=0.35 -> alpha intermédiaire"),
@@ -304,7 +315,7 @@ def test_complementary_filter(color: str = "BLUE") -> bool:
             (0.65, None, "conf=0.65 -> alpha intermédiaire"),
             (0.80, 0.25, "conf=0.80 -> alpha=0.25 (boundary haut)"),
             (0.90, 0.25, "conf=0.90 -> alpha=0.25"),
-            (1.00, 0.25, "conf=1.00 -> alpha=0.25 (100% LiDAR)"),
+            (1.00, 0.25, "conf=1.00 -> alpha=0.25 (75% LiDAR)"),
         ]
 
         alphas = []
@@ -349,11 +360,12 @@ def test_complementary_filter(color: str = "BLUE") -> bool:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TEST 5 — lidar_logic constants & SVD hors thread
+# TEST 5 — localization constants & SVD hors thread
 # ══════════════════════════════════════════════════════════════════════════════
 
-def test_lidar_logic_static(color: str = "BLUE") -> bool:
-    header("TEST 5 — lidar_logic : constantes, BEACONS, SVD Umeyama (hors thread)")
+# RENOMMAGE : remplace test_lidar_logic_static ; aucun module lidar_logic.py n’est utilisé.
+def test_localization_static(color: str = "BLUE") -> bool:
+    header("TEST 5 — localization : constantes, BEACONS, SVD Umeyama (hors thread)")
     try:
         from robot1.rasp.vision.localization import (
             BEACONS_BY_ID, BEACON_WINDOW_ANGLE_RAD, BEACON_WINDOW_DIST_MM,
@@ -366,6 +378,10 @@ def test_lidar_logic_static(color: str = "BLUE") -> bool:
 
         section("Chargement balises")
         set_team_color(color)
+        # CORRECTION : relit le dictionnaire dans le module après le changement de couleur.
+        from robot1.rasp.vision import localization
+        # set_team_color() réaffecte le dictionnaire ; un ancien import direct gardait l’ancienne couleur.
+        BEACONS_BY_ID = localization.BEACONS_BY_ID
         assert len(BEACONS_BY_ID) >= 3, f"BEACONS_BY_ID vide ou incomplet : {BEACONS_BY_ID}"
         for bid, (bx, by) in BEACONS_BY_ID.items():
             ok(f"  Balise #{bid}: ({bx:.0f}, {by:.0f}) mm")
@@ -426,7 +442,8 @@ def test_lidar_logic_static(color: str = "BLUE") -> bool:
                 assert abs(result.y - 1000.0) < 50, f"deltay trop grand : {result.y-1000:.1f}mm"
                 ok("Delta SVD < 50mm (correction précise sur candidats exacts)")
             else:
-                warn("SVD retourne None sur candidats synthétiques — RMS trop haut?")
+                # MODIFICATION : un rejet de candidats synthétiques exacts est un échec, pas un avertissement.
+                raise AssertionError("SVD retourne None sur des candidats exacts")
         else:
             warn("Moins de 2 candidats synthétiques, SVD non testé")
 
@@ -434,6 +451,8 @@ def test_lidar_logic_static(color: str = "BLUE") -> bool:
         if len(syn_cands) >= 2:
             cands_sans_bid = [{k: v for k, v in c.items() if k != "beacon_id"} for c in syn_cands]
             assoc = _associate_candidates_to_beacons(cands_sans_bid, 1500.0, 1000.0, 0.0, None)
+            # AJOUT : exige que tous les candidats synthétiques aient été associés.
+            assert len(assoc) == len(cands_sans_bid), "Association incomplète"
             ok(f"Association sans fenêtres : {len(assoc)} candidats associés / {len(cands_sans_bid)}")
             for a in assoc:
                 ok(f"  -> Balise #{a.get('beacon_id')} (score={a.get('association_score', 'N/A')})")
@@ -441,270 +460,353 @@ def test_lidar_logic_static(color: str = "BLUE") -> bool:
         section("_validate_beacon_geometry")
         if len(syn_cands) >= 2:
             valid = _validate_beacon_geometry(syn_cands[:2])
+            # AJOUT : fait échouer le test si la géométrie exacte des balises est rejetée.
+            assert valid, "Géométrie exacte rejetée"
             ok(f"Validation géométrie 2 balises synthétiques : {'OK' if valid else 'REJETÉ'}")
 
         print()
         ok("TEST 5 PASSED")
-        return record("lidar_logic_static", True)
+        return record("localization_static", True)
 
     except Exception as e:
         fail(f"TEST 5 FAILED : {e}")
         import traceback; traceback.print_exc()
-        return record("lidar_logic_static", False)
+        return record("localization_static", False)
 
 
+
+
+# AJOUT : vérifie le scan déjà lu par acquisition.py, sans ouvrir de connexion.
 # ══════════════════════════════════════════════════════════════════════════════
-# TEST 6 — LiDAR thread basique (scan + balises)
+# OUTILS COMMUNS — validation et exécution des tests LiDAR
 # ══════════════════════════════════════════════════════════════════════════════
 
-def test_lidar_thread_basic(duration_sec: int = 15, color: str = "BLUE") -> bool:
-    header(f"TEST 6 — Thread LiDAR réel : scan, balises ({duration_sec}s)")
-    print("  Ce test nécessite le LiDAR branché sur /dev/ttyUSB0")
+def _validate_scan(scan):
+    # Un scan publié doit porter un numéro positif.
+    assert scan.numero > 0, "Numero de scan invalide"
+    # Refuse un horodatage NaN ou infini.
+    assert math.isfinite(scan.timestamp), "Horodatage invalide"
+    # Exige des données de moins de 0,5 seconde ; seuil à adapter à votre cadence.
+    assert 0 <= scan.age() <= 0.5, "Scan perime"
+    # Un scan vide ne permet pas de valider la réception des mesures.
+    assert scan.mesures, "Scan vide"
+    # Parcourt tous les points du scan pour vérifier leur format.
+    for mesure in scan.mesures:
+        # Chaque point doit contenir exactement trois valeurs.
+        assert len(mesure) == 3, "Format attendu : (qualite, degres, mm)"
+        # Décompose le point dans l’ordre (qualité, angle en degrés, distance en mm).
+        qualite, angle, distance = mesure
+        # Vérifie que le filtrage a retiré les valeurs NaN et infinies.
+        assert all(math.isfinite(v) for v in mesure), "Valeur non finie"
+        # Vérifie que les distances nulles ou négatives ont été éliminées.
+        assert distance > 0, "Distance nulle ou negative"
+        # Contrôle la plage des angles bruts du pilote : [0°, 360°[.
+        assert 0 <= angle < 360, "Angle hors de [0, 360["
+        # Refuse une qualité négative ; ne filtre pas les faibles qualités à ce stade.
+        assert qualite >= 0, "Qualite negative"
+
+
+# REMPLACE les anciens tests matériels : un seul lecteur pour les niveaux 6, 7 et 8.
+def _hardware_test(level, args):
+    """Un seul proprietaire du capteur ; chaque scan traite une seule fois."""
+    # Associe le niveau à son nom dans le résumé final.
+    name = {6: "acquisition", 7: "detection_observation", 8: "integration"}[level]
+    # Affiche le niveau choisi et la durée demandée.
+    titres = {
+        6: "Acquisition LiDAR commune : scans, format, fraîcheur",
+        7: "Détection adverse : traitement des scans communs",
+        8: "Pipeline commun : LiDAR -> localisation + détection -> navigation",
+    }
+    header(f"TEST {level} — {titres[level]} ({args.duration}s)")
+    print("  Nécessite le LiDAR branché ; aucun mouvement commandé.")
+    section("Préparation des modules")
+    # Permet le nettoyage même si un import ou une initialisation échoue.
+    acquisition = None
+    # Par défaut, le test échoue ; seuls les contrôles réussis autorisent un succès.
+    passed = False
+    # Protège ce bloc pour pouvoir signaler les erreurs et nettoyer les ressources.
     try:
-        from robot1.rasp.vision.localization import (
-            start_lidar_thread, stop_lidar_runtime,
-            get_latest_scan_data, get_latest_beacon_candidates,
-            get_corrected_pose, update_teensy_pose, set_team_color,
-        )
+        # Utilise le nouveau lecteur commun au lieu de start_lidar_thread().
+        from robot1.rasp.vision import acquisition
+        # Récupère le vrai port configuré et la vitesse, sans les écrire en dur dans le test.
+        from robot1.rasp.vision.lidar_config import PORT, BAUDRATE
+        # Prépare les composants optionnels ; ils ne sont pas requis au niveau 6.
+        detection = localization = pf = None
+        # Active la détection uniquement pour les niveaux 7 et 8.
+        if level >= 7:
+            # Exige la pose réelle du robot immobile pour projeter correctement les points.
+            if args.x is None or args.y is None or args.theta_deg is None:
+                # Interrompt ce niveau avec une explication claire, plutôt que poursuivre avec des données manquantes.
+                raise RuntimeError("Fournir la pose REELLE du robot immobile : --x --y --theta-deg")
+            # Importe le traitement ; ne démarre pas son ancien lecteur.
+            from robot1.rasp.vision import detection
+            # Compatible avec le wrapper propose et avec l'ancien traitement pur.
+            # Cherche la nouvelle fonction publique qui reçoit les mesures en paramètre.
+            process_detection = getattr(detection, "process_scan", None)
+            # Vérifie qu’une fonction de traitement est disponible.
+            if not callable(process_detection):
+                # Compatibilité : utilise le calcul existant si le wrapper public n’est pas encore ajouté.
+                process_detection = getattr(detection, "_process_scan", None)
+            # Vérifie qu’une fonction de traitement est disponible.
+            if not callable(process_detection):
+                # Interrompt ce niveau avec une explication claire, plutôt que poursuivre avec des données manquantes.
+                raise RuntimeError("Aucun traitement de scan disponible dans detection.py")
+            # Convertit l’orientation de la ligne de commande en radians pour les calculs.
+            theta = math.radians(args.theta_deg)
+            # Fournit la pose réelle à la détection ; aucune commande de mouvement n’est envoyée.
+            detection.update_robot_pose(args.x, args.y, theta)
+        # La localisation et le calcul de chemin sont réservés au test d’intégration.
+        if level == 8:
+            # Importe les calculs de localisation, sans lancer leur ancien thread.
+            from robot1.rasp.vision import localization
+            # Charge la description du terrain utilisée par la navigation.
+            from robot1.rasp.world import Terrain
+            # Charge le calculateur de chemin, sans importer le contrôleur des moteurs.
+            from robot1.rasp.nav import PathFinder
+            # Refuse de continuer si la localisation n’a pas été adaptée à une entrée de scan commune.
+            if not callable(getattr(localization, "process_scan", None)):
+                # Interrompt ce niveau avec une explication claire, plutôt que poursuivre avec des données manquantes.
+                raise RuntimeError(
+                    "localization.process_scan(mesures) manque. Adapter ce module avant "
+                    "le niveau 8 ; ne pas redemarrer start_lidar_thread().")
+            # Le niveau 8 exige aussi un objectif réel de navigation, choisi dans une zone libre.
+            if args.goal_x is None or args.goal_y is None:
+                # Interrompt ce niveau avec une explication claire, plutôt que poursuivre avec des données manquantes.
+                raise RuntimeError("Fournir aussi --goal-x et --goal-y (objectif libre sur le terrain)")
+            # Charge les coordonnées des balises de la bonne équipe.
+            localization.set_team_color(args.color)
+            # Injecte la pose mesurée comme référence odométrique ; la Teensy n’est pas sollicitée.
+            localization.update_teensy_pose(args.x, args.y, theta)
+            # Construit la grille de navigation à partir du terrain.
+            pf = PathFinder(Terrain(args.color))
 
-        set_team_color(color)
-
-        logs = []
-        statuses = []
-
-        def _console(msg):
-            pass  # silencieux
-
-        def _status(msg):
-            statuses.append(msg)
-
-        ok("Démarrage thread LiDAR...")
-        thread = start_lidar_thread(_console, _status)
-        time.sleep(2.0)
-
-        frame_count       = 0
-        beacon_frames     = 0
-        total_pts         = 0
-        max_beacons       = 0
-        svd_count         = 0
-        confidences       = []
-        first_pose        = None
-
-        # Injecter une pose Teensy fictive au centre
-        update_teensy_pose(1500.0, 1000.0, 0.0)
-
-        start = time.time()
-        while time.time() - start < duration_sec:
-            scan = get_latest_scan_data()
-            cands = get_latest_beacon_candidates()
-            pose = get_corrected_pose()
-
-            if scan:
-                frame_count += 1
-                total_pts += len(scan)
-
-            if cands:
-                beacon_frames += 1
-                max_beacons = max(max_beacons, len(cands))
-
-            if pose and pose.is_localized:
-                svd_count += 1
-                confidences.append(pose.confidence)
-                if first_pose is None:
-                    first_pose = pose
-
-            time.sleep(0.1)
-
-        stop_lidar_runtime()
-
-        section("Résultats scan")
-        if frame_count == 0:
-            fail("Aucun scan reçu — LiDAR non connecté ou port incorrect")
-            warn("Vérifier /dev/ttyUSB0 et baudrate 256000")
-            return record("lidar_thread", False)
-
-        ok(f"Frames reçues : {frame_count}")
-        ok(f"Points totaux : {total_pts} (moy {total_pts//max(frame_count,1)}/frame)")
-
-        section("Résultats balises")
-        if beacon_frames == 0:
-            warn("Aucune balise détectée — vérifier visibilité et positions dans world.py")
-        else:
-            ok(f"Frames avec balises : {beacon_frames}/{frame_count} ({beacon_frames*100//frame_count}%)")
-            ok(f"Max balises/frame   : {max_beacons}")
-
-        section("Résultats SVD Umeyama")
-        if svd_count == 0:
-            warn("Aucune pose SVD calculée — au moins 2 balises nécessaires avec bonne géométrie")
-        else:
-            avg_conf = sum(confidences) / len(confidences)
-            ok(f"Poses SVD réussies  : {svd_count}")
-            ok(f"Confiance moyenne   : {avg_conf:.3f}")
-            if first_pose:
-                ok(f"Première pose       : ({first_pose.x:.0f}, {first_pose.y:.0f}) "
-                   f"theta={math.degrees(first_pose.theta):.1f}° "
-                   f"conf={first_pose.confidence:.2f} "
-                   f"beacons={first_pose.beacon_ids}")
-
-        section("Statuts LiDAR reçus")
-        for s in statuses[-3:]:
-            ok(f"  Status: {s}")
-
-        print()
-        passed = frame_count > 0
-        if passed:
-            ok("TEST 6 PASSED — LiDAR opérationnel")
-        else:
-            fail("TEST 6 FAILED — Pas de scan LiDAR")
-        return record("lidar_thread", passed)
-
-    except Exception as e:
-        fail(f"TEST 6 FAILED : {e}")
-        import traceback; traceback.print_exc()
-        return record("lidar_thread", False)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TEST 8 — Pipeline complet (sans Teensy réelle)
-# ══════════════════════════════════════════════════════════════════════════════
-
-def test_full_pipeline(duration_sec: int = 30, color: str = "BLUE") -> bool:
-    header(f"TEST 8 — Pipeline complet : LiDAR->SVD->filtre->pathfinder ({duration_sec}s)")
-    print("  Nécessite LiDAR branché — Teensy simulée par injection de pose")
-    try:
-        from robot1.rasp.world import Terrain
-        from robot1.rasp.nav import PathFinder
-        from robot1.rasp.vision.localization import (
-            start_lidar_thread, stop_lidar_runtime,
-            update_teensy_pose, get_corrected_pose,
-            should_send_correction_to_teensy, set_team_color,
-            get_latest_opponent,
-        )
-
-        set_team_color(color)
-        terrain = Terrain(color)
-        pf = PathFinder(terrain)
-
-        def _noop(x): pass
-        start_lidar_thread(_noop, _noop)
-        time.sleep(2.0)
-
-        # Pose de départ
-        robot_x, robot_y, robot_theta = terrain.get_start_position()
-        update_teensy_pose(robot_x, robot_y, robot_theta)
-
-        objectifs = [
-            (1500, 1000),
-            (2000, 500),
-            (500, 1500),
-            (1500, 1000),
-        ]
-        obj_idx = 0
-        goal = {"x": objectifs[0][0], "y": objectifs[0][1]}
-
-        corrections_ok   = 0
-        paths_computed   = 0
-        svd_poses_seen   = 0
-        frames           = 0
-        last_correction  = 0.0
-
-        def apply_filter(lx, ly, tx, ty, conf):
-            alpha = 0.85 if conf < 0.2 else (0.25 if conf > 0.8
-                    else 0.85 - (conf - 0.2) / 0.6 * 0.60)
-            return (1.0 - alpha) * lx + alpha * tx, (1.0 - alpha) * ly + alpha * ty, alpha
-
-        ok(f"Position départ {color}: ({robot_x:.0f},{robot_y:.0f}) theta={math.degrees(robot_theta):.1f}°")
-        ok(f"Objectifs : {objectifs}")
-        print()
-
-        start = time.time()
-        while time.time() - start < duration_sec:
-            frames += 1
-
-            # — Injection pose Teensy (simule odométrie) —
-            update_teensy_pose(robot_x, robot_y, robot_theta)
-
-            # — Récupération pose SVD —
-            corrected = get_corrected_pose()
-            if corrected and corrected.is_localized:
-                svd_poses_seen += 1
-                rx, ry, alpha = apply_filter(
-                    corrected.x, corrected.y,
-                    robot_x, robot_y,
-                    corrected.confidence,
-                )
-                rtheta = robot_theta
-            else:
-                rx, ry, rtheta = robot_x, robot_y, robot_theta
-
-            # — Adversaire → obstacles —
+        # Affiche la connexion que le test va effectivement utiliser.
+        section("Démarrage de l’acquisition commune")
+        ok(f"Port configure : {PORT} ; vitesse : {BAUDRATE} bauds")
+        # Démarre l’unique lecture et attend le premier scan valide.
+        if not acquisition.start():
+            # Interrompt ce niveau avec une explication claire, plutôt que poursuivre avec des données manquantes.
+            raise RuntimeError(acquisition.get_status()[1] or "Aucun scan valide au demarrage")
+        # Initialise les compteurs : scans, points, candidats, poses et chemins.
+        count = total_points = candidates = poses = paths = 0
+        # Mémorise le dernier numéro traité pour ne pas recompter le même scan.
+        last_num = 0
+        # Permet de vérifier ensuite que les horodatages progressent.
+        last_timestamp = None
+        # Évite de compter plusieurs fois une ancienne pose de localisation.
+        last_pose_time = 0.0
+        # Conserve une référence au scan précédent pour vérifier la stabilité de son numéro.
+        previous_scan = None
+        # Limite les messages de progression à environ un par seconde.
+        last_log = 0.0
+        # Mesure la durée avec une horloge insensible aux changements de l’heure système.
+        section("Observation des scans")
+        started = time.monotonic()
+        # Observe les scans pendant la durée demandée, sans simuler de déplacement du robot.
+        while time.monotonic() - started < args.duration:
+            # Vérifie à chaque tour si l’acquisition a signalé une erreur.
+            _, error = acquisition.get_status()
+            # Une erreur matérielle doit faire échouer le test, pas laisser un faux succès.
+            if error:
+                # Interrompt ce niveau avec une explication claire, plutôt que poursuivre avec des données manquantes.
+                raise RuntimeError(error)
+            # Consulte le dernier scan : cet appel ne déclenche pas une nouvelle mesure.
+            scan = acquisition.get_latest_scan()
+            # Une absence de scan récent est considérée comme une perte des données.
+            if scan is None:
+                # Interrompt ce niveau avec une explication claire, plutôt que poursuivre avec des données manquantes.
+                raise RuntimeError("Perte de donnees : aucun scan recent")
+            # Si aucun nouveau scan n’est arrivé, ne relance pas les traitements.
+            if scan.numero == last_num:
+                # Attend brièvement pour ne pas faire tourner inutilement le processeur.
+                time.sleep(0.01)
+                # Passe au prochain tour de boucle sans recompter les mêmes mesures.
+                continue
+            # Vérifie le format et la validité de tous les points du nouveau scan.
+            _validate_scan(scan)
+            # Un scan publié doit porter un numéro positif.
+            assert scan.numero > last_num, "Numero de scan non croissant"
+            # Compare les dates seulement à partir du deuxième scan observé.
+            if last_timestamp is not None:
+                # Les scans successifs ne doivent pas être horodatés dans le désordre.
+                assert scan.timestamp >= last_timestamp, "Horodatage non croissant"
+                # Le snapshot precedent doit rester lisible apres publication du suivant.
+                # Vérifie la stabilité du numéro de l’ancien snapshot ; ne prouve pas toute son immutabilité.
+                assert previous_scan.numero == last_num, "Ancien scan modifie"
+            # Mémorise le numéro et la date du scan qui vient d’être accepté.
+            last_num, last_timestamp = scan.numero, scan.timestamp
+            # Garde cette référence pour le contrôle au prochain scan.
+            previous_scan = scan
+            # Compte un scan distinct observé, et non un simple tour de boucle.
+            count += 1
+            # Additionne les points des scans observés pour calculer une moyenne.
+            total_points += len(scan.mesures)
+            # Prépare les obstacles de ce tour ; la liste sera alimentée par la détection.
             obstacles = []
-            opp = get_latest_opponent()
-            if opp is not None and opp.confidence >= 0.1:
-                obstacles.append((opp.x, opp.y))
+            # Active la détection uniquement pour les niveaux 7 et 8.
+            if level >= 7:
+                # Meme objet mesures pour les deux traitements ; aucune nouvelle lecture.
+                # Transmet les mesures déjà acquises au traitement de l’adversaire.
+                process_detection(scan.mesures)
+                # Récupère le candidat produit ou suivi par la détection.
+                opponent = detection.get_opponent()
+                # N’exploite un candidat que si le module en fournit un.
+                if opponent is not None:
+                    # Décompose le candidat : coordonnées du terrain et indice de confiance.
+                    ox, oy, confidence = opponent
+                    # Vérifie que les coordonnées et la confiance sont des nombres finis.
+                    assert all(math.isfinite(v) for v in opponent), "Candidat invalide"
+                    # Compte les scans avec candidat ; ce n’est pas le nombre de robots distincts.
+                    candidates += 1
+                    # Présente le candidat à la navigation comme un obstacle dynamique.
+                    obstacles = [(ox, oy)]
+            # La localisation et le calcul de chemin sont réservés au test d’intégration.
+            if level == 8:
+                # Contrat : entree brute (qualite, degres, mm), calcul synchrone,
+                # publication via get_corrected_pose(), horodatage time.time().
+                # Transmet exactement les mêmes mesures à la localisation ; aucune seconde acquisition.
+                localization.process_scan(scan.mesures)
+                # Lit la pose publiée par le traitement de localisation adapté.
+                pose = localization.get_corrected_pose()
+                # N’exploite que les résultats explicitement déclarés localisés.
+                if pose is not None and pose.is_localized:
+                    # Le contrat actuel de PoseState utilise time.time(), différent de l’horloge des scans.
+                    age = time.time() - pose.last_update_time
+                    # Ne compte qu’une pose récente et plus nouvelle que celle déjà comptée.
+                    if 0 <= age <= 0.5 and pose.last_update_time > last_pose_time:
+                        # Mémorise la date de cette nouvelle pose pour éviter les doublons.
+                        last_pose_time = pose.last_update_time
+                        # Refuse une position ou une orientation non numérique.
+                        assert all(math.isfinite(v) for v in (pose.x, pose.y, pose.theta))
+                        # Applique le seuil de confiance défini par le module de localisation.
+                        assert pose.confidence >= localization.POSE_CORRECTION_MIN_CONFIDENCE
+                        # Compte une nouvelle pose acceptée ; ne certifie pas sa précision physique.
+                        poses += 1
+                        # Calcule un chemin depuis la pose LiDAR vers l’objectif en tenant compte du candidat.
+                        path = pf.get_path(
+                            {"x": pose.x, "y": pose.y, "theta": pose.theta},
+                            {"x": args.goal_x, "y": args.goal_y}, obstacles)
+                        # Un chemin exploitable pour ce test doit contenir au moins deux positions.
+                        if path and len(path) > 1:
+                            # Compte les calculs de chemin réussis ; aucun mouvement n’est exécuté.
+                            paths += 1
+            # Récupère l’heure de suivi pour limiter l’affichage.
+            now = time.monotonic()
+            # Affiche la progression environ une fois par seconde.
+            if now - last_log >= 1.0:
+                # Mémorise la date du dernier affichage.
+                last_log = now
+                # Affiche numéro, quantité, fraîcheur et un point d’exemple du scan.
+                ok(f"Scan #{scan.numero} : {len(scan.mesures)} points ; "
+                   f"age={scan.age():.3f}s ; exemple={scan.mesures[0]}")
+        # Un seul scan ne suffit pas à démontrer une lecture qui continue.
+        section("Résultats acquisition")
+        assert count >= 2, "Moins de deux scans distincts observes"
+        # Exige une acquisition encore opérationnelle à la fin de l’observation.
+        assert acquisition.get_status()[0], "Acquisition inactive en fin de test"
+        # Résume les scans distincts observés, la quantité moyenne de points et la cadence observée.
+        ok(f"{count} scans distincts observes, {total_points / count:.0f} points/scan "
+           f"en moyenne ; {count / args.duration:.1f} scans observes/s")
+        # Précise que le polling peut manquer des scans ; ce n’est pas la cadence exhaustive du matériel.
+        print("  Cette frequence est celle des scans observes par le test, pas une mesure exhaustive du capteur.")
+        # Active la détection uniquement pour les niveaux 7 et 8.
+        if level >= 7:
+            # Résume les exécutions de la détection et les scans avec candidat.
+            section("Résultats détection adverse")
+            ok(f"Traitement detection execute sur {count} scans ; {candidates} avec candidat")
+            # Évite de confondre exécution du code et validation réelle de la reconnaissance adverse.
+            warn("Un candidat peut etre un mur. Verification visuelle necessaire ; "
+                 "ce test ne certifie pas la reconnaissance de l'adversaire.")
+        # La localisation et le calcul de chemin sont réservés au test d’intégration.
+        if level == 8:
+            # CHANGEMENT : le niveau 8 échoue si aucune nouvelle pose valide n’a été obtenue.
+            section("Résultats localisation et navigation")
+            assert poses > 0, "Aucune NOUVELLE pose localisee et recente : integration non validee"
+            # CHANGEMENT : un calcul de chemin depuis une pose LiDAR récente est aussi requis.
+            assert paths > 0, "Aucun chemin calcule depuis une pose LiDAR recente"
+            # Résume l’intégration logicielle et rappelle l’absence de commande moteur.
+            ok(f"{poses} poses recentes ; {paths} chemins ; aucune commande moteur envoyee")
+            # La validité logicielle ne remplace pas une comparaison avec la position mesurée.
+            warn("La precision de localisation doit etre comparee a la position reelle.")
+        # Autorise le succès seulement après tous les contrôles du niveau choisi.
+        passed = True
+    except Exception as exc:
+        # Affiche la cause de l’échec dans la console.
+        fail(str(exc))
+        # Conserve la trace complète pour diagnostiquer le problème.
+        logger.exception("Test %s en echec", level)
+    finally:
+        # Ne tente l’arrêt que si le module a pu être importé.
+        section("Arrêt et libération du LiDAR")
+        if acquisition is not None:
+            # Protège ce bloc pour pouvoir signaler les erreurs et nettoyer les ressources.
+            try:
+                # Demande l’arrêt, attend le thread et libère le port, y compris après un échec.
+                acquisition.stop()
+                # Vérifie que l’acquisition n’est plus active après son arrêt.
+                assert not acquisition.get_status()[0], "Acquisition toujours active"
+                # Vérifie qu’un ancien scan n’est plus présenté comme disponible après arrêt.
+                assert acquisition.get_latest_scan() is None, "Scan encore publie apres arret"
+                # Confirme les contrôles de fermeture, pas seulement l’appel de stop().
+                ok("Acquisition arretee et dernier scan efface")
+            except Exception as exc:
+                # Signale séparément une erreur pendant la fermeture du capteur.
+                fail(f"Arret incomplet : {exc}")
+                # Par défaut, le test échoue ; seuls les contrôles réussis autorisent un succès.
+                passed = False
+    # Enregistre le résultat final, en tenant compte des erreurs de nettoyage.
+    print()
+    if passed:
+        ok(f"TEST {level} PASSED — {name}")
+    else:
+        fail(f"TEST {level} FAILED — {name}")
+    return record(name, passed)
 
-            # — Pathfinding —
-            dist_to_goal = math.hypot(goal["x"] - rx, goal["y"] - ry)
-            if dist_to_goal < 80:
-                obj_idx = (obj_idx + 1) % len(objectifs)
-                goal = {"x": objectifs[obj_idx][0], "y": objectifs[obj_idx][1]}
-                logger.debug(f"Objectif atteint, nouveau: {goal}")
 
-            start_pos = {"x": rx, "y": ry, "theta": rtheta}
-            chemin = pf.get_path(start_pos, goal, obstacles)
-            if chemin and len(chemin) > 1:
-                paths_computed += 1
-                lookahead = min(3, len(chemin) - 1)
-                cible_x, cible_y = chemin[lookahead]
-                # Simuler mouvement vers cible (5mm/frame)
-                dx = cible_x - robot_x
-                dy = cible_y - robot_y
-                dist = math.hypot(dx, dy)
-                step = min(5.0, dist)
-                if dist > 0.1:
-                    robot_x += step * dx / dist
-                    robot_y += step * dy / dist
-                    robot_theta = math.atan2(dy, dx)
+# ══════════════════════════════════════════════════════════════════════════════
+# TEST 6 — Acquisition LiDAR commune (capteur réel)
+# ══════════════════════════════════════════════════════════════════════════════
 
-            # — Vérification correction Teensy —
-            if should_send_correction_to_teensy():
-                now = time.time()
-                if now - last_correction >= 1.0:
-                    corrections_ok += 1
-                    last_correction = now
-                    if corrected:
-                        logger.debug(f"Correction Teensy #{corrections_ok}: "
-                                     f"({corrected.x:.0f},{corrected.y:.0f}) conf={corrected.confidence:.2f}")
+def test_acquisition(duration_sec: float = 20, color: str = "BLUE", args=None) -> bool:
+    """Teste uniquement la nouvelle lecture, sans dépendre des calculs de balises."""
+    # Réutilise les paramètres de la commande, ou prépare ceux d’un appel direct.
+    if args is None:
+        args = argparse.Namespace(duration=duration_sec, color=color)
+    # Le moteur commun n’active ni détection ni localisation au niveau 6.
+    return _hardware_test(6, args)
 
-            # Log périodique
-            if frames % 40 == 0:
-                elapsed = time.time() - start
-                ok(f"  t={elapsed:.1f}s | pos=({robot_x:.0f},{robot_y:.0f}) | "
-                   f"SVD={svd_poses_seen} | paths={paths_computed} | corrections={corrections_ok}")
 
-            time.sleep(0.05)
+# ══════════════════════════════════════════════════════════════════════════════
+# TEST 7 — Détection adverse depuis les scans de l’acquisition commune
+# ══════════════════════════════════════════════════════════════════════════════
 
-        stop_lidar_runtime()
+def test_detection(duration_sec: float = 20, color: str = "BLUE", args=None) -> bool:
+    """Exécute la détection ; ne certifie pas à lui seul l’identification adverse."""
+    # Le robot reste immobile ; X, Y et orientation doivent correspondre au réel.
+    if args is None:
+        args = argparse.Namespace(duration=duration_sec, color=color,
+                                  x=None, y=None, theta_deg=None)
+    # La détection reçoit les mesures déjà acquises ; detection.start() n’est pas appelé.
+    return _hardware_test(7, args)
 
-        section("Bilan final")
-        ok(f"Frames de boucle    : {frames}")
-        ok(f"Poses SVD reçues    : {svd_poses_seen}")
-        ok(f"Chemins calculés    : {paths_computed}")
-        ok(f"Corrections Teensy  : {corrections_ok}")
-        ok(f"Position finale     : ({robot_x:.0f}, {robot_y:.0f})")
 
-        print()
-        passed = paths_computed > 0
-        if passed:
-            ok("TEST 8 PASSED — Pipeline complet fonctionnel")
-        else:
-            fail("TEST 8 FAILED — Pathfinder n'a calculé aucun chemin")
-        return record("pipeline", passed)
+# ══════════════════════════════════════════════════════════════════════════════
+# TEST 8 — Pipeline complet avec acquisition commune (sans Teensy réelle)
+# ══════════════════════════════════════════════════════════════════════════════
 
-    except Exception as e:
-        fail(f"TEST 8 FAILED : {e}")
-        import traceback; traceback.print_exc()
-        return record("pipeline", False)
+def test_full_pipeline(duration_sec: float = 30, color: str = "BLUE", args=None) -> bool:
+    """Teste localisation, détection et navigation sur les mêmes mesures réelles.
+
+    Prérequis : localization.process_scan(mesures) adapté et défauts corrigés.
+    Pose réelle et objectif libre à fournir ; aucun déplacement fictif ou réel.
+    Le test exige une nouvelle pose valide et un chemin depuis une telle pose.
+    """
+    if args is None:
+        args = argparse.Namespace(duration=duration_sec, color=color,
+                                  x=None, y=None, theta_deg=None,
+                                  goal_x=None, goal_y=None)
+    # Le test refuse l’ancien lecteur de localization.py ; seul acquisition.py lit.
+    return _hardware_test(8, args)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -712,97 +814,103 @@ def test_full_pipeline(duration_sec: int = 30, color: str = "BLUE") -> bool:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def print_summary() -> None:
-    print("\n" + "=" * 72)
-    print("  RÉSUMÉ DES TESTS")
-    print("=" * 72)
-    total  = len(RESULTS)
-    passed = sum(1 for v in RESULTS.values() if v)
+    """Présentation conservée : un statut par test et bilan global."""
+    header("RÉSUMÉ DES TESTS")
+    total = len(RESULTS)
+    passed = sum(1 for result in RESULTS.values() if result)
     for name, result in RESULTS.items():
         status = "[OK] PASS" if result else "[FAIL] FAIL"
         print(f"  {status}  —  {name}")
     print("-" * 72)
     print(f"  {passed}/{total} tests réussis")
-    if passed == total:
-        print("  OK  TOUS LES TESTS PASSÉS")
+    if total and passed == total:
+        print("  OK  TOUS LES TESTS EXÉCUTÉS SONT PASSÉS")
     else:
-        print(f"  [WARN]   {total - passed} test(s) en échec")
+        print(f"  [WARN]  {total - passed} test(s) en échec")
+    print("  Le niveau 4 teste une formule locale, pas le filtre du robot.")
+    print("  Détection et précision de localisation restent à vérifier physiquement.")
     print("=" * 72 + "\n")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MAIN
+# MAIN — sélection des tests (présentation du document d’origine)
 # ══════════════════════════════════════════════════════════════════════════════
 
+# Chaque niveau possède maintenant sa fonction et sa section, comme les tests 1-5.
+# Le booléen indique si le capteur réel est nécessaire.
 TESTS = {
-    1: ("Terrain (obstacles, balises, symétrie)",          test_terrain,               False),
-    2: ("Pathfinder (A*, grille, inflation)",               test_pathfinder,            False),
-    3: ("Strategy (actions, chrono, validation)",           test_strategy,              False),
-    4: ("Filtre complémentaire adaptatif",                  test_complementary_filter,  False),
-    5: ("lidar_logic static (SVD, fenêtres, constantes)",   test_lidar_logic_static,    False),
-    6: ("Thread LiDAR réel (scan + balises)",               test_lidar_thread_basic,    True),
-    8: ("Pipeline complet (LiDAR->SVD->filtre->pathfinder)",  test_full_pipeline,         True),
+    1: ("Terrain (obstacles, balises, symétrie)", test_terrain, False),
+    2: ("Pathfinder (A*, grille, inflation)", test_pathfinder, False),
+    3: ("Stratégie (actions, chrono, validation)", test_strategy, False),
+    4: ("Filtre complémentaire : formule de référence", test_complementary_filter, False),
+    5: ("Localisation statique (SVD, fenêtres, constantes)", test_localization_static, False),
+    6: ("Acquisition LiDAR commune (scans et fraîcheur)", test_acquisition, True),
+    7: ("Détection adverse sur scans communs", test_detection, True),
+    8: ("Pipeline commun (localisation, détection, navigation)", test_full_pipeline, True),
 }
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Test complet CDR 2026 — LiDAR réel, Teensy simulée"
-    )
-    parser.add_argument(
-        "--level", type=int, default=0,
-        help="Numéro de test à exécuter (0 = tous, 1-8 = specifique)"
-    )
-    parser.add_argument(
-        "--duration", type=int, default=20,
-        help="Durée des tests LiDAR (secondes, défaut 20)"
-    )
-    parser.add_argument(
-        "--color", default="BLUE",
-        help="Couleur d'équipe BLUE ou YELLOW (défaut BLUE)"
-    )
-    parser.add_argument(
-        "--no-lidar", action="store_true",
-        help="Sauter les tests nécessitant le LiDAR branché (tests 6-8)"
-    )
+# REMPLACEMENT : organise les nouveaux niveaux et vérifie les arguments fournis.
+def main():
+    # Construit l’aide de la commande à partir de la description du fichier.
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    # CHANGEMENT : niveau 6 par défaut ; 0 = tous ; le niveau 7 existe désormais.
+    parser.add_argument("--level", type=int, choices=range(9), default=6)
+    # Accepte une durée en secondes, éventuellement décimale.
+    parser.add_argument("--duration", type=float, default=20)
+    # Accepte BLUE/YELLOW et normalise la casse au lieu de corriger silencieusement une faute.
+    parser.add_argument("--color", type=str.upper, choices=("BLUE", "YELLOW"), default="BLUE")
+    # Cette option sélectionne uniquement les cinq tests sans capteur branché.
+    parser.add_argument("--no-lidar", action="store_true", help="Executer seulement les niveaux 1 a 5")
+    # AJOUT : coordonnée réelle X du robot immobile, en millimètres.
+    parser.add_argument("--x", type=float, help="Position reelle X du robot immobile en mm")
+    # AJOUT : coordonnée réelle Y du robot immobile, en millimètres.
+    parser.add_argument("--y", type=float, help="Position reelle Y du robot immobile en mm")
+    # AJOUT : orientation réelle ; la conversion en radians est faite ensuite.
+    parser.add_argument("--theta-deg", type=float, help="Orientation reelle selon la convention du code, en degres")
+    # AJOUT : objectif X requis pour le calcul de chemin au niveau 8.
+    parser.add_argument("--goal-x", type=float, help="Objectif de navigation X, mm (niveau 8)")
+    # AJOUT : objectif Y requis pour le calcul de chemin au niveau 8.
+    parser.add_argument("--goal-y", type=float, help="Objectif de navigation Y, mm (niveau 8)")
+    # Lit et convertit les options saisies dans le terminal.
     args = parser.parse_args()
-
-    color = args.color.upper()
-    if color not in ("BLUE", "YELLOW"):
-        color = "BLUE"
-
+    # Refuse une durée nulle, négative, NaN ou infinie.
+    if not math.isfinite(args.duration) or args.duration <= 0:
+        # Explique l’erreur et quitte avec un code d’échec.
+        parser.error("--duration doit etre strictement positive et finie")
+    # Vérifie les cinq arguments numériques de position et d’objectif.
+    for field in ("x", "y", "theta_deg", "goal_x", "goal_y"):
+        # Récupère la valeur de l’argument dont le nom est dans field.
+        value = getattr(args, field)
+        # Les arguments absents restent permis jusqu’au contrôle du niveau concerné.
+        if value is not None and not math.isfinite(value):
+            # Indique précisément quel argument contient une valeur non finie.
+            parser.error(f"--{field.replace('_', '-')} doit etre fini")
     print("\n" + "+" + "=" * 70 + "+")
-    print("|" + "  CDR 2026 — TEST COMPLET ROBOT (LiDAR réel, Teensy simulée)".center(70) + "|")
+    print("|" + "  CDR — TEST COMPLET ROBOT / ACQUISITION LiDAR COMMUNE".center(70) + "|")
     print("+" + "=" * 70 + "+")
-    print(f"  Équipe    : {color}")
-    print(f"  Durée LiDAR: {args.duration}s par test")
-    print(f"  LiDAR requis: {'OUI' if not args.no_lidar else 'SAUTÉ (--no-lidar)'}")
-    print()
-
-    if args.level == 0:
-        # Tous les tests
-        for num, (desc, fn, needs_lidar) in TESTS.items():
-            if needs_lidar and args.no_lidar:
-                print(f"\n  --  Test {num} SAUTÉ (nécessite LiDAR) : {desc}")
-                continue
-            if needs_lidar:
-                fn(duration_sec=args.duration, color=color)
-            else:
-                fn(color=color)
-    else:
-        if args.level not in TESTS:
-            fail(f"Niveau {args.level} inconnu. Choisir entre 1 et {max(TESTS)}")
-            sys.exit(1)
-        desc, fn, needs_lidar = TESTS[args.level]
-        if needs_lidar and args.no_lidar:
-            print(f"  --  Test {args.level} SAUTÉ (--no-lidar)")
-        elif needs_lidar:
-            fn(duration_sec=args.duration, color=color)
+    print(f"  Équipe      : {args.color}")
+    print(f"  Durée LiDAR : {args.duration}s par test")
+    print(f"  LiDAR requis: {'NON (--no-lidar)' if args.no_lidar else 'selon le niveau'}")
+    print("  Robot immobile ; aucune commande moteur envoyée.")
+    # Sans LiDAR : 1-5 ; niveau 0 : tous ; sinon : seulement le niveau demandé.
+    levels = list(range(1, 6)) if args.no_lidar else (list(TESTS) if args.level == 0 else [args.level])
+    # Efface les anciens résultats avant une nouvelle exécution du lanceur.
+    RESULTS.clear()
+    # Chaque fonction de test figure explicitement dans TESTS.
+    for level in levels:
+        description, function, needs_lidar = TESTS[level]
+        if needs_lidar:
+            function(duration_sec=args.duration, color=args.color, args=args)
         else:
-            fn(color=color)
-
+            function(color=args.color)
+    # Rétablit le même bilan détaillé que dans le document initial.
     print_summary()
-    sys.exit(0 if all(RESULTS.values()) else 1)
+    # Renvoie 0 uniquement si au moins un test a été exécuté et si tous ont réussi.
+    return 0 if RESULTS and all(RESULTS.values()) else 1
 
 
+# Ne lance les tests automatiquement que si ce fichier est exécuté comme programme.
 if __name__ == "__main__":
-    main()
+    # Transmet au terminal le code de succès/échec, utile pour l’automatisation.
+    raise SystemExit(main())
