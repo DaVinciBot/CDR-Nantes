@@ -1,8 +1,5 @@
 """Acquisition partagee du RPLIDAR, sans detection ni localisation.
 
-Essai depuis la racine du depot :
-    python -m robot1.rasp.vision.acquisition
-
 Ne pas lancer en meme temps que les anciens lecteurs de detection/localization.
 """
 
@@ -19,6 +16,15 @@ Pour chaque scan, le programme :
 2.	Vérifie que leurs valeurs sont valides.
 3.	Conserve les points valides avec leur qualité, angle et distance.
 4.	Met le scan complet filtré à disposition des autres modules.
+
+Exemple de sortie :
+(
+    (12, 30.0, 800.0),
+    (11, 31.0, 810.0),
+    (12, 32.0, 805.0),
+)
+-> (qualité, angle en degrés, distance en millimètres)
+-> Liste de tuples, chaque tuple représentant un point mesuré par le LiDAR.
 """
 
 import logging
@@ -26,7 +32,7 @@ import math
 import threading
 import time
 from dataclasses import dataclass
-from typing import Optional, tuple
+from typing import Optional
 
 from rplidar import RPLidar
 

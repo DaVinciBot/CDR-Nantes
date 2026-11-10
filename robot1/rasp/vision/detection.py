@@ -1,3 +1,26 @@
+"""Classe les groupes du LiDAR et suit un adversaire possible.
+
+Entree : (qualite, angle en degres, distance en mm). La convention historique
+est conservee : angle 0 = +Y local, angle 90 = +X local.
+
+Acquisition partagee : update_robot_pose(x, y, theta), puis
+push_scan(scan.mesures). Ne pas appeler start() en mode materiel en parallele
+avec acquisition.py. L'ancienne API start/stop reste compatible avec app.py.
+
+get_clusters() donne les classes et les points de chaque groupe recent.
+get_opponent() garde le format historique (x_mm, y_mm, score) ou None.
+Essai sans materiel : python -m robot1.rasp.vision.detection --demo
+
+Le code peut trouver plusieurs groupes adversaire_possible, mais il n’en propose qu’un seul au suivi : le plus proche de du robot.
+
+Par exemple, si deux candidats sont à 700 mm et 900 mm, il propose celui à 700 mm. Les deux restent visibles dans get_clusters(), tandis que get_opponent() renvoie au maximum une cible suivie.
+
+Retour : 
+detection.get_clusters() -> Tuple d’objets `Cluster` -> Tous les groupes détectés 
+groupe.categorie -> String -> mur_probable
+detection.get_opponent() ->Tuple de trois nombres ou None -> (1120.0, 995.0, 1.0)
+"""
+
 """Opponent detection from the A2M12 LiDAR.
 
 Raw cluster centroid, exponential smoothing, speed gating. No geometric fit, so
@@ -29,7 +52,14 @@ from typing import Optional, Tuple, List
 
 import numpy as np
 
-from robot1.rasp.clock import DEFAULT_CLOCK
+try:
+    from robot1.rasp.clock import DEFAULT_CLOCK
+except ModuleNotFoundError as exc:
+    if exc.name != "robot1.rasp.clock":
+        raise
+    # Compatibilité avec l'ancien dépôt, sans clock.py.
+    from types import SimpleNamespace
+    DEFAULT_CLOCK = SimpleNamespace(now=time.monotonic, sleep=time.sleep)
 
 from .lidar_config import BAUDRATE, PORT, TIMEOUT
 
@@ -41,6 +71,7 @@ logger = logging.getLogger("LIDAR_DETECT")
 # opponent detection on the robot until 11/09/2026.
 
 # Filters
+MAX_SCAN_DIST_MM = 4000  # portée d’analyse des murs, distincte de la portée adverse
 MIN_DIST_MM    = 200     # reliable dead zone of the A2M12
 DETECT_DIST_MM = 1500    # < 520 mm hides the walls of the test field
                          # CDR value: 1500
@@ -56,6 +87,16 @@ FIELD_MARGIN = 500       # CDR value: 500
 # Clustering
 CLUSTER_GAP_MM  = 80     # max distance between two consecutive points of a cluster
 CLUSTER_MIN_PTS = 3      # a cluster this small is noise
+
+# Classification : valeurs de départ à régler sur les scans réels.
+CLUSTER_GAP_DEG = 6.0
+WALL_MARGIN_MM = 55.0        # tolérance de pose et de mesure près d’un bord connu
+WALL_MAP_MIN_LENGTH_MM = 100.0
+WALL_MAP_MIN_FRACTION = 0.8
+WALL_LONG_MIN_LENGTH_MM = 650.0
+WALL_MAX_RMS_MM = 22.0        # dispersion perpendiculaire à la droite ajustée
+OPP_MIN_SPAN_MM = 60.0       # taille observée de la face, pas du robot entier
+OPP_MAX_SPAN_MM = 450.0
 
 # Time tracking
 MAX_MISSED_SCANS    = 5        # scans without detection before forgetting
@@ -79,13 +120,28 @@ class _OpponentState:
     y:          float = 0.0
     confidence: float = 0.0
     missed:     int   = 0
-    timestamp:  float = 0.0
+    timestamp:  Optional[float] = None
+
+@dataclass(frozen=True)
+class Cluster:
+    """Groupe observé : centre et points dans le repère terrain si pose fournie."""
+    categorie: str
+    raison: str
+    x_mm: float
+    y_mm: float
+    distance_mm: float
+    longueur_mm: float
+    largeur_mm: float
+    rms_droite_mm: float
+    points: Tuple[Tuple[float, float], ...]
+
 
 @dataclass
 class _RobotPose:
     x:     float = 0.0
     y:     float = 0.0
     theta: float = 0.0
+    connue: bool = False
 
 @dataclass
 class _Status:
@@ -98,6 +154,9 @@ _status        = _Status()
 _opponent_lock = threading.Lock()
 _pose_lock     = threading.Lock()
 _status_lock   = threading.Lock()
+_clusters_lock = threading.Lock()
+_clusters: Tuple[Cluster, ...] = ()
+_clusters_time: Optional[float] = None
 _running       = False
 _thread: Optional[threading.Thread] = None
 
@@ -174,16 +233,25 @@ def update_robot_pose(x: float, y: float, theta: float) -> None:
         _robot_pose.x     = x
         _robot_pose.y     = y
         _robot_pose.theta = theta
+        _robot_pose.connue = True
 
 
 def get_opponent() -> Optional[Tuple[float, float, float]]:
     """Return (x_mm, y_mm, confidence) in field coordinates, or None."""
     with _opponent_lock:
-        if _opponent.confidence < 0.1 or _opponent.timestamp == 0.0:
+        if _opponent.confidence < 0.1 or _opponent.timestamp is None:
             return None
         if _clock.now() - _opponent.timestamp > STALE_TIMEOUT_S:
             return None
         return (_opponent.x, _opponent.y, _opponent.confidence)
+
+
+def get_clusters() -> Tuple[Cluster, ...]:
+    """Tous les groupes classés du dernier scan récent, murs compris."""
+    with _clusters_lock:
+        if _clusters_time is None or _clock.now() - _clusters_time > STALE_TIMEOUT_S:
+            return ()
+        return _clusters
 
 
 def get_status() -> Tuple[bool, str]:
@@ -238,88 +306,125 @@ def start(timeout_s: float = CONNECT_TIMEOUT_S) -> bool:
     return False
 
 
+def _clear_results():
+    global _clusters, _clusters_time, _opponent
+    with _clusters_lock:
+        _clusters, _clusters_time = (), None
+    with _opponent_lock:
+        _opponent = _OpponentState()
+
+
 def stop() -> None:
     """Stop the acquisition thread cleanly (waits up to 3 s)."""
     global _running
     _running = False
     if _pushed_mode:
         _set_status(False)
+        _clear_results()
         logger.info("Detection arretee (scans pousses).")
         return
     if _thread:
         _thread.join(timeout=3.0)
+    _clear_results()
     logger.info("Thread LiDAR arrete.")
 
 # ── SCAN PROCESSING ───────────────────────────────────────────────────────────
 
+def _classify(points, rx, ry, pose_known):
+    """Mesure la forme d’un groupe puis donne une hypothèse et sa raison."""
+    arr = np.asarray(points, dtype=float)
+    centre = arr.mean(axis=0)
+    centred = arr - centre
+    # L’axe principal suit la direction la plus allongée du groupe.
+    _, axes = np.linalg.eigh(centred.T @ centred)
+    principal = centred @ axes[:, 1]
+    lateral = centred @ axes[:, 0]
+    longueur = float(np.ptp(principal))
+    largeur = float(np.ptp(lateral))
+    rms = float(np.sqrt(np.mean(lateral ** 2)))
+    distance = math.hypot(centre[0] - rx, centre[1] - ry)
+
+    # Distance aux quatre bords du terrain. Vérifier chaque bord séparément
+    # évite de confondre deux côtés d’un coin avec un seul mur.
+    near_wall = False
+    if pose_known:
+        x, y = arr.T
+        distances = (abs(x), abs(x - FIELD_W), abs(y), abs(y - FIELD_H))
+        near_wall = any(np.mean(d <= WALL_MARGIN_MM) >= WALL_MAP_MIN_FRACTION
+                        for d in distances)
+    if len(points) < CLUSTER_MIN_PTS:
+        categorie, raison = "inconnu", "Trop peu de points pour estimer la forme"
+    elif near_wall and longueur >= WALL_MAP_MIN_LENGTH_MM and rms <= WALL_MAX_RMS_MM:
+        categorie, raison = "mur_probable", "Groupe rectiligne aligné avec un bord connu"
+    elif longueur >= WALL_LONG_MIN_LENGTH_MM and rms <= WALL_MAX_RMS_MM:
+        categorie, raison = "mur_probable", "Segment long et rectiligne (mur ou paroi fixe)"
+    elif near_wall:
+        categorie, raison = "inconnu", "Près d’un bord : mur et objet voisin difficiles à séparer"
+    elif (pose_known and distance <= DETECT_DIST_MM
+          and OPP_MIN_SPAN_MM <= longueur <= OPP_MAX_SPAN_MM
+          and largeur <= OPP_MAX_SPAN_MM
+          and 0 <= centre[0] <= FIELD_W and 0 <= centre[1] <= FIELD_H):
+        categorie, raison = "adversaire_possible", "Taille compatible avec une face de robot"
+    else:
+        categorie, raison = "inconnu", "Pose, portée ou dimensions insuffisantes pour classer"
+    return Cluster(categorie, raison, float(centre[0]), float(centre[1]),
+                   distance, longueur, largeur, rms, tuple(points))
+
+
 def _process_scan(raw_scan) -> None:
-    """Process one full scan: filter, project to field, cluster, track."""
-
-    # 1. Quality and distance filter, then projection into the robot frame
-    pts_robot = []
-    for quality, angle_deg, dist_mm in raw_scan:
-        if dist_mm < MIN_DIST_MM or dist_mm > DETECT_DIST_MM:
-            continue
-        if quality < MIN_QUALITY:
-            continue
-        rad = math.radians(angle_deg + ANGLE_OFFSET_DEG)
-        pts_robot.append((dist_mm * math.sin(rad), dist_mm * math.cos(rad)))
-
-    if len(pts_robot) < CLUSTER_MIN_PTS:
-        _mark_missed()
-        return
-
-    # 2. Conversion to field coordinates
+    """Filtre, projette, regroupe, classe et suit les candidats adverses."""
+    global _clusters, _clusters_time
     with _pose_lock:
         rx, ry, rtheta = _robot_pose.x, _robot_pose.y, _robot_pose.theta
-
+        pose_known = _robot_pose.connue
     cos_t, sin_t = math.cos(rtheta), math.sin(rtheta)
-    pts_terrain = []
-    for xr, yr in pts_robot:
+    samples = []
+    for quality, angle_deg, dist_mm in raw_scan:
+        if not all(math.isfinite(v) for v in (quality, angle_deg, dist_mm)):
+            continue
+        if not MIN_DIST_MM <= dist_mm <= MAX_SCAN_DIST_MM or quality < MIN_QUALITY:
+            continue
+        angle = (angle_deg + ANGLE_OFFSET_DEG) % 360.0
+        rad = math.radians(angle)
+        xr, yr = dist_mm * math.sin(rad), dist_mm * math.cos(rad)
         x_t = rx + xr * cos_t - yr * sin_t
         y_t = ry + xr * sin_t + yr * cos_t
-        if (-FIELD_MARGIN <= x_t <= FIELD_W + FIELD_MARGIN and
-            -FIELD_MARGIN <= y_t <= FIELD_H + FIELD_MARGIN):
-            pts_terrain.append((x_t, y_t))
-
-    if len(pts_terrain) < CLUSTER_MIN_PTS:
-        _mark_missed()
-        return
-
-    # 3. Angular clustering
-    pts_sorted = sorted(pts_terrain,
-                        key=lambda p: math.atan2(p[1] - ry, p[0] - rx))
-
-    clusters: List[List[Tuple[float, float]]] = []
-    current = [pts_sorted[0]]
-    for i in range(1, len(pts_sorted)):
-        if math.hypot(pts_sorted[i][0] - current[-1][0],
-                      pts_sorted[i][1] - current[-1][1]) > CLUSTER_GAP_MM:
-            clusters.append(current)
-            current = [pts_sorted[i]]
-        else:
-            current.append(pts_sorted[i])
-    clusters.append(current)
-
-    # 4. Best cluster: the closest one with enough points.
-    #    KNOWN LIMITATION: nothing tells a wall, a beacon mast or a fixed
-    #    obstacle apart from the opponent. Whatever stands closest within
-    #    DETECT_DIST_MM wins. Only DETECT_DIST_MM and the field bounding box
-    #    keep it honest today. To be validated in match conditions before the
-    #    rewrite.
-    best = None
-    best_dist = float('inf')
-    for cluster in clusters:
-        if len(cluster) < CLUSTER_MIN_PTS:
+        if pose_known and not (-FIELD_MARGIN <= x_t <= FIELD_W + FIELD_MARGIN
+                              and -FIELD_MARGIN <= y_t <= FIELD_H + FIELD_MARGIN):
             continue
-        arr = np.array(cluster, dtype=np.float32)
-        cx = float(arr[:, 0].mean())
-        cy = float(arr[:, 1].mean())
-        dist = math.hypot(cx - rx, cy - ry)
-        if dist < best_dist:
-            best_dist = dist
-            conf = min(1.0, len(cluster) / 8.0)
-            best = (cx, cy, conf, len(cluster))
+        samples.append((angle, x_t, y_t))
+    samples.sort(key=lambda p: p[0])
+
+    def proches(a, b):
+        return ((b[0] - a[0]) % 360 <= CLUSTER_GAP_DEG
+                and math.hypot(b[1] - a[1], b[2] - a[2]) <= CLUSTER_GAP_MM)
+
+    # Séparer les surfaces aux ruptures de distance ou d’angle.
+    groupes = []
+    for point in samples:
+        if not groupes or not proches(groupes[-1][-1], point):
+            groupes.append([])
+        groupes[-1].append(point)
+    # Un objet traversant 359° -> 0° ne doit pas être coupé en deux.
+    if len(groupes) > 1 and proches(groupes[-1][-1], groupes[0][0]):
+        groupes[0] = groupes.pop() + groupes[0]
+
+    groupes_classes = tuple(
+        _classify([(x, y) for _, x, y in groupe], rx, ry, pose_known)
+        for groupe in groupes
+    )
+    now = _clock.now()
+    with _clusters_lock:
+        _clusters = groupes_classes
+        _clusters_time = now
+
+    # Seuls les candidats compatibles sont transmis au suivi d’adversaire.
+    candidats = [c for c in groupes_classes if c.categorie == "adversaire_possible"]
+    choisi = min(candidats, key=lambda c: c.distance_mm, default=None)
+    best = None if choisi is None else (choisi.x_mm, choisi.y_mm,
+                                       min(1.0, len(choisi.points) / 8.0),
+                                       len(choisi.points))
+    best_dist = choisi.distance_mm if choisi else float("inf")
 
     # 5. Update with smoothing and gating
     now = _clock.now()
@@ -333,7 +438,9 @@ def _process_scan(raw_scan) -> None:
         cx, cy, conf, npts = best
 
         # Gating: reject physically impossible jumps
-        if _opponent.confidence > 0.1 and _opponent.missed < MAX_MISSED_SCANS:
+        if (_opponent.confidence > 0.1 and _opponent.missed < MAX_MISSED_SCANS
+                and _opponent.timestamp is not None
+                and 0 <= now - _opponent.timestamp <= STALE_TIMEOUT_S):
             dt = max(now - _opponent.timestamp, 0.05)
             max_jump = MAX_OPP_SPEED_MM_S * dt
             jump = math.hypot(cx - _opponent.x, cy - _opponent.y)
@@ -435,3 +542,68 @@ def _lidar_loop() -> None:
             except Exception:
                 pass
         logger.info("Thread LiDAR termine.")
+
+
+def _afficher_groupes():
+    for c in get_clusters():
+        print(f"{c.categorie:22s} | centre=({c.x_mm:.0f}, {c.y_mm:.0f}) mm "
+              f"| longueur={c.longueur_mm:.0f} mm | {len(c.points)} points | {c.raison}")
+    print("Adversaire possible suivi :", get_opponent())
+
+
+def _demo():
+    """Scan simulé : un bord du terrain, une face de robot et un petit objet."""
+    rx, ry = 700.0, 1000.0
+    update_robot_pose(rx, ry, 0.0)
+    points = ([(0, y) for y in range(720, 1281, 20)]
+              + [(1120, y) for y in range(920, 1081, 20)]
+              + [(1050, y) for y in range(1290, 1331, 10)])
+    scan = [(15, math.degrees(math.atan2(x - rx, y - ry)) % 360,
+             math.hypot(x - rx, y - ry)) for x, y in points]
+    push_scan(scan)
+    _afficher_groupes()
+
+
+def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Classe les groupes de points LiDAR.")
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--demo", action="store_true", help="Scan simulé, sans capteur")
+    mode.add_argument("--live", action="store_true", help="Scans réels via acquisition.py")
+    parser.add_argument("--x", type=float, help="X du robot immobile en mm")
+    parser.add_argument("--y", type=float, help="Y du robot immobile en mm")
+    parser.add_argument("--theta-deg", type=float, help="Orientation du robot en degrés")
+    args = parser.parse_args()
+    if args.demo:
+        _demo()
+        return
+    if any(v is None or not math.isfinite(v) for v in (args.x, args.y, args.theta_deg)):
+        parser.error("--live exige --x, --y et --theta-deg pour comparer les points au terrain")
+    from . import acquisition
+    update_robot_pose(args.x, args.y, math.radians(args.theta_deg))
+    try:
+        if not acquisition.start():
+            raise RuntimeError(acquisition.get_status()[1] or "Aucun scan LiDAR récent")
+        dernier_numero = None
+        prochain_affichage = 0.0
+        while True:
+            _, erreur = acquisition.get_status()
+            if erreur:
+                raise RuntimeError(erreur)
+            scan = acquisition.get_latest_scan()
+            if scan is not None and scan.numero != dernier_numero:
+                push_scan(scan.mesures)
+                dernier_numero = scan.numero
+                if time.monotonic() >= prochain_affichage:
+                    print(f"\nScan {scan.numero}")
+                    _afficher_groupes()
+                    prochain_affichage = time.monotonic() + 1.0
+            time.sleep(0.01)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        acquisition.stop()
+
+
+if __name__ == "__main__":
+    main()
