@@ -51,33 +51,24 @@ logging.basicConfig(
 logger = logging.getLogger("rerun_bridge")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Chemins
+# Terrain et carte statique : definis une seule fois, dans table_map.py
 # ─────────────────────────────────────────────────────────────────────────────
 
-_DIR         = Path(__file__).parent
-PLAYMAT_PATH = _DIR / "map_assets" / "playmat2027" / "Field.png"
+from robot1.rasp.telemetry.table_map import (  # noqa: E402
+    CX,
+    CY,
+    H,
+    W,
+    cylinder_mesh,
+    log_static_map,
+)
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Terrain
-# ─────────────────────────────────────────────────────────────────────────────
-
-W  = 3000.0
-H  = 2000.0
-CX = W / 2   # 1500
-CY = H / 2   # 1000
 TERRAIN_DIAG_MM = math.sqrt(W**2 + H**2)  # ~ 3606 mm
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Couleurs RGBA uint8
 # ─────────────────────────────────────────────────────────────────────────────
 
-C_WALL    = [168, 168, 168, 230]
-C_TABLE   = [ 41, 107,  46,  80]
-C_BEACON  = [255, 255, 255, 240]
-C_SUP_YEL = [247, 181,   0, 220]
-C_SUP_BLU = [  0,  91, 140, 220]
-C_ZONE_Y  = [247, 181,   0, 120]
-C_ZONE_B  = [  0,  91, 140, 120]
 C_ROBOT   = [ 51, 153, 255, 220]
 C_LIDAR_P = [255,  80,  80, 255]
 C_FUSED   = [ 80, 255, 120, 255]
@@ -85,159 +76,11 @@ C_TARGET  = [255, 220,  50, 255]
 C_TRAJ    = [200, 200, 255, 200]
 C_OBS     = [255,  50,  50, 200]
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Géométrie statique du terrain
-# ─────────────────────────────────────────────────────────────────────────────
-
-# Balises — chargées depuis world.py si dispo, sinon fallback
-try:
-    from robot1.rasp.world import BeaconLayout
-    BEACONS_MM = sorted([pos for pos in BeaconLayout.BEACONS.values()])
-    logger.info(f"Balises depuis world.py : {BEACONS_MM}")
-except (ImportError, AttributeError) as e:
-    logger.warning(f"world.py indisponible ({e}) -> positions par defaut")
-    BEACONS_MM = [(-50.0, 1000.0), (3050.0, 1950.0), (3050.0, 50.0)]
-
-BEACON_R_MM = 50.0
-BEACON_H_MM = 1020.0
-
-SUPPORTS_MM = [
-    {"pos": (  -94, 1952), "color": C_SUP_YEL},
-    {"pos": (  -94, 1000), "color": C_SUP_BLU},
-    {"pos": (  -94,   48), "color": C_SUP_YEL},
-    {"pos": ( 3094, 1952), "color": C_SUP_BLU},
-    {"pos": ( 3094, 1000), "color": C_SUP_YEL},
-    {"pos": ( 3094,   48), "color": C_SUP_BLU},
-]
-
-CALC_ZONES_MM = [
-    {"pos": [1275, 2122, 11], "half": [225, 100, 11], "color": C_ZONE_Y},
-    {"pos": [1725, 2122, 11], "half": [225, 100, 11], "color": C_ZONE_B},
-]
-
-WALLS_MM = [
-    {"c": [   -11, 1000,  35], "h": [  11, 1022,  35]},
-    {"c": [  3011, 1000,  35], "h": [  11, 1022,  35]},
-    {"c": [  1500, 2011,  35], "h": [1500,   11,  35]},
-    {"c": [  1500,   -11, 35], "h": [1500,   11,  35]},
-]
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Maillage cylindre
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _cylinder_mesh(cx: float, cy: float, z_bot: float,
-                   radius: float, height: float, n: int = 20):
-    angles = np.linspace(0, 2 * math.pi, n, endpoint=False)
-    ca, sa = np.cos(angles), np.sin(angles)
-    z_top  = z_bot + height
-
-    bot  = np.column_stack([cx + radius*ca, cy + radius*sa, np.full(n, z_bot)])
-    top  = np.column_stack([cx + radius*ca, cy + radius*sa, np.full(n, z_top)])
-    cnt  = np.array([[cx, cy, z_bot], [cx, cy, z_top]])
-    verts = np.vstack([bot, top, cnt]).astype(np.float32)
-
-    bc, tc = 2*n, 2*n + 1
-    tris   = []
-    for i in range(n):
-        j = (i + 1) % n
-        tris += [[i, j, n+j], [i, n+j, n+i]]
-        tris.append([bc, j, i])
-        tris.append([tc, n+i, n+j])
-
-    return verts, np.array(tris, dtype=np.uint32)
-
-
 # Templates robot (centré à (0,0), translaté à la volée)
 ROBOT_R_MM  = 175.0
 ROBOT_H_MM  = 100.0
 ARROW_L_MM  = 250.0
-_RV, _RT    = _cylinder_mesh(0, 0, 0, ROBOT_R_MM, ROBOT_H_MM)
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Carte statique
-# ─────────────────────────────────────────────────────────────────────────────
-
-def log_static_map() -> None:
-    """Publie tous les objets fixes (static=True)."""
-    _log_playmat()
-
-    # Murs
-    rr.log("world/map/walls", rr.Boxes3D(
-        centers   =[w["c"] for w in WALLS_MM],
-        half_sizes=[w["h"] for w in WALLS_MM],
-        colors    =[C_WALL] * len(WALLS_MM),
-    ), static=True)
-
-    # Zones de calcul
-    rr.log("world/map/calc_zones", rr.Boxes3D(
-        centers   =[z["pos"]  for z in CALC_ZONES_MM],
-        half_sizes=[z["half"] for z in CALC_ZONES_MM],
-        colors    =[z["color"] for z in CALC_ZONES_MM],
-    ), static=True)
-
-    # Supports balises
-    sup_c, sup_h, sup_col = [], [], []
-    for sup in SUPPORTS_MM:
-        sx, sy = sup["pos"]
-        col    = sup["color"]
-        sup_c.append([sx, sy, 15]);          sup_h.append([61, 41, 15]);  sup_col.append(col)
-        ox = 35 if sx < CX else -35
-        sup_c.append([sx + ox, sy, 90]);     sup_h.append([20, 35, 75]);  sup_col.append(col)
-
-    rr.log("world/map/beacon_supports", rr.Boxes3D(
-        centers   =np.array(sup_c,   dtype=np.float32),
-        half_sizes=np.array(sup_h,   dtype=np.float32),
-        colors    =np.array(sup_col, dtype=np.uint8),
-    ), static=True)
-
-    # Balises — cylindres vrais
-    for i, (bx, by) in enumerate(BEACONS_MM):
-        verts, tris = _cylinder_mesh(bx, by, 0.0, BEACON_R_MM, BEACON_H_MM)
-        cols = np.tile(C_BEACON, (len(verts), 1)).astype(np.uint8)
-        rr.log(f"world/map/beacon_{i}", rr.Mesh3D(
-            vertex_positions=verts,
-            triangle_indices=tris,
-            vertex_colors   =cols,
-        ), static=True)
-
-    # Stones in their quarries: drawn by table_map, the only place that does.
-    from robot1.rasp.telemetry.table_map import log_stones
-    n_stones = log_stones()
-
-    logger.info(
-        "Carte statique publiée — %d balises | %d supports | %d pierres",
-        len(BEACONS_MM), len(SUPPORTS_MM), n_stones,
-    )
-
-
-def _log_playmat() -> None:
-    if not PLAYMAT_PATH.exists():
-        logger.warning("Playmat introuvable -> table verte unie")
-        rr.log("world/map/table", rr.Boxes3D(
-            centers=[[CX, CY, 1]], half_sizes=[[W/2, H/2, 1]], colors=[C_TABLE],
-        ), static=True)
-        return
-    try:
-        from PIL import Image as PILImage
-        img     = PILImage.open(PLAYMAT_PATH).convert("RGB")
-        img_arr = np.array(img, dtype=np.uint8)
-        verts   = np.array([[0., 0., 0.], [W, 0., 0.], [W, H, 0.], [0., H, 0.]], dtype=np.float32)
-        uvs     = np.array([[0.,1.],[1.,1.],[1.,0.],[0.,0.]], dtype=np.float32)
-        tris    = np.array([[0,1,2],[0,2,3]], dtype=np.uint32)
-        rr.log("world/map/playmat", rr.Mesh3D(
-            vertex_positions=verts,
-            triangle_indices=tris,
-            vertex_texcoords=uvs,
-            albedo_texture  =img_arr,
-        ), static=True)
-        logger.info("Playmat %s (%dx%d)", PLAYMAT_PATH.name, img.width, img.height)
-    except Exception as e:
-        logger.error("Erreur playmat : %s", e)
-        rr.log("world/map/table", rr.Boxes3D(
-            centers=[[CX, CY, 1]], half_sizes=[[W/2, H/2, 1]], colors=[C_TABLE],
-        ), static=True)
+_RV, _RT    = cylinder_mesh(0, 0, 0, ROBOT_R_MM, ROBOT_H_MM)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers robot
@@ -683,7 +526,7 @@ def create_blueprint() -> rrb.Blueprint:
     return rrb.Blueprint(
         rrb.Vertical(
             rrb.Horizontal(
-                rrb.Spatial3DView(name="Terrain Eurobot 2026", origin="world"),
+                rrb.Spatial3DView(name="Terrain Eurobot 2027", origin="world"),
                 rrb.Spatial2DView(name="Lidar Polaire (Radar)", origin="sensors/lidar"),
                 column_shares=[2, 1],
             ),
@@ -703,7 +546,7 @@ def create_blueprint() -> rrb.Blueprint:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Rerun Bridge — Eurobot 2026")
+    p = argparse.ArgumentParser(description="Rerun Bridge — Eurobot 2027")
     p.add_argument("--mode", choices=["local", "serve", "connect"], default="local",
                    help="local=viewer spawné | serve=stream gRPC | connect=gRPC distant")
     p.add_argument("--host",    default="0.0.0.0",  help="Host serve/connect")
@@ -712,7 +555,7 @@ def main() -> None:
     p.add_argument("--with-lidar", action="store_true", help="Polling lidar hardware")
     args = p.parse_args()
 
-    rr.init("eurobot_2026")
+    rr.init("eurobot_2027")
 
     if args.mode == "local":
         spawn_viewer()
