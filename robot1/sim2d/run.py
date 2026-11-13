@@ -6,11 +6,15 @@
 Run from the repository root (sim2d and replay launch from there, tools/ and
 tests/ from robot1/rasp/).
 
-Two scenarios, and they answer two different questions:
+Three scenarios, and they answer different questions:
 
     carre  the simulator itself. Drives the link directly, no pathfinding, no
            strategy. Checks the kinematics moves the robot and that the
            odometry drifts the way the model says it should.
+    ligne  the control law of the Teensy. Three straight lines (0, 30 and
+           90 degrees) driven by a trapezoidal profile sent in SET_TARGET
+           (pose and velocity, every tick). Checks the base reaches 1 m/s and
+           stops without overshooting past the dead zone of the firmware.
     match  the production match loop, unchanged, over 100 simulated seconds.
            Checks it survives, and measures what it costs.
 
@@ -38,20 +42,43 @@ from usb_com import (                                                 # noqa: E4
 )
 
 from robot1.rasp.comm import init_robot                               # noqa: E402
-from robot1.rasp.world import FIELD_HEIGHT_MM, FIELD_WIDTH_MM         # noqa: E402
+from robot1.rasp.world import (                                      # noqa: E402
+    FIELD_HEIGHT_MM,
+    FIELD_WIDTH_MM,
+    MATCH_DURATION_S,
+    START_POSE,
+    mirror_for_team,
+)
 
 from . import transport, viz                                          # noqa: E402
 from .clock import ScaledClock, VirtualClock                          # noqa: E402
+from .kinematics import ACCEL_MM_S2, MAX_SPEED_MM_S                   # noqa: E402
 from .robot import DriftModel, SimulatedRobot                         # noqa: E402
+from .teensy import ARRIVED_DISTANCE_MM                               # noqa: E402
 
 logger = logging.getLogger("SIM2D")
 
 TICK_S = 0.05                 # 20 Hz, same rate as the real match loop
-MATCH_DURATION_S = 100.0      # Eurobot regulation
 SQUARE_SIDE_MM = 800.0
 SQUARE_ORIGIN = (1000.0, 600.0)
 LEG_TIMEOUT_S = 15.0
 ARRIVED_MM = 15.0
+# Straight lines: (start x, start y, direction in degrees, length mm). 0 and
+# 90 degrees are the best and the worst case of the per-wheel limiter (one
+# wheel carries the whole speed at 90); 30 degrees is as bad as 90.
+LINES = (
+    (700.0, 1000.0, 0.0, 1600.0),
+    (700.0, 400.0, 30.0, 1200.0),
+    (1500.0, 400.0, 90.0, 1200.0),
+)
+# Profile acceleration. 10 % under ACCEL_MM_S2: the per-wheel limiter
+# (320 rpm/s) allows 1005 mm/s^2 at 90 degrees, so a profile at 1000 leaves
+# the position loop no authority during the ramps. Measured with KP = 1:
+# overshoot 19 mm at 1000 mm/s^2, 6 mm at 900; with KP = 4, 120 mm and 10 mm.
+LINE_ACCEL_MM_S2 = 900.0
+LINE_SETTLE_S = 1.5           # time left after the profile ends
+LINE_SPEED_RATIO = 0.98       # share of MAX_SPEED_MM_S to reach
+LINE_OVERSHOOT_MM = ARRIVED_DISTANCE_MM   # inside the firmware dead zone
 
 
 def build_clock(speed: str):
@@ -234,6 +261,133 @@ def report_carre(sim, reported, legs_done, legs_total, args) -> int:
     return 0
 
 
+# ── Scenario: straight line ───────────────────────────────────────────────
+
+def trapezoid(t: float, length: float, v_max: float, accel: float) -> tuple:
+    """Position and speed along a trapezoidal profile at time t.
+
+    Stand-in for the profile generator of the match loop, written only for
+    this scenario. Falls back to a triangle when the length is too short to
+    reach v_max.
+
+    Returns:
+        tuple: (position_mm, speed_mm_s, total_duration_s).
+    """
+    v_peak = min(v_max, math.sqrt(accel * length))
+    t_ramp = v_peak / accel
+    d_ramp = 0.5 * accel * t_ramp ** 2
+    t_cruise = (length - 2.0 * d_ramp) / v_peak
+    total = 2.0 * t_ramp + t_cruise
+    if t <= 0.0:
+        return 0.0, 0.0, total
+    if t < t_ramp:
+        return 0.5 * accel * t ** 2, accel * t, total
+    if t < t_ramp + t_cruise:
+        return d_ramp + v_peak * (t - t_ramp), v_peak, total
+    if t < total:
+        left = total - t
+        return length - 0.5 * accel * left ** 2, accel * left, total
+    return length, 0.0, total
+
+
+def scenario_ligne(args) -> int:
+    """Drive straight lines at 1 m/s with the velocity in SET_TARGET."""
+    clock = build_clock(args.speed)
+    x0, y0, _, _ = LINES[0]
+    sim = build_robot(x0, y0, 0.0, args.seed, args.noise)
+    com, mode = init_robot(logger)
+    print(f"Mode de communication : {mode}")
+    print(f"Acceleration du profil : {args.accel:.0f} mm/s^2")
+
+    frames = {"count": 0}
+    com.add_callback(lambda _data: frames.update(count=frames["count"] + 1),
+                     Messages.ODOMETRY.value)
+    if args.rerun:
+        viz.init()
+
+    failures = []
+    print()
+    print("Dir.  Duree   V max   Depass.  Lat. max  Arret odo.  Arret vrai")
+    for x0, y0, direction_deg, length in LINES:
+        ux = math.cos(math.radians(direction_deg))
+        uy = math.sin(math.radians(direction_deg))
+        # The robot is placed at the start, at rest (SET_TARGET then holds it).
+        com.send_bytes(pack_message(Messages.SET_ODOMETRIE, x0, y0, 0.0))
+        com.send_bytes(pack_message(Messages.SET_TARGET, x0, y0, 0.0,
+                                    0.0, 0.0, 0.0))
+        sim.max_speed_mm_s = 0.0
+        _, _, duration = trapezoid(0.0, length, MAX_SPEED_MM_S, args.accel)
+        t_start = sim.time
+        max_along = 0.0
+        max_lateral = 0.0
+
+        while sim.time - t_start < duration + LINE_SETTLE_S:
+            sim.step(TICK_S)
+            com.publish_odometry(clock.now())
+            odom_x, odom_y, _ = sim.odometry_pose()
+            along = (odom_x - x0) * ux + (odom_y - y0) * uy
+            lateral = -(odom_x - x0) * uy + (odom_y - y0) * ux
+            max_along = max(max_along, along)
+            max_lateral = max(max_lateral, abs(lateral))
+
+            # Pose of the profile now, velocity half a tick ahead: the
+            # Teensy extrapolates the pose at that velocity until the next
+            # message, and the mid-period velocity makes that exact under a
+            # constant acceleration. Sending the velocity of now instead runs
+            # the robot ~25 mm/s too fast all along the braking ramp: 23 mm of
+            # overshoot at 0 degrees with KP = 1.
+            tau = sim.time - t_start
+            position, _, _ = trapezoid(tau, length, MAX_SPEED_MM_S,
+                                       args.accel)
+            _, speed, _ = trapezoid(tau + 0.5 * TICK_S, length,
+                                    MAX_SPEED_MM_S, args.accel)
+            com.send_bytes(pack_message(
+                Messages.SET_TARGET, x0 + position * ux, y0 + position * uy,
+                0.0, speed * ux, speed * uy, 0.0,
+            ))
+            if args.rerun:
+                viz.publish(clock.now(), sim)
+            clock.sleep(TICK_S)
+
+        overshoot = max_along - length
+        odom_x, odom_y, _ = sim.odometry_pose()
+        true_x, true_y, _ = sim.true_pose()
+        stop_odom = (odom_x - x0) * ux + (odom_y - y0) * uy - length
+        stop_true = (true_x - x0) * ux + (true_y - y0) * uy - length
+        print(f"{direction_deg:3.0f}   {duration:4.2f} s  "
+              f"{sim.max_speed_mm_s:4.0f}   {overshoot:+5.1f} mm  "
+              f"{max_lateral:5.1f} mm   {stop_odom:+5.1f} mm   "
+              f"{stop_true:+5.1f} mm")
+
+        if sim.max_speed_mm_s < LINE_SPEED_RATIO * MAX_SPEED_MM_S:
+            failures.append(
+                f"{direction_deg:.0f} deg : vitesse max "
+                f"{sim.max_speed_mm_s:.0f} mm/s, sous "
+                f"{LINE_SPEED_RATIO * MAX_SPEED_MM_S:.0f}")
+        if overshoot > LINE_OVERSHOOT_MM:
+            failures.append(
+                f"{direction_deg:.0f} deg : depassement de {overshoot:.1f} "
+                f"mm (tolere {LINE_OVERSHOOT_MM:.0f}, zone morte Teensy)")
+        if abs(stop_odom) > LINE_OVERSHOOT_MM:
+            failures.append(
+                f"{direction_deg:.0f} deg : arret a {stop_odom:+.1f} mm "
+                f"du but")
+
+    print()
+    print("Depassement et arrets mesures sur l'odometrie, ce que la Teensy "
+          "asservit ;")
+    print("l'arret vrai inclut la derive d'odometrie.")
+    print(f"Trames d'odometrie      : {frames['count']}")
+
+    print()
+    if failures:
+        for item in failures:
+            print(f"ECHEC : {item}")
+        return 1
+    print("LIGNE : OK — 1 m/s atteint, arret sans depassement hors zone morte.")
+    return 0
+
+
 # ── Scenario: full match ──────────────────────────────────────────────────
 
 def scenario_match(args) -> int:
@@ -252,9 +406,9 @@ def scenario_match(args) -> int:
     couleur = app.lire_couleur_equipe()
     clock = build_clock(args.speed)
 
-    from robot1.rasp.world import Terrain
-
-    start_x, start_y, start_theta = Terrain(couleur).get_start_position()
+    # Same start pose as StratManager.get_start_position(), whose robot does
+    # not exist yet: the simulated robot must be placed before app.Robot().
+    start_x, start_y, start_theta = mirror_for_team(START_POSE, couleur)
     sim = build_robot(start_x, start_y, start_theta, args.seed, args.noise)
 
     if args.rerun:
@@ -353,7 +507,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Simulateur 2D cinematique — CDR-Nantes",
     )
-    parser.add_argument("--scenario", choices=["carre", "match"],
+    parser.add_argument("--scenario", choices=["carre", "ligne", "match"],
                         default="carre", help="scenario a jouer")
     parser.add_argument("--color", choices=["BLUE", "YELLOW", "blue",
                                             "yellow"],
@@ -366,6 +520,8 @@ def main() -> int:
                         help="derive systematique seule, sans marche aleatoire")
     parser.add_argument("--rerun", action="store_true",
                         help="ouvrir la vue Rerun")
+    parser.add_argument("--accel", type=float, default=LINE_ACCEL_MM_S2,
+                        help="acceleration du profil, mm/s^2 (ligne)")
     parser.add_argument("--budget", type=float, default=1.0,
                         help="budget de temps mur pour un match, en secondes")
     parser.add_argument("--verbose", action="store_true",
@@ -384,6 +540,8 @@ def main() -> int:
 
     if args.scenario == "carre":
         return scenario_carre(args)
+    if args.scenario == "ligne":
+        return scenario_ligne(args)
     return scenario_match(args)
 
 

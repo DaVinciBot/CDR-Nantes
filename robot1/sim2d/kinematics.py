@@ -20,17 +20,30 @@ import math
 WHEEL_ANGLES_DEG = (120.0, 240.0, 0.0)
 WHEEL_ANGLES_RAD = tuple(math.radians(a) for a in WHEEL_ANGLES_DEG)
 
-# config.h: ROBOT_RADIUS, WHEEL_DIAMETER, MKS_MAX_RPM.
+# config.h: ROBOT_RADIUS, WHEEL_DIAMETER, MAX_SPEED_RPM.
 ROBOT_RADIUS_MM = 160.0
 WHEEL_DIAMETER_MM = 60.0
-MAX_WHEEL_RPM = 100.0
+MAX_WHEEL_RPM = 350.0
 
-# A wheel turning at MAX_WHEEL_RPM covers this many mm per second.
-MAX_WHEEL_SPEED_MM_S = MAX_WHEEL_RPM / 60.0 * math.pi * WHEEL_DIAMETER_MM
+# Wheel surface speed (mm/s) to wheel speed (rpm), as in lib/motion.
+MM_S_TO_RPM = 60.0 / (math.pi * WHEEL_DIAMETER_MM)
 
-# config.h: measured ceiling of the whole base, well under the wheel ceiling.
-MAX_SPEED_MM_S = 200.0
-MAX_OMEGA_RAD_S = 2.0
+# A wheel turning at MAX_WHEEL_RPM covers this many mm per second (1099.6).
+MAX_WHEEL_SPEED_MM_S = MAX_WHEEL_RPM / MM_S_TO_RPM
+
+# config.h: MAX_WHEEL_ACCEL_RPM_S, 1 m/s^2 at the wheel (318.3 rpm/s) rounded
+# up. Limit per wheel: the robot itself accelerates 1 to 1.15 times faster,
+# depending on the direction.
+MAX_WHEEL_ACCEL_RPM_S = 320.0
+
+# config.h: ROBOT_MAX_SPEED_MM_S, ROBOT_MAX_RAD_S, ROBOT_MAX_ACCEL_MM_S2.
+# Commanded targets of the base, below the wheel ceiling: 1 m/s needs 318.3 rpm,
+# the remaining ~30 rpm leave room for rotation during a full-speed translation.
+MAX_SPEED_MM_S = 1000.0
+MAX_OMEGA_RAD_S = 3.0
+ACCEL_MM_S2 = 1000.0
+# The same wheel-level budget spent on rotation: alpha = a / R (6.25 rad/s^2).
+ALPHA_RAD_S2 = ACCEL_MM_S2 / ROBOT_RADIUS_MM
 
 
 def inverse_kinematics(vx: float, vy: float, omega: float) -> tuple:
@@ -73,25 +86,3 @@ def forward_kinematics(v1: float, v2: float, v3: float) -> tuple:
     omega = sum(speeds) / (3.0 * ROBOT_RADIUS_MM)
     return vx, vy, omega
 
-
-def clamp_to_wheel_limits(vx: float, vy: float, omega: float) -> tuple:
-    """Scale a twist down until every wheel stays within its speed limit.
-
-    Scaling the whole twist, instead of clipping each wheel on its own, is what
-    the firmware does (proportional normalisation): clipping wheel by wheel
-    changes the direction of travel, scaling only makes the robot slower.
-
-    Args:
-        vx: forward speed, in mm/s.
-        vy: lateral speed, in mm/s.
-        omega: rotation speed, in rad/s.
-
-    Returns:
-        tuple: (vx, vy, omega), scaled down if needed.
-    """
-    speeds = inverse_kinematics(vx, vy, omega)
-    worst = max(abs(v) for v in speeds)
-    if worst <= MAX_WHEEL_SPEED_MM_S or worst == 0.0:
-        return vx, vy, omega
-    factor = MAX_WHEEL_SPEED_MM_S / worst
-    return vx * factor, vy * factor, omega * factor

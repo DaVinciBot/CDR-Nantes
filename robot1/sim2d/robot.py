@@ -5,34 +5,45 @@ robot really is, and only the simulator knows it. The ODOMETRY pose is what the
 Teensy would report, drift included, and it is the only one the match loop ever
 sees. Comparing the two is the whole point of the simulator.
 
-What this is NOT: a model of the firmware. The motion below is a bounded
-proportional controller, not the PID of holonomic_basis.cpp, and it is not
-meant to predict how the real base settles on a target. Guiding principle:
-simulate the world and the sensors, never the firmware. Anything that depends
-on the real control loop is validated on the bench, not here.
+The motion is the control law of the Teensy (teensy.py: extrapolated target,
+P + feed-forward, braking cap, per-wheel limiter), run every 15 ms like the
+firmware ISR, on the odometry pose. The wheels are then taken to turn exactly
+at their command: the drivers, wheel slip and the physics of the base are not
+modelled. The sim tells whether the match loop drives the 2027 control law
+sensibly; settling, overshoot on the real base and gains are validated on the
+bench.
 """
 
+import collections
 import math
 import random
 from dataclasses import dataclass
 
 from .kinematics import (
-    MAX_OMEGA_RAD_S,
-    MAX_SPEED_MM_S,
-    clamp_to_wheel_limits,
+    MM_S_TO_RPM,
     forward_kinematics,
-    inverse_kinematics,
 )
+from .teensy import CONTROL_PERIOD_S, TeensyController
 
-# Approach gains of the simulated base. Deliberately not the firmware PID.
-APPROACH_GAIN = 2.0          # 1/s, on the distance to the target
-APPROACH_GAIN_THETA = 3.0    # 1/s, on the heading error
-ACCEL_MM_S2 = 800.0          # acceleration ceiling, translation
-ACCEL_RAD_S2 = 8.0           # acceleration ceiling, rotation
+# The firmware sends ODOMETRY every second control tick (30 ms, 33.3 Hz).
+ODOMETRY_EVERY_TICKS = 2
 
-# Below these the base is considered arrived and stops asking for speed.
-DEADZONE_MM = 5.0
-DEADZONE_RAD = 0.02
+# Samples kept for the transport. Bounded so a run that never reads them
+# cannot grow without limit; a reader that keeps up never sees more than two.
+ODOMETRY_BACKLOG = 64
+
+
+@dataclass
+class OdometrySample:
+    """What the firmware would put in one ODOMETRY frame."""
+
+    t: float          # simulated time of the sample, s
+    x: float          # odometry pose, mm and rad (table frame)
+    y: float
+    theta: float
+    vx: float         # velocity, table frame, mm/s and rad/s
+    vy: float
+    omega: float
 
 
 @dataclass
@@ -81,13 +92,18 @@ class SimulatedRobot:
         self.odom_y = y
         self.odom_theta = theta
 
-        self.target_x = x
-        self.target_y = y
-        self.target_theta = theta
+        # Simulated time seen by the firmware, s. Advanced by step() only.
+        self.time = 0.0
+        self.controller = TeensyController(x, y, theta)
+        self.wheel_rpm = [0.0, 0.0, 0.0]
+        self._next_tick = 0.0
+        self._ticks = 0
+        self.odometry_samples = collections.deque(maxlen=ODOMETRY_BACKLOG)
 
-        self.vx = 0.0            # field frame, mm/s
+        self.vx = 0.0            # true velocity, field frame, mm/s
         self.vy = 0.0
         self.omega = 0.0
+        self.max_speed_mm_s = 0.0
 
         self.distance_travelled_mm = 0.0
         self.angle_travelled_rad = 0.0
@@ -105,11 +121,30 @@ class SimulatedRobot:
 
     # ── Commands, as they arrive from the match loop ──────────────────────
 
-    def set_target(self, x: float, y: float, theta: float) -> None:
-        """Set the target pose, in field coordinates (SET_TARGET)."""
-        self.target_x = x
-        self.target_y = y
-        self.target_theta = theta
+    def set_target(self, x: float, y: float, theta: float,
+                   vx: float = 0.0, vy: float = 0.0,
+                   omega: float = 0.0) -> None:
+        """Take one SET_TARGET: reference pose and its velocity, field frame.
+
+        Received at the current simulated time: the velocity lives 150 ms
+        from now, as on the Teensy.
+        """
+        self.controller.set_target(self.time, x, y, theta, vx, vy, omega)
+
+    @property
+    def target_x(self) -> float:
+        """X of the last SET_TARGET, in mm (not extrapolated)."""
+        return self.controller.target[0]
+
+    @property
+    def target_y(self) -> float:
+        """Y of the last SET_TARGET, in mm (not extrapolated)."""
+        return self.controller.target[1]
+
+    @property
+    def target_theta(self) -> float:
+        """Heading of the last SET_TARGET, in rad (not extrapolated)."""
+        return self.controller.target[2]
 
     def reset_odometry(self, x: float, y: float, theta: float) -> None:
         """Force both poses to a known value (SET_ODOMETRIE).
@@ -121,31 +156,90 @@ class SimulatedRobot:
         self.true_y = self.odom_y = y
         self.true_theta = self.odom_theta = theta
         self.vx = self.vy = self.omega = 0.0
+        # The robot was placed: the wheels are at rest and the velocity of the
+        # trajectory it was on no longer applies. The target pose is kept.
+        self.controller.reset()
+        self.wheel_rpm = [0.0, 0.0, 0.0]
 
     # ── Integration ───────────────────────────────────────────────────────
 
     def step(self, dt: float) -> None:
         """Advance the simulation by dt seconds.
 
+        The firmware ticks every CONTROL_PERIOD_S whatever dt is: the motion
+        is integrated piecewise, each wheel command held from its tick to the
+        next (zero-order hold), as the drivers hold the last speed sent.
+
         Args:
             dt: time step, in seconds. Must be > 0.
         """
         if dt <= 0.0:
             return
+        end = self.time + dt
+        while True:
+            if self._next_tick <= self.time + 1e-12:
+                self._control_tick()
+            segment_end = min(end, self._next_tick)
+            self._move(segment_end - self.time)
+            self.time = segment_end
+            if self.time >= end - 1e-12:
+                self.time = end
+                break
 
-        wanted_vx, wanted_vy, wanted_omega = self._wanted_velocity()
-        self._apply_acceleration(wanted_vx, wanted_vy, wanted_omega, dt)
+    def _control_tick(self) -> None:
+        """One firmware tick: telemetry first, then the new wheel command."""
+        if self._ticks % ODOMETRY_EVERY_TICKS == 0:
+            self.odometry_samples.append(OdometrySample(
+                self.time, self.odom_x, self.odom_y, self.odom_theta,
+                self.vx, self.vy, self.omega,
+            ))
+        self._ticks += 1
+        self._next_tick += CONTROL_PERIOD_S
+        # The controller servoes on the ODOMETRY, never on the true pose: no
+        # real controller can see where it truly is, and pretending otherwise
+        # hides the only failure mode that matters. Servoing on the true pose
+        # made the robot chase its own drift forever -- app.py stops by
+        # commanding "go to your current estimated pose", which leaves a
+        # permanent error when the estimate is not the truth, and the robot
+        # crept 1.2 m out of the table over a match (measured 22/09/2026).
+        self.wheel_rpm = self.controller.tick(self.time, self.odometry_pose())
+        self._update_velocity()
 
-        # Integrate at the midpoint heading: at 20 Hz and 2 rad/s the end point
-        # heading would already be off by a degree per step.
+    def _update_velocity(self) -> None:
+        """True field-frame velocity produced by the current wheel speeds.
+
+        The controller turned a field-frame velocity into wheel speeds using
+        the heading it BELIEVES it has; the base executes them in its TRUE
+        frame. This is how a heading error becomes a position error: the robot
+        moves confidently in the wrong direction.
+        """
+        surface = [rpm / MM_S_TO_RPM for rpm in self.wheel_rpm]
+        rx, ry, omega = forward_kinematics(*surface)
+        cos_t, sin_t = math.cos(self.true_theta), math.sin(self.true_theta)
+        self.vx = rx * cos_t - ry * sin_t
+        self.vy = rx * sin_t + ry * cos_t
+        self.omega = omega
+        self.max_speed_mm_s = max(self.max_speed_mm_s,
+                                  math.hypot(self.vx, self.vy))
+
+    def _move(self, dt: float) -> None:
+        """Integrate the held wheel speeds over dt seconds."""
+        if dt <= 0.0:
+            return
+        # Integrate at the midpoint heading: over a long segment at speed the
+        # end point heading would already be off.
         mid_theta = self.true_theta + 0.5 * self.omega * dt
-        dx = self.vx * dt
-        dy = self.vy * dt
+        surface = [rpm / MM_S_TO_RPM for rpm in self.wheel_rpm]
+        rx, ry, _ = forward_kinematics(*surface)
+        cos_m, sin_m = math.cos(mid_theta), math.sin(mid_theta)
+        dx = (rx * cos_m - ry * sin_m) * dt
+        dy = (rx * sin_m + ry * cos_m) * dt
         dtheta = self.omega * dt
 
         self.true_x += dx
         self.true_y += dy
         self.true_theta = _wrap_angle(self.true_theta + dtheta)
+        self._update_velocity()
 
         self.distance_travelled_mm += math.hypot(dx, dy)
         self.angle_travelled_rad += abs(dtheta)
@@ -155,75 +249,6 @@ class SimulatedRobot:
         self.max_position_error_mm = max(
             self.max_position_error_mm, self.position_error_mm()
         )
-
-    def _wanted_velocity(self) -> tuple:
-        """Proportional approach of the target, within the base limits.
-
-        The error is measured against the ODOMETRY, never against the true
-        pose: no real controller can see where it truly is, and pretending
-        otherwise hides the only failure mode that matters. Servoing on the
-        true pose made the robot chase its own drift forever -- app.py stops by
-        commanding "go to your current estimated pose", which leaves a
-        permanent error when the estimate is not the truth, and the robot crept
-        1.2 m out of the table over a match (measured 22/09/2026).
-        """
-        ex = self.target_x - self.odom_x
-        ey = self.target_y - self.odom_y
-        etheta = _wrap_angle(self.target_theta - self.odom_theta)
-
-        distance = math.hypot(ex, ey)
-        if distance < DEADZONE_MM:
-            vx = vy = 0.0
-        else:
-            speed = min(APPROACH_GAIN * distance, MAX_SPEED_MM_S)
-            vx = speed * ex / distance
-            vy = speed * ey / distance
-
-        if abs(etheta) < DEADZONE_RAD:
-            omega = 0.0
-        else:
-            omega = max(
-                -MAX_OMEGA_RAD_S,
-                min(MAX_OMEGA_RAD_S, APPROACH_GAIN_THETA * etheta),
-            )
-
-        # The controller turns a field-frame velocity into wheel speeds using
-        # the heading it BELIEVES it has.
-        cos_e, sin_e = math.cos(self.odom_theta), math.sin(self.odom_theta)
-        rx = vx * cos_e + vy * sin_e
-        ry = -vx * sin_e + vy * cos_e
-
-        # The wheel ceiling applies in the robot frame. Scaling the whole twist
-        # is what the firmware does; this is where a diagonal move plus a fast
-        # rotation ends up slower than either alone.
-        rx, ry, omega = clamp_to_wheel_limits(rx, ry, omega)
-
-        # The physical base then executes those wheel speeds in its TRUE frame.
-        # This is how a heading error becomes a position error: the robot moves
-        # confidently in the wrong direction.
-        cos_t, sin_t = math.cos(self.true_theta), math.sin(self.true_theta)
-        vx = rx * cos_t - ry * sin_t
-        vy = rx * sin_t + ry * cos_t
-        return vx, vy, omega
-
-    def _apply_acceleration(
-        self, wanted_vx: float, wanted_vy: float, wanted_omega: float,
-        dt: float,
-    ) -> None:
-        """Move the current velocity toward the wanted one, within limits."""
-        max_dv = ACCEL_MM_S2 * dt
-        dvx = wanted_vx - self.vx
-        dvy = wanted_vy - self.vy
-        norm = math.hypot(dvx, dvy)
-        if norm > max_dv and norm > 0.0:
-            dvx *= max_dv / norm
-            dvy *= max_dv / norm
-        self.vx += dvx
-        self.vy += dvy
-
-        max_domega = ACCEL_RAD_S2 * dt
-        domega = wanted_omega - self.omega
-        self.omega += max(-max_domega, min(max_domega, domega))
 
     def _integrate_odometry(
         self, dx: float, dy: float, dtheta: float, mid_theta: float,
@@ -285,16 +310,8 @@ class SimulatedRobot:
         return _wrap_angle(self.odom_theta - self.true_theta)
 
     def wheel_speeds(self) -> tuple:
-        """Return the three wheel speeds matching the current motion, mm/s.
-
-        Meant to be logged as one of the synthetic sensor streams; they are
-        exposed now because they cost nothing and they prove the kinematics is
-        actually in the loop.
-        """
-        cos_t, sin_t = math.cos(self.true_theta), math.sin(self.true_theta)
-        rx = self.vx * cos_t + self.vy * sin_t
-        ry = -self.vx * sin_t + self.vy * cos_t
-        return inverse_kinematics(rx, ry, self.omega)
+        """Return the three wheel surface speeds being commanded, mm/s."""
+        return tuple(rpm / MM_S_TO_RPM for rpm in self.wheel_rpm)
 
     def body_velocity(self) -> tuple:
         """Return (vx, vy, omega) in the robot frame, from the wheel speeds."""

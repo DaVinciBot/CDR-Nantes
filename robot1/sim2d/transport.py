@@ -16,14 +16,15 @@ import logging
 
 from usb_com import Messages, pack_message, payload_size, unpack_message
 
-from .robot import SimulatedRobot
+from .robot import ODOMETRY_EVERY_TICKS, OdometrySample, SimulatedRobot
+from .teensy import CONTROL_PERIOD_S
 
 logger = logging.getLogger("SIM2D_COM")
 
-# Rate at which the Teensy reports its odometry on the real robot (~10 Hz).
-# Reporting faster here would make the simulated match loop better informed
-# than the real one.
-ODOM_RATE_HZ = 10.0
+# ODOMETRY leaves the firmware every second control tick: 30 ms, 33.3 Hz.
+# The samples are taken by the robot at those instants (robot.py); this rate is
+# only for the log line.
+ODOM_RATE_HZ = 1.0 / (ODOMETRY_EVERY_TICKS * CONTROL_PERIOD_S)
 
 _pending_robot = None
 
@@ -69,7 +70,6 @@ class Sim2dCom:
             )
         self.robot = _pending_robot
         self._callbacks = {}
-        self._next_odom_time = None
         self.frames_sent = 0
         self.unknown_messages = 0
         logger.info("Lien simule pret (odometrie a %.0f Hz).", ODOM_RATE_HZ)
@@ -102,11 +102,9 @@ class Sim2dCom:
         if message_id == Messages.SET_TARGET.value:
             fields = self._unpack(Messages.SET_TARGET, payload)
             if fields is not None:
-                # The trajectory velocity (fields 3 to 5) is a feed-forward
-                # of the firmware PID. The simulated base approaches its
-                # target proportionally instead, so it has no use for it.
-                x, y, theta = fields[:3]
-                self.robot.set_target(x, y, theta)
+                # Pose and velocity of the reference, as the firmware takes
+                # them: extrapolated target, feed-forward for 150 ms.
+                self.robot.set_target(*fields)
         elif message_id == Messages.SET_ODOMETRIE.value:
             fields = self._unpack(Messages.SET_ODOMETRIE, payload)
             if fields is not None:
@@ -125,41 +123,47 @@ class Sim2dCom:
 
     # ── Simulation side ───────────────────────────────────────────────────
 
-    def publish_odometry(self, sim_time: float, *, force: bool = False) -> bool:
-        """Send ODOMETRY if it is due at this simulated time.
+    def publish_odometry(self, sim_time: float, *, force: bool = False) -> int:
+        """Deliver the ODOMETRY frames the firmware produced since last call.
+
+        The robot samples its odometry every 30 ms of simulated time, wherever
+        the steps of the loop fall: a 50 ms loop tick receives one or two
+        frames, like the real link, and the last one wins in app.py.
 
         The pose is the drifting odometry, as on the real link. The velocity
-        is the true one: the simulator has no velocity estimator, and the
-        match loop only reads the pose today.
+        is the true one, table frame: the simulator has no velocity estimator.
 
         Args:
-            sim_time: current simulated time, in seconds.
-            force: send now whatever the rate, used for the first frame.
+            sim_time: current simulated time, in seconds. Only used by force.
+            force: also send the current pose now, used for the first frame,
+                before any step.
 
         Returns:
-            bool: True if a frame was delivered.
+            int: number of frames delivered.
         """
-        if self._next_odom_time is None:
-            self._next_odom_time = sim_time
-        if not force and sim_time < self._next_odom_time:
-            return False
-
-        self._next_odom_time = sim_time + 1.0 / ODOM_RATE_HZ
+        robot = self.robot
+        if force:
+            robot.odometry_samples.append(OdometrySample(
+                sim_time, *robot.odometry_pose(),
+                robot.vx, robot.vy, robot.omega,
+            ))
         callback = self._callbacks.get(Messages.ODOMETRY.value)
-        if callback is None:
-            return False
-
-        x, y, theta = self.robot.odometry_pose()
-        # t_us is the micros() of the Teensy: a uint32 that wraps.
-        t_us = int(sim_time * 1e6) & 0xFFFFFFFF
-        message = pack_message(
-            Messages.ODOMETRY, x, y, theta,
-            self.robot.vx, self.robot.vy, self.robot.omega, t_us,
-        )
-        # A callback receives the data without the ID byte, as with Com.
-        callback(message[1:])
-        self.frames_sent += 1
-        return True
+        sent = 0
+        while robot.odometry_samples:
+            sample = robot.odometry_samples.popleft()
+            if callback is None:
+                continue
+            # t_us is the micros() of the Teensy: a uint32 that wraps.
+            t_us = int(round(sample.t * 1e6)) & 0xFFFFFFFF
+            message = pack_message(
+                Messages.ODOMETRY, sample.x, sample.y, sample.theta,
+                sample.vx, sample.vy, sample.omega, t_us,
+            )
+            # A callback receives the data without the ID byte, as with Com.
+            callback(message[1:])
+            sent += 1
+        self.frames_sent += sent
+        return sent
 
     @staticmethod
     def _unpack(message: Messages, payload: bytes):

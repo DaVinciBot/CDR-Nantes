@@ -11,6 +11,7 @@ depuis `robot1/rasp/`. Prérequis : `pip install -e .` à la racine.
 
 ```bash
 python -m robot1.sim2d.run --scenario carre --no-noise
+python -m robot1.sim2d.run --scenario ligne
 python -m robot1.sim2d.run --scenario match --color YELLOW
 python -m robot1.sim2d.run --scenario match --speed 1 --rerun
 ```
@@ -22,24 +23,32 @@ aussi qu'un run simulé n'ouvre jamais un port série par accident.
 
 | Option | Défaut | Effet |
 |---|---|---|
-| `--scenario carre\|match` | `carre` | voir ci-dessous |
+| `--scenario carre\|ligne\|match` | `carre` | voir ci-dessous |
 | `--color BLUE\|YELLOW` | `BLUE` | couleur d'équipe (scénario `match`), injectée à la place du switch |
 | `--seed N` | `1` | graine du bruit. Même graine = même run, au chiffre près |
 | `--speed max\|<float>` | `max` | `max` = aussi vite que le CPU le permet ; `20` = 20 s simulées par seconde réelle |
 | `--no-noise` | bruit actif | supprime la marche aléatoire, ne laisse que la dérive systématique |
 | `--rerun` | non | ouvre la vue Rerun |
+| `--accel A` | `900` | accélération du profil du scénario `ligne`, mm/s² |
 | `--budget S` | `1.0` | budget de temps mur pour un match, en secondes |
 | `--verbose` | non | logs de la boucle de production |
 
-## Les deux scénarios
+## Les trois scénarios
 
-Ils répondent à deux questions différentes, et chacun **imprime un verdict et sort en code retour
+Ils répondent à des questions différentes, et chacun **imprime un verdict et sort en code retour
 non nul en cas d'échec** — pour être enchaînés dans une campagne de runs sans framework de test.
 
 **`carre`** teste le simulateur lui-même. Il pilote le lien directement, sans pathfinding ni
 stratégie : 4 côtés de 800 mm, un quart de tour à chaque coin. Il vérifie que la cinématique déplace
 le robot et que l'odométrie dérive exactement comme le modèle le dit. Avec `--no-noise` la
 vérification est exacte ; sinon la tolérance est dérivée du modèle de bruit (3 sigma).
+
+**`ligne`** teste la loi de commande de la Teensy. Trois lignes droites (0°, 30°, 90°, 1,2 à
+1,6 m), chacune pilotée par un profil trapézoïdal envoyé dans `SET_TARGET` à chaque tour : pose du
+profil et vitesse prise une demi-période plus loin (voir Pièges). Il vérifie que la base atteint
+1 m/s et qu'elle s'arrête sans dépasser le but au-delà de la zone morte du firmware (10 mm),
+mesuré sur l'odométrie, ce que la Teensy asservit. Le profil est écrit pour ce scénario seulement :
+ce n'est pas le générateur de la boucle de match.
 
 **`match`** teste la boucle de production, inchangée, sur les 100 s réglementaires : couleur,
 tirette, stratégie, pathfinding, arrêt. Il vérifie qu'elle survit et mesure ce qu'elle coûte,
@@ -59,37 +68,53 @@ sous `data/sim2d/`.
 
 ## Ce qui est simulé, et ce qui ne l'est pas
 
-**Simulé** : géométrie de table, cinématique holonome 3 roues (W1 120°, W2 240°, W3 0°, rayon
-160 mm), plafonds de vitesse des roues, dérive d'odométrie, et le protocole USB au niveau message
-(`SET_TARGET`, `SET_ODOMETRIE`, `ODOMETRY` à 10 Hz comme la vraie Teensy). La vitesse de
-trajectoire de `SET_TARGET` est ignorée, et la vitesse publiée dans `ODOMETRY` est la vitesse
-vraie, faute d'estimateur de vitesse simulé.
+**Simulé** :
 
-**Pas simulé, et ça ne le sera pas** : le firmware, l'EKF, les steppers, la physique des
-actionneurs, la 3D, aucun moteur physique. Le déplacement est une approche proportionnelle bornée,
-**pas le PID de `holonomic_basis.cpp`** : rien ici ne prédit un dépassement, un temps de
-stabilisation ou un glissement de roue. Ça se valide au banc et sur le robot.
+- géométrie de table, cinématique holonome 3 roues (W1 120°, W2 240°, W3 0°, rayon 160 mm) ;
+- **la loi de commande de la Teensy** (`teensy.py`), copie ligne à ligne de
+  `Holonomic_Basis::handle()` et de `WheelCommandShaper::step()` (`lib/motion`), exécutée toutes
+  les 15 ms comme l'ISR, sur la pose odométrique :
+  - cible extrapolée à la vitesse de `SET_TARGET`, vitesse expirée après 150 ms (la référence
+    s'arrête alors au dernier point extrapolé) ;
+  - zone morte 10 mm / 0,15 rad, dans laquelle l'anticipation reste ;
+  - P + anticipation, plafond de freinage `√(2·a·d)` sous sa forme par tick, cinématique
+    inverse, normalisation à 350 rpm, limiteur synchronisé à 320 rpm/s par roue ;
+- dérive d'odométrie ;
+- le protocole USB au niveau message : `SET_TARGET` (pose et vitesse), `SET_ODOMETRIE`, et
+  `ODOMETRY` à 33 Hz, un échantillon tous les deux ticks de commande comme le firmware de match
+  prévu. Une boucle à 20 Hz en reçoit une ou deux par tour. La vitesse publiée est la vitesse
+  vraie en repère table, faute d'estimateur de vitesse simulé.
+
+La boucle de position suit le firmware de match **spécifié**, pas le firmware de test
+`src/main.cpp` : sorties bornées en unités physiques (±1000 mm/s, ±3 rad/s), là où `main.cpp`
+borne à ±350 et donne au PID θ une zone morte de sortie de 2 rad/s (avec `KP_THETA = 1`, aucune
+rotation sous 2 rad d'erreur). La zone morte X/Y de 5 mm/s est reprise. Toute modification de
+`handle()` ou de `lib/motion` est à reporter dans `teensy.py`.
+
+**Pas simulé** : les drivers MKS (une roue tourne exactement à sa consigne, sans boucle interne
+ni rampe propre), la latence RS485 et USB, l'estimateur de pose, l'EKF, la physique des
+actionneurs, le glissement des roues, la 3D. Le simulateur dit si la boucle de match pilote
+correctement la loi de commande 2027 ; le temps de stabilisation et le dépassement du vrai robot,
+et les gains, se valident au banc.
 
 Trois niveaux de confiance dans les constantes, à connaître avant de croire un résultat :
 
 1. **Démontré** — la cinématique inverse et directe sont réciproques à 1e-14. C'est de la géométrie.
-2. **Issu du matériel** — rayon, diamètre de roue, 100 rpm, 200 mm/s, 2 rad/s, lus dans
-   `teensy_moteur/include/config.h`.
-3. **Inventé** — gains d'approche, accélérations, zones mortes, et **tout le modèle de dérive**.
-   Valeurs plausibles, jamais mesurées. Elles seront recalées sur de vrais logs du robot, une fois
-   ceux-ci rejouables (`replay`).
-
-À noter, trouvé en écrivant le bridage : à 100 rpm sur des roues de 60 mm une roue plafonne à
-314,2 mm/s, donc la rotation pure plafonne à **1,963 rad/s**. Le `ROBOT_MAX_RAD_S = 2.0` de
-`config.h` est donc 1,9 % au-dessus du réalisable.
+2. **Issu du firmware** — rayon, diamètre de roue, 350 rpm, 320 rpm/s par roue, 1000 mm/s,
+   3 rad/s, 1000 mm/s², `KP = 1`, période de 15 ms, zone morte, 150 ms : lus dans
+   `teensy_moteur/include/config.h` et `holonomic_basis.cpp`. Le gain lui-même reste à régler sur
+   le robot.
+3. **Inventé** — **tout le modèle de dérive**. Valeurs plausibles, jamais mesurées. Elles seront
+   recalées sur de vrais logs du robot, une fois ceux-ci rejouables (`replay`).
 
 ## Modules
 
 | Fichier | Rôle |
 |---|---|
 | `clock.py` | `VirtualClock` (n'attend jamais) et `ScaledClock` (cadencée sur le temps réel) |
-| `kinematics.py` | cinématique inverse et directe des 3 roues, bridage proportionnel |
-| `robot.py` | `SimulatedRobot` : pose vraie, pose odométrique, `DriftModel` |
+| `kinematics.py` | cinématique inverse et directe des 3 roues, constantes de `config.h` |
+| `teensy.py` | `TeensyController` : loi de commande du firmware, de `SET_TARGET` aux rpm des roues |
+| `robot.py` | `SimulatedRobot` : pose vraie, pose odométrique, `DriftModel`, ticks de 15 ms, échantillons `ODOMETRY` |
 | `transport.py` | `Sim2dCom`, retourné par `get_com_class()` en mode `sim2d` |
 | `viz.py` | vue Rerun, best effort : son absence n'empêche jamais un run |
 | `run.py` | ligne de commande et scénarios |
@@ -105,12 +130,24 @@ Trois niveaux de confiance dans les constantes, à connaître avant de croire un
 
 ## Pièges
 
+- **Profil à 1000 mm/s² = limiteur saturé.** Le limiteur par roue (320 rpm/s) autorise
+  1005 mm/s² à 90° et à 30°, où une roue porte toute la vitesse : un profil à 1000 ne laisse
+  aucune marge à la boucle de position pendant les rampes. Le retard s'accumule, et plus Kp est
+  grand, plus le dépassement est grand, parce que le plafond de freinage ne voit que la distance à
+  la référence mobile, pas au but : 19 mm avec `KP = 1`, 120 mm avec `KP = 4`, 169 mm avec
+  `KP = 8`. À 900 mm/s², 10 mm au plus pour les mêmes gains. D'où `--accel 900` par défaut ;
+  `--accel 1000` reproduit l'échec.
+- **Envoyer la vitesse du milieu de période.** La Teensy extrapole la pose reçue à vitesse
+  constante jusqu'au message suivant. Envoyer `v(t)` fait rouler le robot ~25 mm/s trop vite sur
+  toute la rampe de freinage (23 mm de dépassement à 0°, `KP = 1`). Envoyer la pose `p(t)` avec
+  la vitesse `v(t + 25 ms)` rend l'extrapolation exacte à accélération constante.
 - **Ne jamais asservir sur la pose vraie.** Aucun contrôleur réel ne la connaît. Le premier modèle
   le faisait : comme `app.py` s'arrête en commandant « va à ta pose estimée », le robot poursuivait
   sa propre dérive et sortait de la table de 1,2 m par match.
 - **Un carré fermé ne mesure pas une erreur d'échelle** : elle s'annule entre aller et retour.
   Mesurer la distance parcourue, pas la position finale.
-- **Le budget « 100 s en moins d'1 s » est tenu à 0,98 s, mais A\* en représente 98 %.** Il ne tombe
+- **Le budget « 100 s en moins d'1 s » est tenu (0,3 à 0,9 s selon la couleur), mais A\* en
+  représente l'essentiel ; la simulation, 0,07 ms par tick.** Il ne tombe
   aujourd'hui que sur 25 % des ticks parce que le stub de stratégie s'arrête au bout de ~25 s. Avec
   une vraie stratégie, compter 3,8 s. Correctif prévu dans la ré-API du pathfinder, pas ici.
 - **Aucun scan LiDAR n'est simulé** : `match` ne teste **pas** l'évitement.
