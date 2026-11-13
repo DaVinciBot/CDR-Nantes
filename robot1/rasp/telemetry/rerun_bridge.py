@@ -202,9 +202,13 @@ def log_static_map() -> None:
             vertex_colors   =cols,
         ), static=True)
 
+    # Stones in their quarries: drawn by table_map, the only place that does.
+    from robot1.rasp.telemetry.table_map import log_stones
+    n_stones = log_stones()
+
     logger.info(
-        "Carte statique publiée — %d balises | %d supports",
-        len(BEACONS_MM), len(SUPPORTS_MM),
+        "Carte statique publiée — %d balises | %d supports | %d pierres",
+        len(BEACONS_MM), len(SUPPORTS_MM), n_stones,
     )
 
 

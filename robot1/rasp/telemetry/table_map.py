@@ -25,7 +25,8 @@ TEXTURES_DIR = _DIR / "map_assets" / "playmat2027"
 # Charger positions depuis world.py
 try:
     from robot1.rasp.world import BeaconLayout
-    BEACONS_POS = BeaconLayout.BEACONS
+    # BEACONS is a {id: (x, y)} dict: iterating it directly yields the ids.
+    BEACONS_POS = list(BeaconLayout.BEACONS.values())
 except ImportError:
     # Fallback: positions codées
     BEACONS_POS = [(-50.0, 1000.0), (3050.0, 1950.0), (3050.0, 50.0)]
@@ -105,6 +106,42 @@ def _cylinder_mesh(cx, cy, z_bot, radius, height, n=20):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+C_STONE = [196, 154, 108, 255]   # kraft cardboard
+
+
+def log_stones():
+    """Publish the stones stacked in the 10 quarries, as solid 3D boxes.
+
+    Positions and sizes come from world.py, never copied here. Logged as
+    static: this is the start-of-match layout. Once the game state tracks
+    the stones, this entity has to become time-varying.
+    """
+    from robot1.rasp.world import (
+        QUARRIES, STONE_HEIGHT_MM, STONE_LENGTH_MM, STONE_WIDTH_MM,
+    )
+
+    centers, halves = [], []
+    for quarry in QUARRIES:
+        along_x = abs(math.cos(quarry.axis)) > 0.5
+        half_x = (STONE_LENGTH_MM if along_x else STONE_WIDTH_MM) / 2.0
+        half_y = (STONE_WIDTH_MM if along_x else STONE_LENGTH_MM) / 2.0
+        for level in range(quarry.stones):
+            centers.append([quarry.cx, quarry.cy, STONE_HEIGHT_MM * (level + 0.5)])
+            halves.append([half_x, half_y, STONE_HEIGHT_MM / 2.0])
+
+    rr.log(
+        "world/map/stones",
+        rr.Boxes3D(
+            centers=np.array(centers, dtype=np.float32),
+            half_sizes=np.array(halves, dtype=np.float32),
+            colors=[C_STONE] * len(centers),
+            fill_mode="solid",
+        ),
+        static=True,
+    )
+    return len(centers)
+
+
 def log_static_map():
     """Publie la carte statique complète (balises, supports, zones, murs)."""
 
@@ -157,7 +194,7 @@ def log_static_map():
     print(f"  [OK] {len(BEACONS_MM)} balises")
 
     # ── Supports (BeaconSupport.proto) ──
-    support_centers = np.array([s["pos"] + [100] for s in SUPPORTS_MM], dtype=np.float32)
+    support_centers = np.array([list(s["pos"]) + [100] for s in SUPPORTS_MM], dtype=np.float32)
     support_half = np.array([[61, 41, 100]] * len(SUPPORTS_MM), dtype=np.float32)
     support_colors = np.array([s["color"] for s in SUPPORTS_MM], dtype=np.uint8)
     rr.log(
@@ -188,6 +225,8 @@ def log_static_map():
         static=True,
     )
     print(f"  [OK] {len(WALLS_MM)} murs")
+
+    print(f"  [OK] {log_stones()} pierres")
 
     print("[OK] Carte complète publiée!")
 
