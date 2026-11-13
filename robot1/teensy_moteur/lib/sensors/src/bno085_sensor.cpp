@@ -35,6 +35,7 @@ bool Bno085Sensor::begin(uint32_t report_period_us) {
         return false;
     }
     Wire.setClock(400000);  // I2C fast mode
+    report_period_us_ = report_period_us;
     bno_.enableReport(SH2_GAME_ROTATION_VECTOR, report_period_us);
 
     // Brief wait for a first sample, which sets the origin. Never blocks for
@@ -59,6 +60,13 @@ bool Bno085Sensor::begin(uint32_t report_period_us) {
 bool Bno085Sensor::poll() {
     if (!available_) return false;
 
+    // A reset of the sensor disables every report: without enabling it again,
+    // no sample would ever come back and the heading would stay frozen.
+    if (bno_.wasReset()) {
+        bno_.enableReport(SH2_GAME_ROTATION_VECTOR, report_period_us_);
+        reset_pending_ = true;
+    }
+
     sh2_SensorValue_t sv;
     if (!bno_.getSensorEvent(&sv)) return false;
     if (sv.sensorId != SH2_GAME_ROTATION_VECTOR) return false;
@@ -69,19 +77,35 @@ bool Bno085Sensor::poll() {
                                       sv.un.gameRotationVector.k);
 
     noInterrupts();
+    if (heading_pending_) {
+        yaw_offset_ = yaw - pending_heading_;
+    } else if (reset_pending_ && valid_) {
+        // The new raw yaw continues the last heading returned.
+        yaw_offset_ = yaw - (raw_yaw_ - yaw_offset_);
+    }
     raw_yaw_ = yaw;
     valid_ = true;
     timestamp_us_ = micros();
     interrupts();
+    heading_pending_ = false;
+    reset_pending_ = false;
     return true;
 }
 
-void Bno085Sensor::zero_heading() {
+void Bno085Sensor::set_heading(double heading_rad) {
     noInterrupts();
     if (valid_) {
-        yaw_offset_ = raw_yaw_;
+        yaw_offset_ = raw_yaw_ - heading_rad;
+        heading_pending_ = false;
+    } else {
+        pending_heading_ = heading_rad;
+        heading_pending_ = true;
     }
     interrupts();
+}
+
+void Bno085Sensor::zero_heading() {
+    set_heading(0.0);
 }
 
 HeadingSample Bno085Sensor::latest() const {

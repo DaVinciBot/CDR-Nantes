@@ -57,6 +57,9 @@ struct EstimatorInput {
     float heading_rad;
     /** Local time of the sample, us (wraps). */
     uint32_t imu_timestamp_us;
+    /** Age of that sample at this tick, us. A sensor that stopped answering
+     *  keeps its last heading with imu_valid set: only the age tells. */
+    uint32_t imu_age_us;
 
     // --- Optical sensor: one NEW sample, or both flags cleared ---
     /** Local time of the sample, us (wraps). */

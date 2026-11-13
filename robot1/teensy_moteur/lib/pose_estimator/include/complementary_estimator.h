@@ -7,9 +7,18 @@
  * meaning whatever the tick period and when an optical read is missed.
  *
  * What it does, per tick (dt = the tick duration):
- *   - encoder deltas under encoder_noise_counts are zeroed, then turned into a
- *     robot-frame displacement by the forward kinematics (lib/kinematics);
- *   - heading: the IMU heading when valid, the encoder rotation otherwise;
+ *   - encoder counts are added to a carry, one per wheel. The carry is turned
+ *     into a robot-frame displacement by the forward kinematics
+ *     (lib/kinematics) and released, all three wheels together, only once
+ *     that displacement (dx, dy or R dtheta) reaches the noise floor
+ *     (encoder_noise_counts of travel); until then the tick sees no encoder
+ *     motion and the counts wait. Nothing is lost, slow motion still adds up,
+ *     and jitter at rest stays under the floor. (Zeroing each wheel under the
+ *     floor, as before, made the robot blind below ~14 mm/s, and at 12 to
+ *     25 mm/s along x dropped two wheels out of three: a rotation that did
+ *     not exist.);
+ *   - heading: the IMU heading when valid and younger than imu_max_age_us,
+ *     the encoder rotation otherwise;
  *   - optical: the step of a new sample is divided by the time it covers, which
  *     gives the optical speed. Above optical_outlier_mm_s it is rejected and
  *     counted; below optical_noise_mm_s it is noise and not used. Otherwise its
@@ -46,8 +55,13 @@ struct ComplementaryParams {
     /** Wheel travel per encoder count, mm. No default: board geometry. */
     double counts_to_mm = 0.0;
 
-    /** Encoder deltas below this are zeroed, counts. */
+    /** Noise floor of the encoders, counts of wheel travel: body motion
+     *  smaller than this waits in the carry. */
     double encoder_noise_counts = 16.0;
+
+    /** An IMU heading older than this is stale (sensor reset, I2C stuck): the
+     *  encoder rotation takes over, us. A little over three reports at 15 ms. */
+    uint32_t imu_max_age_us = 50000;
 
     /** An optical speed above this is an outlier, mm/s: 1.5 times the top
      *  speed of the base (1 m/s). */
@@ -118,6 +132,9 @@ private:
 
     double encoder_x_acc_ = 0.0;
     double encoder_y_acc_ = 0.0;
+
+    /** Encoder counts not released yet, per wheel. */
+    int32_t carry_[3] = {0, 0, 0};
 };
 
 }  // namespace pose

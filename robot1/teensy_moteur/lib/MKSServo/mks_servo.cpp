@@ -36,12 +36,11 @@ bool MKSServo::sendPacket(uint8_t cmd, const uint8_t* payload, size_t payloadLen
     }
     frame[3 + payloadLen] = computeCRC(frame, 3 + payloadLen);
 
-    // Purge RX uniquement pour les commandes de contrôle (pas pour 0x31 readEncoder)
-    // En mode rafale, la réponse du moteur peut arriver pendant l'envoi suivant
-    if (cmd != 0x31) {
-        while (serial.available() > 0) {
-            (void)serial.read();
-        }
+    // Drop whatever is left in RX before a request, so that its response is the
+    // first frame read back. Safe for the encoder burst too: each wheel has its
+    // own UART, so sending to one driver never purges another one's response.
+    while (serial.available() > 0) {
+        (void)serial.read();
     }
 
     serial.write(frame, frameLen);
@@ -49,57 +48,56 @@ bool MKSServo::sendPacket(uint8_t cmd, const uint8_t* payload, size_t payloadLen
     return true;
 }
 
+// A response is [0xFB][addr][cmd][payload][checksum], checksum = sum of the
+// bytes before it, modulo 256. Its length is fixed by the command, so the frame
+// is cut at that length and only then checked. Testing the checksum at every
+// byte instead (the end of the frame guessed from a sum that happens to match)
+// cut encoder frames short whenever a payload byte equalled the running sum:
+// about 1.6 % of the 0x31 reads per wheel, and a whole 256-count window every
+// 65536 counts where every read of that wheel failed.
 bool MKSServo::readResponse(uint8_t expectedCmd,
+                            size_t expectedPayloadLen,
                             uint8_t* payload,
                             size_t payloadCapacity,
                             size_t& payloadLen,
                             uint32_t timeoutMs) {
     payloadLen = 0;
-    const uint32_t start = millis();
     uint8_t frame[32];
-    size_t frameLen = 0;
-    bool receiving = false;
+    const size_t frameLen = 4 + expectedPayloadLen;
+    if (frameLen > sizeof(frame) || expectedPayloadLen > payloadCapacity) return false;
+
+    const uint32_t start = millis();
+    size_t received = 0;
 
     while ((millis() - start) < timeoutMs) {
         while (serial.available() > 0) {
             const int value = serial.read();
             if (value < 0) continue;
-
             const uint8_t b = static_cast<uint8_t>(value);
 
-            if (!receiving) {
-                if (b == kUplinkHead) {
-                    frame[0] = b;
-                    frameLen = 1;
-                    receiving = true;
+            // Wait for a header before storing anything.
+            if (received == 0 && b != kUplinkHead) continue;
+            frame[received++] = b;
+            if (received < frameLen) continue;
+
+            const bool valid = computeCRC(frame, frameLen - 1) == frame[frameLen - 1] &&
+                               frame[1] == addr && frame[2] == expectedCmd;
+            if (valid) {
+                for (size_t i = 0; i < expectedPayloadLen; ++i) {
+                    payload[i] = frame[3 + i];
                 }
-                continue;
+                payloadLen = expectedPayloadLen;
+                return true;
             }
 
-            if (frameLen < sizeof(frame)) {
-                frame[frameLen++] = b;
-            } else {
-                receiving = false;
-                frameLen = 0;
-                continue;
-            }
-
-            if (frameLen >= 4) {
-                const uint8_t crc = computeCRC(frame, frameLen - 1);
-                if (crc == frame[frameLen - 1]) {
-                    if (frame[0] != kUplinkHead || frame[1] != addr || frame[2] != expectedCmd) {
-                        receiving = false;
-                        frameLen = 0;
-                        continue;
-                    }
-                    const size_t inPayloadLen = frameLen - 4;
-                    if (inPayloadLen > payloadCapacity) return false;
-                    for (size_t i = 0; i < inPayloadLen; ++i) {
-                        payload[i] = frame[3 + i];
-                    }
-                    payloadLen = inPayloadLen;
-                    return true;
-                }
+            // Not our frame (a corrupted byte, or a header that was a payload
+            // byte): restart from the next header among the bytes already read
+            // rather than dropping them all.
+            size_t next = 1;
+            while (next < frameLen && frame[next] != kUplinkHead) ++next;
+            received = frameLen - next;
+            for (size_t i = 0; i < received; ++i) {
+                frame[i] = frame[next + i];
             }
         }
     }
@@ -178,13 +176,13 @@ bool MKSServo::sendReadRequest() {
 
 bool MKSServo::readEncoderResponse(int64_t& encoderCount, uint32_t timeoutMs) {
     encoderCount = 0;
-    uint8_t payload[8];
+    // 0x31 answers a signed 48-bit count: FB addr 31 [6 bytes] checksum.
+    uint8_t payload[6];
     size_t payloadLen = 0;
-    if (!readResponse(0x31, payload, sizeof(payload), payloadLen, timeoutMs)) {
+    if (!readResponse(0x31, sizeof(payload), payload, sizeof(payload), payloadLen,
+                      timeoutMs)) {
         return false;
     }
-
-    if (payloadLen < 6) return false;
 
     int64_t value = 0;
     for (size_t i = 0; i < 6; ++i) {
@@ -217,9 +215,10 @@ bool MKSServo::calibrate(uint32_t timeoutMs) {
 
     const uint32_t start = millis();
     while ((millis() - start) < timeoutMs) {
-        uint8_t rsp[4];
+        // FB addr 80 [status] checksum
+        uint8_t rsp[1];
         size_t rspLen = 0;
-        if (readResponse(0x80, rsp, sizeof(rsp), rspLen, 100)) {
+        if (readResponse(0x80, sizeof(rsp), rsp, sizeof(rsp), rspLen, 100)) {
             if (rspLen >= 1) {
                 if (rsp[0] == 1) return true;
                 if (rsp[0] == 2) return false;

@@ -27,6 +27,11 @@ constexpr double CONTROL_PERIOD_S = ASSERVISSEMENT_FREQUENCY * 1e-6;
 constexpr double ARRIVED_DISTANCE_MM = 10.0;
 constexpr double ARRIVED_ANGLE_RAD = 0.15;
 
+// Lifetime of a velocity set by set_velocity_feedforward(), us: three periods
+// of the high-level loop (20 Hz), which refreshes it with every target. A
+// velocity older than that comes from a sender that went silent.
+constexpr uint32_t FEEDFORWARD_TTL_US = 150000;
+
 motion::MotionParams motion_params(double robot_radius, double wheel_diameter,
                                    double max_speed_rpm) {
     motion::MotionParams p;
@@ -97,6 +102,13 @@ void Holonomic_Basis::init_motors() {
     mksGroup = new MKSGroup(wheel1, wheel2, wheel3);
 }
 void Holonomic_Basis::init_holonomic_basis(double x, double y, double theta) {
+    // The IMU is aligned first, and outside the critical section below: its own
+    // noInterrupts()/interrupts() pair would re-enable interrupts inside it.
+    // Without this, the IMU would keep its old origin and, at the next tick,
+    // overwrite the heading just set (a pose reset with theta = pi would start
+    // the robot turned around).
+    if (imu) imu->set_heading(theta);
+
     noInterrupts();
     this->X = x;
     this->Y = y;
@@ -108,11 +120,10 @@ void Holonomic_Basis::init_holonomic_basis(double x, double y, double theta) {
 }
 
 void Holonomic_Basis::calibrate_imu_origin() {
-    if (use_imu && imu) imu->zero_heading();
     noInterrupts();
-    this->THETA = 0.0;
-    if (estimator) estimator->reset(this->X, this->Y, 0.0);
+    const double theta = this->THETA;
     interrupts();
+    if (imu) imu->set_heading(theta);
 }
 
 // === ESTIMATEUR DE POSE ===
@@ -193,9 +204,12 @@ void Holonomic_Basis::update_odometry() {
     pose::EstimatorInput in = pose::empty_input();
 
     // First tick: no motion computed at startup, only the references are taken.
+    // The reference must be a real reading: until a first encoder read has
+    // succeeded the buffer holds zeros, and taking them as reference would turn
+    // the first successful read into a delta of the whole absolute position.
     if (!odo_data.started) {
         in.first_frame = true;
-        odo_data.started = true;
+        if (seq != 0) odo_data.started = true;
     } else {
         // Encoder counts increase in the opposite direction to commanded RPM on
         // all 3 motors. Negate so that positive d = forward wheel rotation, the
@@ -213,12 +227,15 @@ void Holonomic_Basis::update_odometry() {
     in.encoders_fresh = !in.first_frame && fresh_read && odo_data.prev_read_fresh;
     in.encoder_age_us = now_us - enc_us;
 
-    // IMU: heading in the table frame, origin set by calibrate_imu_origin()
+    // IMU: heading in the table frame, aligned on the pose by
+    // init_holonomic_basis() / calibrate_imu_origin(). Its age lets the
+    // estimator drop a heading that stopped updating.
     if (use_imu && imu) {
         const sensors::HeadingSample h = imu->latest();
         in.imu_valid = h.valid;
         in.heading_rad = h.heading_rad;
         in.imu_timestamp_us = h.timestamp_us;
+        in.imu_age_us = now_us - h.timestamp_us;
     }
 
     // Optical: a NEW sample only, handed over once. Robot-frame step for the
@@ -256,6 +273,27 @@ void Holonomic_Basis::update_odometry() {
 void Holonomic_Basis::handle(Point target_position, Com* com) {
     (void)com;
 
+    // Reference of a moving target: the pose it was sent with, moved on at its
+    // velocity for the time since, so the position loop chases where the
+    // trajectory is now and not where it was at the last message. The
+    // velocity only lives FEEDFORWARD_TTL_US: past it, the reference stops at
+    // the last extrapolated point and the feed-forward drops to zero, so a
+    // silent sender never leaves the robot running on a stale velocity.
+    motion::VelocityCommand ff = {0.0, 0.0, 0.0};
+    {
+        const uint32_t now_us = micros();
+        const uint32_t age_us = now_us - feed_forward_us;
+        const bool alive = age_us < FEEDFORWARD_TTL_US;
+        // Once expired, the age is pinned at the TTL: micros() wraps every
+        // 71 min, and a free-running age would bring an old velocity back.
+        if (!alive) feed_forward_us = now_us - FEEDFORWARD_TTL_US;
+        const double age_s = (alive ? age_us : FEEDFORWARD_TTL_US) * 1e-6;
+        target_position.x += feed_forward.vx_mm_s * age_s;
+        target_position.y += feed_forward.vy_mm_s * age_s;
+        target_position.theta += feed_forward.omega_rad_s * age_s;
+        if (alive) ff = feed_forward;
+    }
+
     // Errors in the table frame
     const double xerr = target_position.x - this->X;
     const double yerr = target_position.y - this->Y;
@@ -263,10 +301,12 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     const double distance_error = sqrt(xerr * xerr + yerr * yerr);
 
     motion::VelocityCommand position_loop = {0.0, 0.0, 0.0};
-    motion::VelocityCommand ff = {0.0, 0.0, 0.0};
 
-    // Dead zone: close enough, the robot is brought to rest through the
-    // acceleration limit (zero command), not by a jump of the wheels to zero.
+    // Dead zone: close enough, the position loop stops correcting and the
+    // robot is brought to rest through the acceleration limit (zero command),
+    // not by a jump of the wheels to zero. The feed-forward stays: being close
+    // to a moving target means the tracking is good, not that the trajectory
+    // is over; dropping it there made the robot stop and restart in jerks.
     const bool arrived = distance_error < ARRIVED_DISTANCE_MM &&
                          fabs(theta_error) < ARRIVED_ANGLE_RAD;
     if (!arrived) {
@@ -278,7 +318,6 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
         position_loop.vx_mm_s = this->x_pid.compute(xerr, capped);
         position_loop.vy_mm_s = this->y_pid.compute(yerr, capped);
         position_loop.omega_rad_s = this->theta_pid.compute(theta_error, capped);
-        ff = this->feed_forward;
     }
 
     const motion::ShapedCommand& command =
@@ -295,6 +334,7 @@ void Holonomic_Basis::set_velocity_feedforward(double vx_mm_s, double vy_mm_s,
     feed_forward.vx_mm_s = vx_mm_s;
     feed_forward.vy_mm_s = vy_mm_s;
     feed_forward.omega_rad_s = omega_rad_s;
+    feed_forward_us = micros();
     interrupts();
 }
 
@@ -311,9 +351,15 @@ void Holonomic_Basis::emergency_stop() {
         mksGroup->emergencyStopAll();
     }
     // The drivers stopped without a ramp: the shaper must restart from rest,
-    // not ramp down from speeds the wheels no longer have.
+    // not ramp down from speeds the wheels no longer have. The feed-forward and
+    // the PID state go too, or the next tick would set the robot off again on
+    // the velocity of the trajectory it was stopped on.
     noInterrupts();
     shaper.reset();
+    feed_forward = {0.0, 0.0, 0.0};
+    x_pid.reset();
+    y_pid.reset();
+    theta_pid.reset();
     filtered_wheel1_rpm = 0.0;
     filtered_wheel2_rpm = 0.0;
     filtered_wheel3_rpm = 0.0;
