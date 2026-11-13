@@ -5,6 +5,7 @@ La machine à états qui dicte les missions du robot.
 import logging
 
 from robot1.rasp.clock import RealClock
+from robot1.rasp.world import START_POSE, mirror_for_team
 
 from .actions import Action, TypeAction
 
@@ -48,6 +49,14 @@ class StratManager:
         actions.append(Action(TypeAction.DEPLACEMENT, cible_x=200, cible_y=200))
 
         return actions
+
+    def get_start_position(self) -> tuple:
+        """Return the start pose (x_mm, y_mm, theta_rad) in table coordinates.
+
+        The team mirror is applied here, the only layer that knows the
+        colour: world.START_POSE is written for YELLOW.
+        """
+        return mirror_for_team(START_POSE, self.couleur_equipe)
 
     def get_action_actuelle(self):
         """Renvoie la mission que le robot doit faire maintenant."""

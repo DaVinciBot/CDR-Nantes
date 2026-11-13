@@ -5,6 +5,7 @@ Point d'entrée principal du robot pour la Coupe de France de Robotique.
 import logging
 from robot1.rasp.app import Robot, lire_couleur_equipe
 from robot1.rasp.clock import RealClock
+from robot1.rasp.world import MATCH_DURATION_S
 
 # Configuration du logger pour voir ce qui se passe dans la console
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -12,7 +13,7 @@ logger = logging.getLogger("MAIN")
 
 # --- PARAMÈTRES DU MATCH ---
 # 100 s: Eurobot regulation match duration. The code said 90 s until 11/09/2026.
-TEMPS_MATCH_SECONDES = 100.0
+TEMPS_MATCH_SECONDES = MATCH_DURATION_S
 
 def main():
     logger.info("Démarrage du système...")

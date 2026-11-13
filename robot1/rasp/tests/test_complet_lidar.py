@@ -88,21 +88,21 @@ def test_terrain(color: str = "BLUE") -> bool:
         assert FIELD_HEIGHT_MM == 2000, f"HEIGHT attendu 2000, got {FIELD_HEIGHT_MM}"
         ok(f"Terrain {FIELD_WIDTH_MM}×{FIELD_HEIGHT_MM} mm")
 
-        section("Obstacles statiques (BLEU)")
-        t_blue = Terrain("BLUE")
-        assert len(t_blue.obstacles) >= 1, "Aucun obstacle défini"
-        for obs in t_blue.obstacles:
-            ok(f"Obstacle '{obs.name}' : ({obs.x:.0f}, {obs.y:.0f}) {obs.width}×{obs.height} mm")
-
-        section("Obstacles statiques (JAUNE — symétrie)")
-        t_yel = Terrain("YELLOW")
-        assert len(t_yel.obstacles) == len(t_blue.obstacles), "Nombre d'obstacles différent entre équipes"
-        ok(f"{len(t_yel.obstacles)} obstacles JAUNE OK")
+        section("Terrain neutre : deux châteaux symétriques")
+        from robot1.rasp.world import START_POSE, mirror_for_team
+        terrain = Terrain()
+        ok(f"{len(terrain.obstacles)} obstacle(s) fixe(s), {len(terrain.quarries)} carrières")
+        c_yel, c_blue = terrain.castle("YELLOW"), terrain.castle("BLUE")
+        for name, wall in c_yel.walls.items():
+            mirror = c_blue.walls[name]
+            assert abs((wall.cx + mirror.cx) - 3000) < 1 and wall.cy == mirror.cy, \
+                f"Symétrie X incorrecte mur {name}"
+        ok(f"{len(c_yel.walls)} murs, {len(c_yel.towers)} tours, {len(c_yel.moats)} douves par château")
 
         section("Position de départ")
-        sx, sy, sth = t_blue.get_start_position()
+        sx, sy, sth = mirror_for_team(START_POSE, "BLUE")
         ok(f"Start BLEU : ({sx:.0f}, {sy:.0f}, {math.degrees(sth):.1f}°)")
-        sx2, sy2, sth2 = t_yel.get_start_position()
+        sx2, sy2, sth2 = mirror_for_team(START_POSE, "YELLOW")
         ok(f"Start JAUNE : ({sx2:.0f}, {sy2:.0f}, {math.degrees(sth2):.1f}°)")
         assert sx2 != sx or sy2 != sy, "Positions de départ BLEU/JAUNE identiques — erreur de symétrie"
 
@@ -141,7 +141,7 @@ def test_pathfinder(color: str = "BLUE") -> bool:
         from robot1.rasp.world import Terrain
         from robot1.rasp.nav import PathFinder
 
-        terrain = Terrain(color)
+        terrain = Terrain()
         pf = PathFinder(terrain)
 
         section("Paramètres grille")
@@ -582,7 +582,7 @@ def test_full_pipeline(duration_sec: int = 30, color: str = "BLUE") -> bool:
         )
 
         set_team_color(color)
-        terrain = Terrain(color)
+        terrain = Terrain()
         pf = PathFinder(terrain)
 
         def _noop(x): pass

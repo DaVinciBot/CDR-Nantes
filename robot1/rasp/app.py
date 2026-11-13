@@ -68,8 +68,9 @@ class Robot:
         # GPIO tirette (kept open pendant tout le match)
         self._pin_tirette = get_button(PIN_TIRETTE, pull_up=True)
 
-        # 1. Terrain et pathfinding
-        self.terrain = Terrain(self.couleur)
+        # 1. Terrain et pathfinding : neutres, en coordonnées table absolues.
+        # Seule la stratégie connaît la couleur et applique la symétrie.
+        self.terrain = Terrain()
         self.cerveau = PathFinder(self.terrain)
 
         # 2. Demarrer LiDAR (detection adversaire)
@@ -97,17 +98,18 @@ class Robot:
             self.Messages.ODOMETRY.value,
         )
 
-        # 5. Position de départ
-        self._initialiser_position_depart()
-
-        # 6. Stratégie
+        # 5. Stratégie : avant la position de départ, qu'elle fournit
+        # (pose JAUNE de référence passée par la symétrie d'équipe).
         self.strategie = StratManager(self.couleur, clock=self.clock)
+
+        # 6. Position de départ
+        self._initialiser_position_depart()
         self.logger.info("Robot entièrement initialisé.")
 
     # ── INITIALISATION ────────────────────────────────────────────────────────
 
     def _initialiser_position_depart(self) -> None:
-        start_x, start_y, start_theta = self.terrain.get_start_position()
+        start_x, start_y, start_theta = self.strategie.get_start_position()
 
         self.logger.info(
             f"Position de départ [{self.couleur}] : "
