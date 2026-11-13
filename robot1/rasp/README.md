@@ -56,7 +56,7 @@ dependances du robot, juste des namespaces de lancement. Consequence pratique, i
 | Module | Import | Role |
 | -------- | -------- | ------ |
 | `comm` | `from robot1.rasp.comm import init_robot` | ouvre le lien Teensy, lit `ROBOT_MODE`. Point d'insertion du futur mode `sim2d`. |
-| `nav` | `from robot1.rasp.nav import PathFinder` | A* sur grille 50 mm, inflation d'obstacles. |
+| `nav` | `from robot1.rasp.nav import PathFinder, Replanner, Disc` | A* sur grille 50 mm : obstacles en formes exactes (disques, rectangles orientés), bordures gonflées, cible refusée avec sa raison, chemin lissé ; `Replanner` ne relance l'A* que sur événement. Tests : `python -m pytest tests` à la racine du dépôt. |
 | `vision` | `from robot1.rasp.vision import detection` | detection adversaire (la seule couche utilisee par `app.py`). |
 | `vision` | `from robot1.rasp.vision.localization import get_corrected_pose` | recalage SVD balises : calcule et expose, **pas applique** par la boucle de match. Module **gele**, voir [vision/README.md](vision/README.md). |
 | `strategy` | `from robot1.rasp.strategy import StratManager, TypeAction` | sequence d'actions (stub hardcode). |

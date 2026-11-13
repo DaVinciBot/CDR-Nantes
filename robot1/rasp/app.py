@@ -7,14 +7,19 @@ from usb_com import Messages, pack_message, payload_size, unpack_message
 
 from robot1.rasp.clock import RealClock
 from robot1.rasp.comm import get_button, init_robot
-from robot1.rasp.nav import PathFinder
+from robot1.rasp.nav import Disc, PathFinder, Replanner
 from robot1.rasp.strategy import StratManager, TypeAction
 from robot1.rasp.vision import detection as lidar
-from robot1.rasp.world import Terrain
+from robot1.rasp.world import ROBOT_DEPLOYED_PERIMETER_MM, Terrain
 
 # ── PINS GPIO ─────────────────────────────────────────────────────────────────
 PIN_COULEUR = 26
 PIN_TIRETTE = 19
+
+# Opponent footprint for the planner: the circle of the largest deployed
+# perimeter the rules allow (1400 mm), ~223 mm. The LiDAR cluster is the
+# opponent's beacon mast, not its body: its size does not measure the robot.
+OPPONENT_RADIUS_MM = ROBOT_DEPLOYED_PERIMETER_MM / (2.0 * math.pi)
 
 # ── IMPORT OPTIONNEL RERUN ────────────────────────────────────────────────────
 # La telemetrie est best-effort : son absence ne doit jamais empecher un match.
@@ -71,7 +76,15 @@ class Robot:
         # 1. Terrain et pathfinding : neutres, en coordonnées table absolues.
         # Seule la stratégie connaît la couleur et applique la symétrie.
         self.terrain = Terrain()
-        self.cerveau = PathFinder(self.terrain)
+        self.cerveau = PathFinder(
+            self.terrain.WIDTH, self.terrain.HEIGHT,
+            fixed=self.terrain.obstacles,
+            robot_radius=self.terrain.ROBOT_RADIUS,
+        )
+        # The path is kept between ticks, the A* only runs on events.
+        self.navigation = Replanner(self.cerveau)
+        # No game state tracked yet: every quarry is assumed full.
+        self.carrieres = [q.footprint() for q in self.terrain.quarries]
 
         # 2. Demarrer LiDAR (detection adversaire)
         # La detection doit partager l'horloge de la boucle : son gating de
@@ -195,15 +208,7 @@ class Robot:
         rx, ry, rtheta = teensy_x, teensy_y, teensy_theta
 
         # 4. Obstacles dynamiques (adversaire détecté par LiDAR)
-        obstacles: list = []
-        opponent_data = lidar.get_opponent()
-        if opponent_data is not None:
-            opp_x, opp_y, opp_conf = opponent_data
-            if opp_conf > 0.1:
-                obstacles.append((opp_x, opp_y))
-                self.logger.debug(
-                    f"Adversaire: ({opp_x:.0f}, {opp_y:.0f}) conf={opp_conf:.2f}"
-                )
+        obstacles = self._obstacles_adverses()
 
         # 5. Publication Rerun
         if HAS_RERUN:
@@ -214,7 +219,7 @@ class Robot:
             )
             rerun_bridge.update_fused(rx, ry, rtheta)
             rerun_bridge.update_obstacles(
-                [{"x": ox, "y": oy, "radius": 200} for ox, oy in obstacles]
+                [{"x": o.x, "y": o.y, "radius": o.radius} for o in obstacles]
             )
 
         # 6. Stratégie
@@ -227,7 +232,6 @@ class Robot:
 
         # 7. Exécution action
         if action.type == TypeAction.DEPLACEMENT:
-            objectif          = {'x': action.cible_x, 'y': action.cible_y}
             distance_restante = math.hypot(action.cible_x - rx, action.cible_y - ry)
 
             if HAS_RERUN:
@@ -243,43 +247,39 @@ class Robot:
                     rerun_bridge.update_trajectory([])
                 return
 
-            pos    = {'x': rx, 'y': ry, 'theta': rtheta}
-            chemin = self.cerveau.get_path(pos, objectif, obstacles)
+            plans_avant = self.navigation.plans
+            resultat = self.navigation.update(
+                self.clock.now(), (rx, ry), (action.cible_x, action.cible_y),
+                obstacles + self._carrieres_hors_cible(action),
+            )
 
-            if HAS_RERUN and chemin:
-                rerun_bridge.update_trajectory(chemin)
+            if HAS_RERUN:
+                rerun_bridge.update_trajectory(
+                    resultat.path if resultat.ok else [])
 
-            if chemin and len(chemin) > 1:
-                dist_to_target = math.hypot(objectif['x'] - rx, objectif['y'] - ry)
-                if dist_to_target > 500:
-                    lookahead_index = min(4, len(chemin) - 1)
-                elif dist_to_target < 200:
-                    lookahead_index = min(1, len(chemin) - 1)
-                else:
-                    lookahead_index = min(2, len(chemin) - 1)
-
-                cible_x, cible_y = chemin[lookahead_index]
-                angle_cible      = math.atan2(cible_y - ry, cible_x - rx)
-                self._envoyer_position_moteurs(
-                    cible_x, cible_y, angle_cible, "Esquive IA"
-                )
-
-            elif not chemin:
-                self.logger.warning(
-                    f"Chemin bloqué — aucun chemin de ({rx:.0f},{ry:.0f}) "
-                    f"vers ({objectif['x']},{objectif['y']}). Arrêt."
-                )
+            if not resultat.ok:
+                # Logged once per attempt, not at every tick.
+                if self.navigation.plans != plans_avant:
+                    self.logger.warning(
+                        f"Pas de chemin ({resultat.status.value} : "
+                        f"{resultat.detail}). Arrêt."
+                    )
                 self._envoyer_position_moteurs(rx, ry, rtheta, "STOP (bloqué)")
-                if HAS_RERUN:
-                    rerun_bridge.update_trajectory([])
+                return
 
+            # Lookahead along the path, as the A* cells used to give it.
+            # Replaced by the path follower and its speed profile.
+            if distance_restante > 500:
+                lookahead_mm = 200.0
+            elif distance_restante < 200:
+                lookahead_mm = 50.0
             else:
-                # len(chemin) == 1 → robot déjà dans la cellule cible
-                self.logger.info("Cellule cible atteinte (path trivial).")
-                self._envoyer_position_moteurs(rx, ry, rtheta, "STOP (arrivé)")
-                self.strategie.valider_action_terminee()
-                if HAS_RERUN:
-                    rerun_bridge.update_trajectory([])
+                lookahead_mm = 100.0
+            cible_x, cible_y = self.navigation.ahead((rx, ry), lookahead_mm)
+            angle_cible = math.atan2(cible_y - ry, cible_x - rx)
+            self._envoyer_position_moteurs(
+                cible_x, cible_y, angle_cible, "Esquive IA"
+            )
 
         elif action.type == TypeAction.ACTIONNEUR:
             self.logger.info(f"Actionneur : {action.nom_actionneur}")
@@ -290,6 +290,37 @@ class Robot:
                 self.logger.info(f"Attente {action.temps_attente}s…")
             elif self.strategie.chrono_ecoule(action.temps_attente):
                 self.strategie.valider_action_terminee()
+
+    # ── OBSTACLES ─────────────────────────────────────────────────────────────
+
+    def _obstacles_adverses(self) -> list:
+        """Opponent seen by the LiDAR, as planner obstacles.
+
+        Provisional adapter: the only place that reads the detection output.
+        It changes with the format agreed for the LiDAR, nothing else does.
+        """
+        opponent_data = lidar.get_opponent()
+        if opponent_data is None:
+            return []
+        opp_x, opp_y, opp_conf = opponent_data
+        if opp_conf <= 0.1:
+            return []
+        self.logger.debug(
+            f"Adversaire: ({opp_x:.0f}, {opp_y:.0f}) conf={opp_conf:.2f}"
+        )
+        return [Disc(opp_x, opp_y, OPPONENT_RADIUS_MM, "adversaire")]
+
+    def _carrieres_hors_cible(self, action) -> list:
+        """Quarries to plan around: all of them but the one being reached.
+
+        The target is an approach point next to a quarry, not a quarry: the
+        quarry it serves is the one that would forbid it.
+        """
+        cible = (action.cible_x, action.cible_y)
+        return [
+            zone for zone in self.carrieres
+            if self.cerveau.blocking_obstacle(*cible, [zone]) != zone.name
+        ]
 
     # ── ARRÊT ─────────────────────────────────────────────────────────────────
 

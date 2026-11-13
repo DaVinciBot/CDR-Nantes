@@ -13,6 +13,7 @@ depuis `robot1/rasp/`. Prérequis : `pip install -e .` à la racine.
 python -m robot1.sim2d.run --scenario carre --no-noise
 python -m robot1.sim2d.run --scenario ligne
 python -m robot1.sim2d.run --scenario match --color YELLOW
+python -m robot1.sim2d.run --scenario tournee --speed 5 --rerun
 python -m robot1.sim2d.run --scenario match --speed 1 --rerun
 ```
 
@@ -23,7 +24,7 @@ aussi qu'un run simulé n'ouvre jamais un port série par accident.
 
 | Option | Défaut | Effet |
 |---|---|---|
-| `--scenario carre\|ligne\|match` | `carre` | voir ci-dessous |
+| `--scenario carre\|ligne\|match\|tournee` | `carre` | voir ci-dessous |
 | `--color BLUE\|YELLOW` | `BLUE` | couleur d'équipe (scénario `match`), injectée à la place du switch |
 | `--seed N` | `1` | graine du bruit. Même graine = même run, au chiffre près |
 | `--speed max\|<float>` | `max` | `max` = aussi vite que le CPU le permet ; `20` = 20 s simulées par seconde réelle |
@@ -33,7 +34,7 @@ aussi qu'un run simulé n'ouvre jamais un port série par accident.
 | `--budget S` | `1.0` | budget de temps mur pour un match, en secondes |
 | `--verbose` | non | logs de la boucle de production |
 
-## Les trois scénarios
+## Les quatre scénarios
 
 Ils répondent à des questions différentes, et chacun **imprime un verdict et sort en code retour
 non nul en cas d'échec** — pour être enchaînés dans une campagne de runs sans framework de test.
@@ -53,6 +54,16 @@ ce n'est pas le générateur de la boucle de match.
 **`match`** teste la boucle de production, inchangée, sur les 100 s réglementaires : couleur,
 tirette, stratégie, pathfinding, arrêt. Il vérifie qu'elle survit et mesure ce qu'elle coûte,
 en séparant le temps passé dans la simulation de celui passé dans `app.py::update()`.
+
+**`tournee`** teste la planification sur un match entier. Même boucle de production, mais la
+stratégie est remplacée par une boucle de 8 cibles qui ne finit pas, et un adversaire scripté
+tourne lentement dans notre moitié : un cercle de 350 mm de rayon autour de (900, 1000), en
+miroir pour BLEU. Cet adversaire remplace `detection.get_opponent()`, en attendant des scans
+simulés. Le scénario mesure le nombre de plans A* et leur coût, l'écart minimal à l'adversaire et
+les ticks au contact. Il échoue si moins de 6 cibles sont atteintes, si le robot sort de la table
+ou si le budget de temps est dépassé. Le contact est signalé, mais ne fait pas échouer le
+scénario : l'adversaire scripté ne nous évite pas, et le planificateur seul ne remplace pas un
+arrêt de sécurité.
 
 ## Lire la sortie
 
@@ -146,10 +157,10 @@ Trois niveaux de confiance dans les constantes, à connaître avant de croire un
   sa propre dérive et sortait de la table de 1,2 m par match.
 - **Un carré fermé ne mesure pas une erreur d'échelle** : elle s'annule entre aller et retour.
   Mesurer la distance parcourue, pas la position finale.
-- **Le budget « 100 s en moins d'1 s » est tenu (0,3 à 0,9 s selon la couleur), mais A\* en
-  représente l'essentiel ; la simulation, 0,07 ms par tick.** Il ne tombe
-  aujourd'hui que sur 25 % des ticks parce que le stub de stratégie s'arrête au bout de ~25 s. Avec
-  une vraie stratégie, compter 3,8 s. Correctif prévu dans la ré-API du pathfinder, pas ici.
-- **Aucun scan LiDAR n'est simulé** : `match` ne teste **pas** l'évitement.
+- **Le budget « 100 s en moins d'1 s »** : la boucle ne relance l'A\* que sur événement
+  (`nav/replanner.py`). `tournee`, qui roule pendant les 100 s, tient en ~0,7 s, dont ~0,2 s
+  d'A\* pour ~180 plans. Si le budget saute, regarder d'abord le nombre de plans.
+- **Aucun scan LiDAR n'est simulé** : `match` ne teste **pas** l'évitement, et `tournee` ne
+  teste que la planification autour d'une position d'adversaire donnée, pas la détection.
   `detection.use_pushed_scans()` est appelé pour n'ouvrir aucun LiDAR, et rien n'est poussé. Ne
   rien conclure sur l'évitement tant que le simulateur ne produit pas de scans.

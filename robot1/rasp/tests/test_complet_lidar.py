@@ -139,53 +139,52 @@ def test_pathfinder(color: str = "BLUE") -> bool:
     header("TEST 2 — pathfinder : A*, grille, inflation, chemin")
     try:
         from robot1.rasp.world import Terrain
-        from robot1.rasp.nav import PathFinder
+        from robot1.rasp.nav import Disc, PathFinder, PlanStatus
 
         terrain = Terrain()
-        pf = PathFinder(terrain)
+        pf = PathFinder(terrain.WIDTH, terrain.HEIGHT,
+                        fixed=terrain.obstacles,
+                        robot_radius=terrain.ROBOT_RADIUS)
 
         section("Paramètres grille")
-        ok(f"GRID_SIZE = {pf.GRID_SIZE} mm")
-        ok(f"MARGIN    = {pf.MARGIN} mm")
-        ok(f"Inflation = robot({terrain.ROBOT_RADIUS}) + margin({pf.MARGIN}) = {pf.inflation_radius} mm")
-        ok(f"Grille    = {pf.cols} cols × {pf.rows} rows")
+        ok(f"Grille    = {pf.grid:.0f} mm, {pf.cols} cols × {pf.rows} rows")
+        ok(f"Inflation = robot({pf.robot_radius:.0f}) + marge({pf.margin:.0f}) "
+           f"= {pf.inflation:.0f} mm")
 
         section("Chemin basique (centre -> bord)")
-        start = {"x": 1500, "y": 1000, "theta": 0.0}
-        goal  = {"x": 2800, "y": 1000}
-        chemin = pf.get_path(start, goal, [])
-        if chemin and len(chemin) > 1:
-            ok(f"Chemin trouvé : {len(chemin)} waypoints")
+        start = (1500, 1000)
+        goal = (2700, 1000)
+        resultat = pf.plan(start, goal)
+        if resultat.ok:
+            ok(f"Chemin trouvé : {len(resultat.path)} points après lissage")
         else:
-            warn("Aucun chemin trouvé pour start->bord (peut être bloqué par obstacle)")
+            warn(f"Aucun chemin : {resultat.status.value} {resultat.detail}")
 
-        section("Chemin avec obstacle dynamique")
-        obstacles_dyn = [(1800, 1000)]  # adversaire entre start et goal
-        chemin2 = pf.get_path(start, goal, obstacles_dyn)
-        if chemin2:
-            ok(f"Chemin avec obstacle : {len(chemin2)} waypoints")
+        section("Chemin avec adversaire")
+        resultat2 = pf.plan(start, goal, [Disc(2100, 1000, 223, "adversaire")])
+        if resultat2.ok:
+            ok(f"Chemin avec adversaire : {len(resultat2.path)} points")
         else:
-            warn("Chemin bloqué par obstacle (normal si zone trop étroite)")
+            warn(f"Bloqué : {resultat2.status.value} {resultat2.detail}")
 
-        section("Chemin impossible (goal dans mur)")
-        goal_wall = {"x": 0, "y": 0}
-        chemin3 = pf.get_path(start, goal_wall, [])
-        if not chemin3:
-            ok("Chemin vers mur correctement rejeté (retourne [])")
+        section("Chemin impossible (cible dans la bordure)")
+        resultat3 = pf.plan(start, (0, 0))
+        if resultat3.status is PlanStatus.GOAL_BLOCKED:
+            ok(f"Cible refusée : {resultat3.detail}")
         else:
-            warn(f"Chemin vers mur retourné avec {len(chemin3)} pts — vérifier inflation")
+            warn(f"Cible acceptée ({resultat3.status.value}) — vérifier "
+                 f"l'inflation des bordures")
 
         section("Test aller-retour (plusieurs points)")
-        waypoints = [
-            ({"x": 500,  "y": 500},  {"x": 2500, "y": 500}),
-            ({"x": 2500, "y": 500},  {"x": 2500, "y": 1500}),
-            ({"x": 2500, "y": 1500}, {"x": 500,  "y": 1500}),
+        segments = [
+            ((500, 500), (2500, 500)),
+            ((2500, 500), (2500, 1500)),
+            ((2500, 1500), (500, 1500)),
         ]
-        for i, (s, g) in enumerate(waypoints):
-            s["theta"] = 0.0
-            ch = pf.get_path(s, g, [])
-            status = f"{len(ch)} pts" if ch else "BLOQUÉ"
-            ok(f"  Segment {i+1}: ({s['x']},{s['y']}) -> ({g['x']},{g['y']}) — {status}")
+        for i, (s, g) in enumerate(segments):
+            r = pf.plan(s, g)
+            status = f"{len(r.path)} pts" if r.ok else r.status.value
+            ok(f"  Segment {i+1}: {s} -> {g} — {status}")
 
         print()
         ok("TEST 2 PASSED")
@@ -573,7 +572,7 @@ def test_full_pipeline(duration_sec: int = 30, color: str = "BLUE") -> bool:
     print("  Nécessite LiDAR branché — Teensy simulée par injection de pose")
     try:
         from robot1.rasp.world import Terrain
-        from robot1.rasp.nav import PathFinder
+        from robot1.rasp.nav import Disc, PathFinder
         from robot1.rasp.vision.localization import (
             start_lidar_thread, stop_lidar_runtime,
             update_teensy_pose, get_corrected_pose,
@@ -583,7 +582,9 @@ def test_full_pipeline(duration_sec: int = 30, color: str = "BLUE") -> bool:
 
         set_team_color(color)
         terrain = Terrain()
-        pf = PathFinder(terrain)
+        pf = PathFinder(terrain.WIDTH, terrain.HEIGHT,
+                        fixed=terrain.obstacles,
+                        robot_radius=terrain.ROBOT_RADIUS)
 
         def _noop(x): pass
         start_lidar_thread(_noop, _noop)
@@ -641,7 +642,7 @@ def test_full_pipeline(duration_sec: int = 30, color: str = "BLUE") -> bool:
             obstacles = []
             opp = get_latest_opponent()
             if opp is not None and opp.confidence >= 0.1:
-                obstacles.append((opp.x, opp.y))
+                obstacles.append(Disc(opp.x, opp.y, 223, "adversaire"))
 
             # — Pathfinding —
             dist_to_goal = math.hypot(goal["x"] - rx, goal["y"] - ry)
@@ -650,8 +651,7 @@ def test_full_pipeline(duration_sec: int = 30, color: str = "BLUE") -> bool:
                 goal = {"x": objectifs[obj_idx][0], "y": objectifs[obj_idx][1]}
                 logger.debug(f"Objectif atteint, nouveau: {goal}")
 
-            start_pos = {"x": rx, "y": ry, "theta": rtheta}
-            chemin = pf.get_path(start_pos, goal, obstacles)
+            chemin = pf.plan((rx, ry), (goal["x"], goal["y"]), obstacles).path
             if chemin and len(chemin) > 1:
                 paths_computed += 1
                 lookahead = min(3, len(chemin) - 1)

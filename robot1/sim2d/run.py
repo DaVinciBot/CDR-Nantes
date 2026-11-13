@@ -17,6 +17,11 @@ Three scenarios, and they answer different questions:
            stops without overshooting past the dead zone of the firmware.
     match  the production match loop, unchanged, over 100 simulated seconds.
            Checks it survives, and measures what it costs.
+    tournee
+           the production match loop over 100 s, its strategy replaced by a
+           loop of targets that never ends, with a scripted opponent circling
+           in our half. Checks the planning budget with a robot that moves
+           for the whole match, and how the replanning behaves.
 
 The scenarios print a verdict and return a non-zero exit code on failure, so
 they can be chained in a campaign of runs with no test framework in the way.
@@ -488,15 +493,149 @@ def report_match(sim, com, start_pose, ticks, wall_elapsed, time_in_sim,
         verdict = "OK" if wall_elapsed <= budget else "NON TENU"
         print(f"Budget de temps ({budget:.1f} s) : {verdict}")
         if wall_elapsed > budget:
-            print("  Cause connue : app.py::update() replanifie en A* a "
-                  "chaque tick.")
-            print("  A traiter dans la re-API du pathfinder, pas ici.")
+            print("  Regarder le nombre de plans A* : il ne devrait "
+                  "replanifier que sur evenement.")
 
     if failures:
         for item in failures:
             print(f"ECHEC : {item}")
         return 1
     print("MATCH : OK — la boucle de production a tenu 100 s simulees.")
+    return 0
+
+
+# ── Scenario: tour of the table ───────────────────────────────────────────
+
+# Targets for YELLOW, mirrored for BLUE. Clear of the quarries (all assumed
+# full) and of the borders; the middle crossing passes between C5 and C6.
+TOUR_TARGETS = (
+    (1000.0, 1000.0), (2000.0, 1000.0), (2600.0, 1000.0), (2000.0, 1650.0),
+    (1000.0, 1650.0), (700.0, 1000.0), (1000.0, 350.0), (2000.0, 350.0),
+)
+# Scripted opponent: a circle in our half, slowly.
+TOUR_OPPONENT_CENTRE = (900.0, 1000.0)
+TOUR_OPPONENT_RADIUS_MM = 350.0
+TOUR_OPPONENT_RAD_S = 0.25          # ~90 mm/s along the circle
+TOUR_MIN_TARGETS = 6
+
+
+def scenario_tournee(args) -> int:
+    """Run the match loop over 100 s on a loop of targets, with an opponent."""
+    from robot1.rasp import app
+    from robot1.rasp.comm import set_fake_button
+    from robot1.rasp.strategy import Action, TypeAction
+    from robot1.rasp.vision import detection
+    from robot1.rasp.world import mirror_for_team
+
+    set_fake_button(app.PIN_COULEUR, args.color.upper() == "BLUE")
+    detection.use_pushed_scans()
+    couleur = app.lire_couleur_equipe()
+    clock = build_clock(args.speed)
+
+    from robot1.rasp.strategy import StratManager
+    start = StratManager(couleur).get_start_position()
+    sim = build_robot(*start, args.seed, args.noise)
+
+    # The opponent the detection would report. Stands in for synthetic scans
+    # until the simulator produces them; app.py reads it through its adapter.
+    centre = mirror_for_team(TOUR_OPPONENT_CENTRE, couleur)
+    opponent = {"x": centre[0], "y": centre[1]}
+
+    def scripted_opponent():
+        return opponent["x"], opponent["y"], 1.0
+
+    detection.get_opponent = scripted_opponent
+
+    if args.rerun:
+        viz.init()
+
+    robot = app.Robot(couleur, clock=clock)
+    targets = [mirror_for_team(t, couleur) for t in TOUR_TARGETS]
+    robot.strategie.liste_actions = [
+        Action(TypeAction.DEPLACEMENT, cible_x=x, cible_y=y)
+        for _ in range(20) for x, y in targets
+    ]
+
+    # Time spent in the A*, measured around the planner of the loop.
+    finder = robot.cerveau
+    plan_time = {"s": 0.0, "fails": 0}
+    original_plan = finder.plan
+
+    def timed_plan(*a, **k):
+        t0 = time.perf_counter()
+        result = original_plan(*a, **k)
+        plan_time["s"] += time.perf_counter() - t0
+        if not result.ok:
+            plan_time["fails"] += 1
+        return result
+
+    finder.plan = timed_plan
+
+    com = robot.com
+    com.publish_odometry(clock.now(), force=True)
+    robot.attendre_tirette()
+
+    contact = app.OPPONENT_RADIUS_MM + finder.robot_radius
+    min_gap = math.inf
+    ticks_in_contact = 0
+    wall_start = time.perf_counter()
+    begin = clock.now()
+    while clock.now() - begin < MATCH_DURATION_S:
+        angle = TOUR_OPPONENT_RAD_S * (clock.now() - begin)
+        opponent["x"] = centre[0] + TOUR_OPPONENT_RADIUS_MM * math.cos(angle)
+        opponent["y"] = centre[1] + TOUR_OPPONENT_RADIUS_MM * math.sin(angle)
+
+        sim.step(TICK_S)
+        com.publish_odometry(clock.now())
+        robot.update()
+
+        tx, ty, _ = sim.true_pose()
+        gap = math.hypot(tx - opponent["x"], ty - opponent["y"])
+        min_gap = min(min_gap, gap)
+        if gap < contact:
+            ticks_in_contact += 1
+        if args.rerun:
+            viz.publish(clock.now(), sim)
+        clock.sleep(TICK_S)
+
+    wall_elapsed = time.perf_counter() - wall_start
+    robot.stopper_tout()
+    reached = robot.strategie.etape_actuelle
+    nav = robot.navigation
+
+    print()
+    print(f"Cibles atteintes        : {reached}")
+    print(f"Distance parcourue      : "
+          f"{sim.distance_travelled_mm / 1000.0:.2f} m")
+    print(f"Plans A*                : {nav.plans} "
+          f"({plan_time['fails']} echecs), {plan_time['s'] * 1000:.0f} ms "
+          f"au total")
+    print(f"Ecart min a l'adversaire: {min_gap:.0f} mm entre centres "
+          f"(contact sous {contact:.0f})")
+    print(f"Ticks au contact        : {ticks_in_contact}")
+    print(f"Temps mur total         : {wall_elapsed:.2f} s")
+
+    failures = []
+    if reached < TOUR_MIN_TARGETS:
+        failures.append(f"{reached} cibles atteintes, "
+                        f"moins de {TOUR_MIN_TARGETS}")
+    true_x, true_y, _ = sim.true_pose()
+    if not (0.0 <= true_x <= FIELD_WIDTH_MM
+            and 0.0 <= true_y <= FIELD_HEIGHT_MM):
+        failures.append("le robot est sorti de la table")
+    if args.speed == "max" and wall_elapsed > args.budget:
+        failures.append(f"budget de temps depasse ({wall_elapsed:.2f} s "
+                        f"pour {args.budget:.1f} s)")
+
+    print()
+    if ticks_in_contact:
+        print("NOTE : contact avec l'adversaire. Le planificateur seul ne "
+              "garantit pas l'evitement (arret de securite a venir).")
+    if failures:
+        for item in failures:
+            print(f"ECHEC : {item}")
+        return 1
+    print("TOURNEE : OK — 100 s de deplacements, budget tenu.")
     return 0
 
 
@@ -507,7 +646,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Simulateur 2D cinematique — CDR-Nantes",
     )
-    parser.add_argument("--scenario", choices=["carre", "ligne", "match"],
+    parser.add_argument("--scenario",
+                        choices=["carre", "ligne", "match", "tournee"],
                         default="carre", help="scenario a jouer")
     parser.add_argument("--color", choices=["BLUE", "YELLOW", "blue",
                                             "yellow"],
@@ -542,6 +682,8 @@ def main() -> int:
         return scenario_carre(args)
     if args.scenario == "ligne":
         return scenario_ligne(args)
+    if args.scenario == "tournee":
+        return scenario_tournee(args)
     return scenario_match(args)
 
 
