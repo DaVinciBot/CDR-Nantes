@@ -150,22 +150,97 @@ static void test_complementary_encoder_rotation_without_imu(void) {
     TEST_ASSERT_FLOAT_WITHIN(0.005f, 0.5f, est.pose().theta_rad);
 }
 
-static void test_complementary_ignores_deltas_under_the_noise_floor(void) {
+/** Robot at rest, readings jittering by up to 15 counts around a fixed
+ *  position: the deltas go back and forth and never reach the floor. */
+static void test_complementary_ignores_jitter_at_rest(void) {
     ComplementaryEstimator est(complementary_params());
     est.reset(0.0f, 0.0f, 0.0f);
     est.step(first_tick());
 
-    EstimatorInput in = empty_input();
-    in.d1 = 15;
-    in.d2 = -15;
-    in.d3 = 15;
-    in.dt_us = DT_US;
-    in.encoders_fresh = true;
+    const int32_t jitter[3] = {15, -12, 9};
     for (int i = 0; i < 100; ++i) {
+        const int32_t sign = (i % 2 == 0) ? 1 : -1;
+        EstimatorInput in = empty_input();
+        in.d1 = sign * jitter[0];
+        in.d2 = sign * jitter[1];
+        in.d3 = sign * jitter[2];
+        in.dt_us = DT_US;
+        in.encoders_fresh = true;
         est.step(in);
     }
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, est.pose().x_mm);
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, est.pose().y_mm);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, est.pose().theta_rad);
+}
+
+/** 10 mm/s along y: about 11 counts per tick on wheels 1 and 2, under the
+ *  floor. Zeroed wheel by wheel, the robot never moved; carried, it does. */
+static void test_complementary_sees_a_slow_approach(void) {
+    ComplementaryEstimator est(complementary_params());
+    est.reset(0.0f, 0.0f, 0.0f);
+    est.step(first_tick());
+
+    EstimatorInput in = motion_tick(0.0f, 0.15f, 0.0f);
+    float expected_y = 0.0f;
+    for (int i = 0; i < 100; ++i) {
+        est.step(in);
+        expected_y += kinematics::forward_kinematics(
+                          {RADIUS_MM, COUNTS_TO_MM}, in.d1, in.d2, in.d3).dy;
+    }
+    // Rounded counts give 14.6 mm, not 15: the reference is the counts fed in.
+    // What waits in the carry is under one floor (16 counts, 0.18 mm).
+    TEST_ASSERT_FLOAT_WITHIN(0.2f, expected_y, est.pose().y_mm);
+    TEST_ASSERT_TRUE(est.pose().y_mm > 14.0f);
+}
+
+/** 20 mm/s along x: wheel 3 sees 26 counts per tick, wheels 1 and 2 only 13.
+ *  Zeroing wheels 1 and 2 alone made a rotation out of a straight line. */
+static void test_complementary_slow_straight_line_does_not_turn(void) {
+    ComplementaryEstimator est(complementary_params());
+    est.reset(0.0f, 0.0f, 0.0f);
+    est.step(first_tick());
+    for (int i = 0; i < 100; ++i) {
+        est.step(motion_tick(0.3f, 0.0f, 0.0f));
+    }
+    TEST_ASSERT_FLOAT_WITHIN(0.002f, 0.0f, est.pose().theta_rad);
+    TEST_ASSERT_FLOAT_WITHIN(1.0f, 30.0f, est.pose().x_mm);
+    TEST_ASSERT_FLOAT_WITHIN(0.5f, 0.0f, est.pose().y_mm);
+}
+
+/** A slow rotation (0.05 rad/s, under the 0.077 rad/s that one floor per
+ *  tick used to hide) adds up. */
+static void test_complementary_sees_a_slow_rotation(void) {
+    ComplementaryEstimator est(complementary_params());
+    est.reset(0.0f, 0.0f, 0.0f);
+    est.step(first_tick());
+    for (int i = 0; i < 200; ++i) {
+        est.step(motion_tick(0.0f, 0.0f, 0.00075f));
+    }
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.15f, est.pose().theta_rad);
+}
+
+/** An IMU that stopped answering keeps its last heading with valid set; past
+ *  imu_max_age_us the encoders carry the heading again. */
+static void test_complementary_stale_imu_falls_back_on_the_encoders(void) {
+    ComplementaryEstimator est(complementary_params());
+    est.reset(0.0f, 0.0f, 0.0f);
+    est.step(first_tick());
+
+    EstimatorInput fresh = motion_tick(0.0f, 0.0f, 0.01f);
+    fresh.imu_valid = true;
+    fresh.heading_rad = 0.3f;
+    fresh.imu_age_us = 10000;
+    est.step(fresh);
+    TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.3f, est.pose().theta_rad);
+
+    for (int i = 0; i < 20; ++i) {
+        EstimatorInput stale = motion_tick(0.0f, 0.0f, 0.01f);
+        stale.imu_valid = true;
+        stale.heading_rad = 0.3f;  // frozen
+        stale.imu_age_us = 60000 + i * DT_US;
+        est.step(stale);
+    }
+    TEST_ASSERT_FLOAT_WITHIN(0.005f, 0.5f, est.pose().theta_rad);
 }
 
 /** The test firmware runs with use_encoders = false: without optical, the
@@ -472,7 +547,11 @@ int main(void) {
     RUN_TEST(test_complementary_follows_the_heading);
     RUN_TEST(test_complementary_imu_heading_overrides_the_encoders);
     RUN_TEST(test_complementary_encoder_rotation_without_imu);
-    RUN_TEST(test_complementary_ignores_deltas_under_the_noise_floor);
+    RUN_TEST(test_complementary_ignores_jitter_at_rest);
+    RUN_TEST(test_complementary_sees_a_slow_approach);
+    RUN_TEST(test_complementary_slow_straight_line_does_not_turn);
+    RUN_TEST(test_complementary_sees_a_slow_rotation);
+    RUN_TEST(test_complementary_stale_imu_falls_back_on_the_encoders);
     RUN_TEST(test_complementary_without_use_encoders_position_is_frozen);
     RUN_TEST(test_complementary_fuses_20_percent_encoders_80_percent_optical);
     RUN_TEST(test_complementary_missed_encoder_read_trusts_the_optical_alone);

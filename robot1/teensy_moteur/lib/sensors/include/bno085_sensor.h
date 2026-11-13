@@ -24,7 +24,7 @@ namespace sensors {
 struct HeadingSample {
     /** False until a first sample arrived. */
     bool valid;
-    /** Heading in the table frame, origin set by zero_heading(), rad. */
+    /** Heading in the table frame, aligned by set_heading(), rad. */
     float heading_rad;
     /** micros() at reception. */
     uint32_t timestamp_us;
@@ -48,10 +48,22 @@ public:
     bool begin(uint32_t report_period_us);
 
     /** @brief Reads one pending event. Call from loop() only.
-     *  @return True if a new heading was buffered. */
+     *
+     * After an internal reset of the BNO085 (brown-out, watchdog of the
+     * sensor), the report is enabled again, and the heading is carried on from
+     * the last one returned: the raw yaw restarts from an arbitrary origin, so
+     * keeping the old offset would make the heading jump. Rotation during the
+     * outage itself is lost.
+     *
+     * @return True if a new heading was buffered. */
     bool poll();
 
-    /** @brief The current heading becomes 0. No-op before a first sample. */
+    /** @brief The current heading becomes heading_rad (table frame). Before a
+     *  first sample, applied to the first one. Call from loop(), never from
+     *  inside a noInterrupts() section. */
+    void set_heading(double heading_rad);
+
+    /** @brief The current heading becomes 0. Same as set_heading(0). */
     void zero_heading();
 
     /** @return A copy of the last sample; safe from the ISR. */
@@ -63,12 +75,19 @@ public:
 private:
     Adafruit_BNO08x bno_;
     bool available_ = false;
+    uint32_t report_period_us_ = 0;
 
-    // Written by poll() and zero_heading() (loop), read by latest() (ISR).
+    // Written by poll() and set_heading() (loop), read by latest() (ISR).
     double yaw_offset_ = 0.0;
     double raw_yaw_ = 0.0;
     bool valid_ = false;
     uint32_t timestamp_us_ = 0;
+
+    // loop() only: a heading to apply to the first sample, and a sensor reset
+    // to bridge at the next sample.
+    bool heading_pending_ = false;
+    double pending_heading_ = 0.0;
+    bool reset_pending_ = false;
 };
 
 }  // namespace sensors

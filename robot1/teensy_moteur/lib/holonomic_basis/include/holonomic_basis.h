@@ -69,7 +69,10 @@ class Holonomic_Basis {
     void define_wheel3(HardwareSerial& serial, uint8_t addr);
 
     void init_motors();
+    // Robot at rest at a known pose: sets X / Y / THETA, resets the estimator,
+    // and aligns the IMU heading on theta.
     void init_holonomic_basis(double x, double y, double theta);
+    // Aligns the IMU heading on the current THETA. Call with the robot still.
     void calibrate_imu_origin();
     void enable_motors();
     void disable_motors();
@@ -97,7 +100,10 @@ class Holonomic_Basis {
 
     // Velocity of the trajectory at the target, table frame (mm/s, rad/s),
     // added to the PID output after the braking cap. Zero for a plain pose
-    // target. Call from loop(), not from the ISR.
+    // target. Call from loop(), not from the ISR, with the target pose of the
+    // same message: handle() moves that pose on at this velocity for the time
+    // elapsed since this call, and drops the velocity once it is older than
+    // three periods of the high-level loop (150 ms).
     void set_velocity_feedforward(double vx_mm_s, double vy_mm_s, double omega_rad_s);
 
     // Last shaped command (wheel speeds and limiter flags). Copy, ISR-safe.
@@ -105,7 +111,7 @@ class Holonomic_Basis {
 
     Point get_current_position();
     // Immediate stop of the drivers (no ramp); the command shaper restarts
-    // from rest.
+    // from rest, the feed-forward and the PID state are cleared.
     void emergency_stop();
 
     // ===== ARCHITECTURE NON-BLOQUANTE : RS485 HORS ISR =====
@@ -137,6 +143,7 @@ class Holonomic_Basis {
    private:
     motion::WheelCommandShaper shaper;
     motion::VelocityCommand feed_forward = {0.0, 0.0, 0.0};
+    uint32_t feed_forward_us = 0;  // micros() of the last set_velocity_feedforward()
 
     pose::PoseEstimator* estimator = nullptr;
     sensors::Bno085Sensor* imu = nullptr;

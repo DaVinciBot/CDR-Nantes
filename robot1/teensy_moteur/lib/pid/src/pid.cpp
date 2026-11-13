@@ -57,6 +57,7 @@ void PID::reset() {
     _integral = 0.0;
     _prevError = 0.0;
     _lastTime = micros();
+    _lastP = _lastI = _lastD = 0.0;
 }
 
 double PID::compute(double error) {
@@ -88,6 +89,9 @@ double PID::compute(double error, bool freeze_integral) {
     double iTerm = _ki * _integral;
     double dTerm = _kd * (error - _prevError) / dt;
     _prevError = error;
+    _lastP = pTerm;
+    _lastI = iTerm;
+    _lastD = dTerm;
 
     // Combine
     double rawOutput = pTerm + iTerm + dTerm;

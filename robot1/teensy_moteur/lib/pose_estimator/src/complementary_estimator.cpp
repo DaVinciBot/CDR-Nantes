@@ -25,6 +25,7 @@ void ComplementaryEstimator::reset(float x_mm, float y_mm, float theta_rad) {
     omega_ = 0.0;
     optical_used_ = false;
     optical_rejected_ = false;
+    for (int i = 0; i < 3; ++i) carry_[i] = 0;
 }
 
 bool ComplementaryEstimator::is_pure_rotation(double d1, double d2, double d3) const {
@@ -52,16 +53,31 @@ void ComplementaryEstimator::step(const EstimatorInput &in) {
     ready_ = true;
     const double dt_s = static_cast<double>(in.dt_us) * 1e-6;
 
-    // --- Encoders: noise floor, then forward kinematics (robot frame) ---
-    int32_t d[3] = {in.d1, in.d2, in.d3};
-    for (int i = 0; i < 3; ++i) {
-        if (fabs(static_cast<double>(d[i])) < params_.encoder_noise_counts) d[i] = 0;
+    // --- Encoders: carry, forward kinematics, release above the noise floor ---
+    carry_[0] += in.d1;
+    carry_[1] += in.d2;
+    carry_[2] += in.d3;
+    kinematics::BodyDelta enc =
+        kinematics::forward_kinematics(geometry_, carry_[0], carry_[1], carry_[2]);
+    const double floor_mm = params_.encoder_noise_counts * params_.counts_to_mm;
+    const bool released = fabs(enc.dx) >= floor_mm || fabs(enc.dy) >= floor_mm ||
+                          fabs(enc.dtheta) * params_.robot_radius_mm >= floor_mm;
+    int32_t d[3] = {0, 0, 0};
+    if (released) {
+        for (int i = 0; i < 3; ++i) {
+            d[i] = carry_[i];
+            carry_[i] = 0;
+        }
+    } else {
+        enc.dx = 0.0f;
+        enc.dy = 0.0f;
+        enc.dtheta = 0.0f;
     }
-    const kinematics::BodyDelta enc = kinematics::forward_kinematics(geometry_, d[0], d[1], d[2]);
 
-    // --- Heading: IMU when available, encoder rotation otherwise ---
-    const double theta_new = in.imu_valid ? normalize_angle(in.heading_rad)
-                                          : normalize_angle(theta_ + enc.dtheta);
+    // --- Heading: IMU when available and fresh, encoder rotation otherwise ---
+    const bool imu_fresh = in.imu_valid && in.imu_age_us <= params_.imu_max_age_us;
+    const double theta_new = imu_fresh ? normalize_angle(in.heading_rad)
+                                       : normalize_angle(theta_ + enc.dtheta);
     // Mean heading of the tick, across +-pi: half the wrapped change.
     const double dtheta = normalize_angle(theta_new - theta_);
     const double theta_mean = normalize_angle(theta_ + 0.5 * dtheta);

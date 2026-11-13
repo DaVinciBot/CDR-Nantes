@@ -81,6 +81,14 @@ class PID {
      */
     void reset();
 
+    /**
+     * @brief Terms of the last compute(), before the deadband and the output
+     * clamp: which one dominates, or runs away. Zero after reset().
+     */
+    double lastProportional() const { return _lastP; }
+    double lastIntegral() const { return _lastI; }
+    double lastDerivative() const { return _lastD; }
+
    private:
     double _kp, _ki, _kd;
     double _minOutput, _maxOutput;
@@ -89,6 +97,7 @@ class PID {
     double _prevError;
     unsigned long _lastTime;
     double _dtMin, _dtMax;
+    double _lastP = 0.0, _lastI = 0.0, _lastD = 0.0;
 
     /**
      * @brief Remove deadband around zero with smooth linear mapping.

@@ -28,11 +28,13 @@ class MKSServo {
     uint8_t computeCRC(const uint8_t* data, size_t len) const;
     bool sendPacket(uint8_t cmd, const uint8_t* payload, size_t payloadLen);
 
-    // Timeouts :
-    //   F3 enable/disable → 10ms (réponse 4 bytes ≈ 350µs + latence)
-    //   F6 setSpeed       → 10ms (idem)
-    //   0x31 readEncoder  → 50ms (réponse 9 bytes, lecture critique)
+    // Reads one response of a known length: expectedPayloadLen bytes between
+    // [0xFB][addr][cmd] and the checksum (6 for 0x31, 1 for 0x80).
+    // Timeouts:
+    //   0x31 readEncoder → 50 ms by default (10-byte response, 0.9 ms at 115200)
+    //   0x80 calibrate   → 100 ms per poll
     bool readResponse(uint8_t expectedCmd,
+                      size_t expectedPayloadLen,
                       uint8_t* payload,
                       size_t payloadCapacity,
                       size_t& payloadLen,
