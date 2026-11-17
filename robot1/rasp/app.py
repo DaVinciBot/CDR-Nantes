@@ -130,13 +130,35 @@ class Robot:
 
     # ── TIRETTE ───────────────────────────────────────────────────────────────
 
-    def attendre_tirette(self) -> None:
-        """Boucle bloquante jusqu'au retrait de la tirette."""
+    def attendre_tirette(
+        self,
+        stop_event: threading.Event | None = None,
+    ) -> bool:
+        """Attend le retrait de la tirette, avec annulation facultative."""
         self.logger.info(
             f"[{self.couleur}] En attente du retrait de la tirette..."
         )
-        self._pin_tirette.wait_for_release()
+        if stop_event is None:
+            self._pin_tirette.wait_for_release()
+        else:
+            while self._pin_tirette.is_pressed and not stop_event.is_set():
+                stop_event.wait(0.1)
+            if stop_event.is_set():
+                self.logger.info("Attente de tirette annulée.")
+                return False
         self.logger.info("Tirette retirée — MATCH DÉMARRÉ !")
+        return True
+
+    def dashboard_snapshot(self) -> dict[str, object]:
+        """Retourne une copie cohérente des données visibles à l'écran."""
+        with self.lock:
+            return {
+                "x": self.x,
+                "y": self.y,
+                "theta": self.theta,
+                "team": self.couleur,
+                "mode": self.mode,
+            }
 
     # ── BAS NIVEAU ────────────────────────────────────────────────────────────
 

@@ -88,3 +88,36 @@ Toutes les positions en mm, angles en radians, repere table `(0,0)` en bas-gauch
 > textures `playmat_grid.jpg` / `attic.jpg` / `crate.png`, que rien ne referencait (3,1 Mo).
 > `table_map.py` cite toujours les `.proto` en commentaire : c'est la provenance des cotes qu'il
 > porte en dur, pas un fichier qu'il charge.
+
+---
+
+## Écran local Raspberry Pi
+
+L'interface locale affiche la position et le cap du robot, son équipe et son mode,
+le chronomètre du match ainsi que les derniers journaux Python. Elle utilise
+Tkinter et ne dépend ni de Rerun ni d'une classe matérielle particulière : une
+source peut être branchée avec `RobotDashboard.set_data_provider()`.
+
+Prérequis : Python **3.14 ou plus récent** (version déclarée dans `pyproject.toml`)
+et une session graphique Raspberry Pi. Depuis la racine du dépôt :
+
+```bash
+python3.14 --version
+python3.14 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e .
+python -m pip install -r requirements.txt
+python -m robot1.rasp.main
+```
+
+Si `python3.14 --version` échoue, Python 3.14 n'est pas installé. Sous Windows,
+créer l'environnement avec `py -3.14 -m venv .venv`, puis utiliser
+`.venv\Scripts\python.exe` pour les installations et le lancement. L'installation
+éditable rend `usb_com` et `robot1.rasp` importables ; utiliser le même
+interpréteur Python pour toutes les commandes.
+
+La fenêtre démarre en plein écran. `F11` bascule le plein écran et `Échap` ferme
+l'interface et demande l'arrêt du robot. Les journaux du processus sont affichés
+à partir du niveau INFO. La pose est lue depuis un instantané thread-safe fourni
+par `Robot.dashboard_snapshot()` ; les coordonnées sont en millimètres et le cap
+est affiché en degrés.
