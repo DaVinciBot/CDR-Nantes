@@ -48,6 +48,8 @@ class RobotDashboard:
         self._remaining = 100.0
         self._closing = False
         self._last_log_lines: tuple[str, ...] = ()
+        self._health_vars: dict[str, tk.StringVar] = {}
+        self._health_labels: dict[str, tk.Label] = {}
         self._log_handler = _DashboardLogHandler()
         logging.getLogger().addHandler(self._log_handler)
 
@@ -132,6 +134,35 @@ class RobotDashboard:
             font=("TkDefaultFont", 10, "bold"),
         )
         self._status_label.grid(row=0, column=2, padx=(16, 0), sticky="e")
+
+        health_panel = ttk.Frame(
+            header,
+            style="Panel.TFrame",
+            padding=(10, 6),
+        )
+        health_panel.grid(row=0, column=3, padx=(16, 0), sticky="e")
+        ttk.Label(
+            health_panel,
+            text="DIAGNOSTIC LOGICIEL",
+            style="PanelTitle.TLabel",
+        ).grid(row=0, column=0, sticky="w")
+        for row, component in enumerate(
+            ("Teensy USB", "LiDAR", "GPIO", "Carte Teensy"),
+            start=1,
+        ):
+            variable = tk.StringVar(value=f"{component} : non vérifié")
+            label = tk.Label(
+                health_panel,
+                textvariable=variable,
+                bg="#192630",
+                fg="#91a4b2",
+                anchor="w",
+                font=("TkDefaultFont", 9),
+                width=36,
+            )
+            label.grid(row=row, column=0, sticky="ew")
+            self._health_vars[component] = variable
+            self._health_labels[component] = label
 
         content = ttk.Frame(
             self.root,
@@ -298,6 +329,7 @@ class RobotDashboard:
 
         snapshot = provider() if provider is not None else None
         self._update_telemetry(snapshot)
+        self._update_health(snapshot)
         self._draw_field(snapshot)
         self._update_logs()
         self.root.after(100, self._refresh)
@@ -324,6 +356,35 @@ class RobotDashboard:
         else:
             heading = f"{math.degrees(theta) % 360:.1f} °"
         self._heading_var.set(heading)
+
+    def _update_health(self, snapshot: Mapping[str, object] | None) -> None:
+        health = snapshot.get("health") if snapshot is not None else None
+        colors = {
+            "ok": "#8be0a4",
+            "warning": "#ffc857",
+            "error": "#ff7777",
+            "info": "#8bc9e8",
+            "simulated": "#c2a8ff",
+            "unknown": "#91a4b2",
+        }
+
+        for component, variable in self._health_vars.items():
+            result = (
+                health.get(component)
+                if isinstance(health, Mapping)
+                else None
+            )
+            if isinstance(result, Mapping):
+                state = str(result.get("state", "unknown"))
+                detail = str(result.get("detail", "non vérifié"))
+            else:
+                state = "unknown"
+                detail = "non vérifié"
+
+            variable.set(f"{component} : {detail}")
+            self._health_labels[component].configure(
+                fg=colors.get(state, colors["unknown"])
+            )
 
     def _draw_field(self, snapshot: Mapping[str, object] | None) -> None:
         canvas = self._field

@@ -121,3 +121,11 @@ l'interface et demande l'arrêt du robot. Les journaux du processus sont affich�
 à partir du niveau INFO. La pose est lue depuis un instantané thread-safe fourni
 par `Robot.dashboard_snapshot()` ; les coordonnées sont en millimètres et le cap
 est affiché en degrés.
+
+Le panneau `Diagnostic logiciel` indique si des trames d'odométrie Teensy sont
+reçues récemment, l'état de connexion exposé par le LiDAR, et les valeurs lues
+sur les entrées GPIO de tirette et de couleur. `IMU/OTOS/drivers non vérifiés`
+signifie qu'aucun statut de ces composants n'est actuellement consommé par la
+boucle Raspberry Pi. Ces indicateurs vérifient des échanges ou des lectures
+logiciels ; ils ne prouvent pas l'intégrité physique d'un câble, d'une
+alimentation ou d'un capteur.

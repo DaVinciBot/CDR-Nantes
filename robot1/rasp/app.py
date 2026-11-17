@@ -2,6 +2,7 @@ import struct
 import math
 import logging
 import threading
+import time
 
 from usb_com import Messages, pack_message, payload_size, unpack_message
 
@@ -64,6 +65,7 @@ class Robot:
         self.y       = 0.0
         self.theta   = 0.0
         self.lock    = threading.Lock()
+        self._last_odometry_at: float | None = None
 
         # GPIO tirette (kept open pendant tout le match)
         self._pin_tirette = get_button(PIN_TIRETTE, pull_up=True)
@@ -150,15 +152,74 @@ class Robot:
         return True
 
     def dashboard_snapshot(self) -> dict[str, object]:
-        """Retourne une copie cohérente des données visibles à l'écran."""
+        """Retourne la télémétrie et les diagnostics logiciels disponibles."""
         with self.lock:
-            return {
+            snapshot = {
                 "x": self.x,
                 "y": self.y,
                 "theta": self.theta,
                 "team": self.couleur,
                 "mode": self.mode,
             }
+            last_odometry_at = self._last_odometry_at
+
+        if self.mode != "HARDWARE":
+            teensy_state = "simulated"
+            teensy_detail = f"{self.mode} simulé"
+        elif last_odometry_at is None:
+            teensy_state = "warning"
+            teensy_detail = "attente odométrie"
+        else:
+            odometry_age = time.monotonic() - last_odometry_at
+            if odometry_age <= 1.0:
+                teensy_state = "ok"
+                teensy_detail = "odométrie récente"
+            else:
+                teensy_state = "error"
+                teensy_detail = f"odom absente > {odometry_age:.0f} s"
+
+        lidar_connected, lidar_error = lidar.get_status()
+        if lidar_connected:
+            lidar_state = "ok"
+            lidar_detail = "connecté"
+        elif lidar_error:
+            lidar_state = "error"
+            lidar_detail = "absent · voir journal"
+        else:
+            lidar_state = "warning"
+            lidar_detail = "en attente"
+
+        tirette_inseree = self._pin_tirette.is_pressed
+        gpio_detail = (
+            f"tirette "
+            f"{'insérée' if tirette_inseree else 'retirée'} · "
+            f"équipe {self.couleur} lue"
+        )
+        if self.mode != "HARDWARE":
+            gpio_state = "simulated"
+            gpio_detail = f"simulé · {gpio_detail}"
+        else:
+            gpio_state = "info"
+
+        snapshot["health"] = {
+            "Teensy USB": {
+                "state": teensy_state,
+                "detail": teensy_detail,
+            },
+            "LiDAR": {
+                "state": lidar_state,
+                "detail": lidar_detail,
+            },
+            "GPIO": {
+                "state": gpio_state,
+                "detail": gpio_detail,
+            },
+            "Carte Teensy": {
+                "state": "unknown",
+                "detail": "IMU/OTOS/drivers non vérifiés",
+            },
+        }
+        return snapshot
 
     # ── BAS NIVEAU ────────────────────────────────────────────────────────────
 
@@ -170,6 +231,7 @@ class Robot:
                 self.x     = x
                 self.y     = y
                 self.theta = theta
+                self._last_odometry_at = time.monotonic()
             lidar.update_robot_pose(x, y, theta)
         else:
             self.logger.warning(
