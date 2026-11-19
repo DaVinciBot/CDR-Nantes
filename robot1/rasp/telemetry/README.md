@@ -122,6 +122,12 @@ l'interface et demande l'arrêt du robot. Les journaux du processus sont affich�
 par `Robot.dashboard_snapshot()` ; les coordonnées sont en millimètres et le cap
 est affiché en degrés.
 
+Avant l'initialisation du robot, l'équipe lue sur le switch physique est proposée
+par défaut. Les boutons tactiles `Changer pour ...` et `Confirmer l'équipe`
+permettent de modifier puis figer ce choix. Le robot est ensuite initialisé pour
+l'équipe confirmée et attend toujours le retrait physique de la tirette pour
+démarrer le match.
+
 Le panneau `Diagnostic logiciel` indique si des trames d'odométrie Teensy sont
 reçues récemment, l'état de connexion exposé par le LiDAR, et les valeurs lues
 sur les entrées GPIO de tirette et de couleur. `IMU/OTOS/drivers non vérifiés`

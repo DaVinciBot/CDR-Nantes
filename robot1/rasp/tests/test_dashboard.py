@@ -147,6 +147,37 @@ def test_robot_snapshot_marks_stale_teensy_odometry_as_error(monkeypatch):
     assert health["LiDAR"]["state"] == "warning"
 
 
+def test_team_can_be_changed_and_confirmed_only_before_initialization():
+    dashboard = RobotDashboard.__new__(RobotDashboard)
+    dashboard._lock = threading.Lock()
+    dashboard._selected_team = "BLUE"
+    dashboard._team_ready = False
+    dashboard._team_confirmed = False
+    dashboard._team_confirmation = threading.Event()
+
+    dashboard.set_initial_team("YELLOW")
+    dashboard._toggle_team()
+    dashboard.confirm_team()
+
+    assert dashboard.wait_for_team_confirmation(threading.Event()) == "BLUE"
+    dashboard._toggle_team()
+    dashboard.set_initial_team("BLUE")
+    assert dashboard.wait_for_team_confirmation(threading.Event()) == "BLUE"
+
+
+def test_team_selection_wait_can_be_cancelled():
+    dashboard = RobotDashboard.__new__(RobotDashboard)
+    dashboard._lock = threading.Lock()
+    dashboard._selected_team = "BLUE"
+    dashboard._team_ready = True
+    dashboard._team_confirmed = False
+    dashboard._team_confirmation = threading.Event()
+    stop_event = threading.Event()
+    stop_event.set()
+
+    assert dashboard.wait_for_team_confirmation(stop_event) is None
+
+
 def test_dashboard_log_handler_keeps_only_recent_records():
     handler = _DashboardLogHandler(capacity=2)
     logger = logging.getLogger("test_dashboard_handler")

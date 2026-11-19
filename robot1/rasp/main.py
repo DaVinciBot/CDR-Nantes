@@ -38,6 +38,11 @@ def _executer_match(
         # =================================================================
         # Idéalement, on lit un switch physique sur le robot pour savoir si on est Bleu ou Jaune
         couleur_equipe = lire_couleur_equipe()
+        interface.set_initial_team(couleur_equipe)
+        interface.set_status("Choisissez puis confirmez l'équipe")
+        couleur_equipe = interface.wait_for_team_confirmation(stop_event)
+        if couleur_equipe is None or stop_event.is_set():
+            return
 
         # On crée LE robot (qui va lui-même allumer le Lidar, la Teensy, etc.)
         mon_robot = Robot(couleur_equipe, clock=clock)

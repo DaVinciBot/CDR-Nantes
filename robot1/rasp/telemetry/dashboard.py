@@ -48,6 +48,10 @@ class RobotDashboard:
         self._remaining = 100.0
         self._closing = False
         self._last_log_lines: tuple[str, ...] = ()
+        self._selected_team = "BLUE"
+        self._team_ready = False
+        self._team_confirmed = False
+        self._team_confirmation = threading.Event()
         self._health_vars: dict[str, tk.StringVar] = {}
         self._health_labels: dict[str, tk.Label] = {}
         self._log_handler = _DashboardLogHandler()
@@ -208,7 +212,24 @@ class RobotDashboard:
             textvariable=self._team_var,
             style="Detail.TLabel",
         ).grid(
-            row=1, column=0, columnspan=2, sticky="w", pady=2
+            row=1, column=0, sticky="w", pady=2
+        )
+        self._change_team_button = tk.Button(
+            data_panel,
+            text="Changer d'équipe",
+            command=self._toggle_team,
+            bg="#294b61",
+            fg="#f2f5f7",
+            activebackground="#376785",
+            activeforeground="#ffffff",
+            relief="flat",
+            padx=12,
+            pady=9,
+            font=("TkDefaultFont", 10, "bold"),
+            state="disabled",
+        )
+        self._change_team_button.grid(
+            row=1, column=1, sticky="ew", padx=(8, 0), pady=4
         )
         ttk.Label(
             data_panel,
@@ -217,13 +238,30 @@ class RobotDashboard:
         ).grid(
             row=2, column=0, columnspan=2, sticky="w", pady=2
         )
+        self._confirm_team_button = tk.Button(
+            data_panel,
+            text="Confirmer l'équipe",
+            command=self.confirm_team,
+            bg="#255c48",
+            fg="#e8fff3",
+            activebackground="#34785e",
+            activeforeground="#ffffff",
+            relief="flat",
+            padx=12,
+            pady=9,
+            font=("TkDefaultFont", 10, "bold"),
+            state="disabled",
+        )
+        self._confirm_team_button.grid(
+            row=3, column=0, columnspan=2, sticky="ew", pady=(8, 4)
+        )
 
         self._x_var = tk.StringVar(value="— mm")
         self._y_var = tk.StringVar(value="— mm")
         self._heading_var = tk.StringVar(value="— °")
-        self._metric(data_panel, "X", self._x_var, 3, 0)
-        self._metric(data_panel, "Y", self._y_var, 3, 1)
-        self._metric(data_panel, "CAP", self._heading_var, 5, 0)
+        self._metric(data_panel, "X", self._x_var, 4, 0)
+        self._metric(data_panel, "Y", self._y_var, 4, 1)
+        self._metric(data_panel, "CAP", self._heading_var, 6, 0)
 
         self._elapsed_var = tk.StringVar(value="Écoulé   00:00")
         self._remaining_var = tk.StringVar(value="Restant   01:40")
@@ -232,14 +270,14 @@ class RobotDashboard:
             textvariable=self._elapsed_var,
             style="Detail.TLabel",
         ).grid(
-            row=7, column=0, sticky="w", padx=(0, 4), pady=(10, 0)
+            row=8, column=0, sticky="w", padx=(0, 4), pady=(10, 0)
         )
         ttk.Label(
             data_panel,
             textvariable=self._remaining_var,
             style="Detail.TLabel",
         ).grid(
-            row=7, column=1, sticky="w", padx=(4, 0), pady=(10, 0)
+            row=8, column=1, sticky="w", padx=(4, 0), pady=(10, 0)
         )
 
         logs_panel = ttk.Frame(
@@ -297,6 +335,43 @@ class RobotDashboard:
         with self._lock:
             self._provider = provider
 
+    def set_initial_team(self, team: str) -> None:
+        """Initialise le choix tactile avec la couleur du switch physique."""
+        team = team.upper()
+        if team not in ("BLUE", "YELLOW"):
+            raise ValueError(f"Équipe inconnue : {team}")
+        with self._lock:
+            if not self._team_confirmed:
+                self._selected_team = team
+                self._team_ready = True
+
+    def _toggle_team(self) -> None:
+        with self._lock:
+            if not self._team_ready or self._team_confirmed:
+                return
+            self._selected_team = (
+                "YELLOW" if self._selected_team == "BLUE" else "BLUE"
+            )
+
+    def confirm_team(self) -> None:
+        """Fige l'équipe sélectionnée et autorise l'initialisation du robot."""
+        with self._lock:
+            if not self._team_ready or self._team_confirmed:
+                return
+            self._team_confirmed = True
+            self._team_confirmation.set()
+
+    def wait_for_team_confirmation(
+        self,
+        stop_event: threading.Event,
+    ) -> str | None:
+        """Attend la confirmation tactile ou l'annulation de l'application."""
+        while not stop_event.is_set():
+            if self._team_confirmation.wait(timeout=0.1):
+                with self._lock:
+                    return self._selected_team
+        return None
+
     def set_status(self, status: str) -> None:
         """Met à jour le statut affiché depuis n'importe quel thread."""
         with self._lock:
@@ -323,6 +398,36 @@ class RobotDashboard:
         self._status_label.configure(
             bg="#6b3434" if "Erreur" in status else
             "#66521f" if "attente" in status.lower() else "#255c48"
+        )
+        with self._lock:
+            selected_team = self._selected_team
+            team_ready = self._team_ready
+            team_confirmed = self._team_confirmed
+        self._team_var.set(
+            f"Équipe : {selected_team if team_ready else 'Lecture du switch…'}"
+        )
+        self._change_team_button.configure(
+            text=(
+                f"Changer pour "
+                f"{'JAUNE' if selected_team == 'BLUE' else 'BLEU'}"
+            ),
+            state=(
+                "normal"
+                if team_ready and not team_confirmed
+                else "disabled"
+            ),
+        )
+        self._confirm_team_button.configure(
+            text=(
+                "Équipe confirmée"
+                if team_confirmed
+                else "Confirmer l'équipe"
+            ),
+            state=(
+                "normal"
+                if team_ready and not team_confirmed
+                else "disabled"
+            ),
         )
         self._elapsed_var.set(f"Écoulé   {self._format_time(elapsed)}")
         self._remaining_var.set(f"Restant   {self._format_time(remaining)}")
