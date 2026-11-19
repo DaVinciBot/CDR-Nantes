@@ -1,3 +1,13 @@
+# ============================================================================
+# CONTRAINTES DES TESTS - COMMENT INTERPRETER LES RESULTATS
+# - Niveau 6 : scan valide et recent, ne teste pas la reconnaissance.
+# - Niveau 7 : requiert x/y/theta reels ; aucun moteur commande.
+# - Niveau 8 : requiert aussi la localisation compatible et un but libre.
+# - Niveau 9 : donnees synthetiques, aucun capteur reel n est valide.
+# - Exemple : 3 pts <4 pts => bruit dans detection.py.
+# - Exemple : 0.6 s >0.5 s => scan perime dans acquisition.py.
+# ============================================================================
+
 #!/usr/bin/env python3
 """Tests CDR avec acquisition LiDAR commune.
 
@@ -42,24 +52,59 @@ logger = logging.getLogger("TEST_CDR")
 # Helpers d'affichage
 # ══════════════════════════════════════════════════════════════════════════════
 
+# ----------------------------------------------------------------------
+# FONCTION : header()
+# ROLE    : Affiche un grand titre de section.
+# ENTREES : titre : chaine de caracteres.
+# RETOUR  : None ; affichage console.
+# A SAVOIR: Cosmetique ; ne modifie pas le robot.
+# ----------------------------------------------------------------------
 def header(titre: str) -> None:
     print("\n" + "=" * 72)
     print(f"  {titre}")
     print("=" * 72)
 
 
+# ----------------------------------------------------------------------
+# FONCTION : ok()
+# ROLE    : Affiche un diagnostic positif.
+# ENTREES : msg : texte a afficher.
+# RETOUR  : None.
+# A SAVOIR: Un message OK seul n est pas une assertion de validation.
+# ----------------------------------------------------------------------
 def ok(msg: str) -> None:
     print(f"  [OK]  {msg}")
 
 
+# ----------------------------------------------------------------------
+# FONCTION : warn()
+# ROLE    : Affiche un avertissement.
+# ENTREES : msg : texte.
+# RETOUR  : None.
+# A SAVOIR: Ne fait pas echouer le test automatiquement.
+# ----------------------------------------------------------------------
 def warn(msg: str) -> None:
     print(f"  [WARN]  {msg}")
 
 
+# ----------------------------------------------------------------------
+# FONCTION : fail()
+# ROLE    : Affiche un diagnostic d echec.
+# ENTREES : msg : texte.
+# RETOUR  : None.
+# A SAVOIR: Le verdict final depend aussi des valeurs enregistrees dans RESULTS.
+# ----------------------------------------------------------------------
 def fail(msg: str) -> None:
     print(f"  [FAIL]  {msg}")
 
 
+# ----------------------------------------------------------------------
+# FONCTION : section()
+# ROLE    : Affiche un sous-titre du test.
+# ENTREES : msg : texte.
+# RETOUR  : None.
+# A SAVOIR: Aide a lire la console.
+# ----------------------------------------------------------------------
 def section(msg: str) -> None:
     print(f"\n  -- {msg} --")
 
@@ -67,6 +112,13 @@ def section(msg: str) -> None:
 RESULTS: Dict[str, bool] = {}
 
 
+# ----------------------------------------------------------------------
+# FONCTION : record()
+# ROLE    : Memorise le verdict d un test.
+# ENTREES : name : nom du test ; passed : booleen.
+# RETOUR  : bool : meme valeur que passed.
+# A SAVOIR: Met a jour le dictionnaire global RESULTS.
+# ----------------------------------------------------------------------
 def record(name: str, passed: bool) -> bool:
     RESULTS[name] = passed
     return passed
@@ -76,6 +128,13 @@ def record(name: str, passed: bool) -> bool:
 # TEST 1 — world
 # ══════════════════════════════════════════════════════════════════════════════
 
+# ----------------------------------------------------------------------
+# FONCTION : test_terrain()
+# ROLE    : Verifie le modele de terrain, les balises et la symetrie.
+# ENTREES : color : equipe BLUE ou YELLOW.
+# RETOUR  : bool : succes ou echec du test.
+# A SAVOIR: Valide dimensions et objets definis, pas leur position physique reelle.
+# ----------------------------------------------------------------------
 def test_terrain(color: str = "BLUE") -> bool:
     header("TEST 1 — world : dimensions, obstacles, balises, symétrie")
     try:
@@ -135,6 +194,13 @@ def test_terrain(color: str = "BLUE") -> bool:
 # TEST 2 — pathfinder
 # ══════════════════════════════════════════════════════════════════════════════
 
+# ----------------------------------------------------------------------
+# FONCTION : test_pathfinder()
+# ROLE    : Verifie la creation de chemins et la grille avec obstacles.
+# ENTREES : color : equipe BLUE ou YELLOW.
+# RETOUR  : bool : succes ou echec.
+# A SAVOIR: Teste un obstacle ponctuel ; ne prouve pas encore la prise en compte du rayon variable LiDAR.
+# ----------------------------------------------------------------------
 def test_pathfinder(color: str = "BLUE") -> bool:
     header("TEST 2 — pathfinder : A*, grille, inflation, chemin")
     try:
@@ -212,6 +278,13 @@ def test_pathfinder(color: str = "BLUE") -> bool:
 # TEST 3 — strategy
 # ══════════════════════════════════════════════════════════════════════════════
 
+# ----------------------------------------------------------------------
+# FONCTION : test_strategy()
+# ROLE    : Teste la progression des actions et temporisations de strategie.
+# ENTREES : color : equipe.
+# RETOUR  : bool : succes ou echec.
+# A SAVOIR: Manipule un gestionnaire de strategie logiciel, sans mouvement moteur.
+# ----------------------------------------------------------------------
 def test_strategy(color: str = "BLUE") -> bool:
     header("TEST 3 — strategy : StratManager, chrono, actions")
     try:
@@ -288,12 +361,26 @@ def test_strategy(color: str = "BLUE") -> bool:
 # TEST 4 — filtre complémentaire
 # ══════════════════════════════════════════════════════════════════════════════
 
+# ----------------------------------------------------------------------
+# FONCTION : test_complementary_filter()
+# ROLE    : Verifie une formule de fusion position / confiance de reference.
+# ENTREES : color : equipe (non essentiel au calcul local).
+# RETOUR  : bool : succes ou echec.
+# A SAVOIR: Ce n est pas le filtre operationnel du robot.
+# ----------------------------------------------------------------------
 def test_complementary_filter(color: str = "BLUE") -> bool:
     header("TEST 4 — courbe de référence uniquement, PAS le filtre du robot")
     try:
         # Copie locale de la courbe, volontairement autonome : la méthode
         # d'origine Robot._apply_complementary_filter n'existe plus, et la
         # courbe reste la référence documentée en interne.
+        # ----------------------------------------------------------------------
+        # FONCTION : apply_filter()
+        # ROLE    : Calcule une fusion lineaire entre pose LiDAR et pose Teensy.
+        # ENTREES : lidar_x, lidar_y, teensy_x, teensy_y : positions mm ; confidence : score.
+        # RETOUR  : (x_fusionne, y_fusionne, alpha).
+        # A SAVOIR: Fonction locale utilisee uniquement dans le test 4.
+        # ----------------------------------------------------------------------
         def apply_filter(lidar_x, lidar_y, teensy_x, teensy_y, confidence):
             """Courbe alpha adaptative : 0.85 sous conf 0.2, 0.25 au-dessus de 0.8."""
             if confidence < 0.2:
@@ -364,6 +451,13 @@ def test_complementary_filter(color: str = "BLUE") -> bool:
 # ══════════════════════════════════════════════════════════════════════════════
 
 # RENOMMAGE : remplace test_lidar_logic_static ; aucun module lidar_logic.py n’est utilisé.
+# ----------------------------------------------------------------------
+# FONCTION : test_localization_static()
+# ROLE    : Teste les constantes, fenetres de balises et geometrie synthétique.
+# ENTREES : color : equipe.
+# RETOUR  : bool : succes ou echec.
+# A SAVOIR: Ne fait pas de localisation reelle sur le capteur.
+# ----------------------------------------------------------------------
 def test_localization_static(color: str = "BLUE") -> bool:
     header("TEST 5 — localization : constantes, BEACONS, SVD Umeyama (hors thread)")
     try:
@@ -481,6 +575,15 @@ def test_localization_static(color: str = "BLUE") -> bool:
 # OUTILS COMMUNS — validation et exécution des tests LiDAR
 # ══════════════════════════════════════════════════════════════════════════════
 
+# ----------------------------------------------------------------------
+# FONCTION : _validate_scan()
+# ROLE    : Controle la structure et la fraicheur d un scan commun.
+# ENTREES : scan : instance Scan.
+# RETOUR  : None si valide ; leve AssertionError sinon.
+# A SAVOIR: Controle qualite/angle/distance mais pas la reconnaissance d objets.
+# ----------------------------------------------------------------------
+# CONTRAINTES : Mesures: qualite >=0, distance>0, angle dans [0,360[ et age<=0.5 s.
+# COMPARAISON CHIFFREE : Angle=359.9 deg : valide ; angle=360 deg : invalide.
 def _validate_scan(scan):
     # Un scan publié doit porter un numéro positif.
     assert scan.numero > 0, "Numero de scan invalide"
@@ -507,6 +610,15 @@ def _validate_scan(scan):
 
 
 # REMPLACE les anciens tests matériels : un seul lecteur pour les niveaux 6, 7 et 8.
+# ----------------------------------------------------------------------
+# FONCTION : _hardware_test()
+# ROLE    : Execute un niveau materiel 6, 7 ou 8 en lecture partagee.
+# ENTREES : level : 6,7,8 ; args : options de lancement.
+# RETOUR  : bool : succes ou echec.
+# A SAVOIR: Robot immobile ; un lecteur unique ; niveau 8 demande une localisation synchrone adaptee.
+# ----------------------------------------------------------------------
+# CONTRAINTES : Niveau 6 acquisition, 7 detection avec pose reelle, 8 integration sous prerequis ; robot immobile.
+# COMPARAISON CHIFFREE : Level 7 sans --x/--y/--theta-deg : test refuse.
 def _hardware_test(level, args):
     """Un seul proprietaire du capteur ; chaque scan traite une seule fois."""
     # Associe le niveau à son nom dans le résumé final.
@@ -555,6 +667,14 @@ def _hardware_test(level, args):
             theta = math.radians(args.theta_deg)
             # Fournit la pose réelle à la détection ; aucune commande de mouvement n’est envoyée.
             detection.update_robot_pose(args.x, args.y, theta)
+            detection.configure(cluster_gap_mm=args.cluster_gap_mm,
+                                opponent_min_span_mm=args.opp_min_span_mm,
+                                lidar_height_mm=args.lidar_height_mm,
+                                robot_radius_mm=args.robot_radius_mm,
+                                avoidance_margin_mm=args.avoidance_margin_mm,
+                                stone_physical_radius_mm=args.stone_physical_radius_mm)
+            if args.stones_plan:
+                detection.load_stones_from_plan(args.stones_plan)
         # La localisation et le calcul de chemin sont réservés au test d’intégration.
         if level == 8:
             # Importe les calculs de localisation, sans lancer leur ancien thread.
@@ -660,6 +780,20 @@ def _hardware_test(level, args):
                     candidates += 1
                     # Présente le candidat à la navigation comme un obstacle dynamique.
                     obstacles = [(ox, oy)]
+                # Ajoute les pierres et objets detectes au tableau dynamique.
+                # PathFinder actuel accepte des centres (x,y) uniquement :
+                # pour tenir compte des rayons, adapter ensuite PathFinder.
+                detected = detection.get_obstacles()
+                obstacles.extend((c.x_mm, c.y_mm) for c in detected)
+                if time.monotonic() - last_log >= 1.0:
+                    for c in detection.get_clusters():
+                        ok(f"  {c.categorie:19s} x={c.x_mm:.0f} y={c.y_mm:.0f} "
+                           f"longueur={c.longueur_mm:.0f} largeur={c.largeur_mm:.0f} "
+                           f"rayon={c.rayon_mm:.0f} mm ({len(c.points)} pts)")
+                    ok(f"  cible suivie avec dimensions: {detection.get_opponent_details()}")
+                    if args.robot_radius_mm is not None:
+                        for obj in detection.get_avoidance_objects():
+                            ok(f"  evitement {obj['categorie']} : rayon={obj['rayon_evitement_mm']:.0f} mm")
             # La localisation et le calcul de chemin sont réservés au test d’intégration.
             if level == 8:
                 # Contrat : entree brute (qualite, degres, mm), calcul synchrone,
@@ -767,6 +901,13 @@ def _hardware_test(level, args):
 # TEST 6 — Acquisition LiDAR commune (capteur réel)
 # ══════════════════════════════════════════════════════════════════════════════
 
+# ----------------------------------------------------------------------
+# FONCTION : test_acquisition()
+# ROLE    : Point d entree du test materiel niveau 6.
+# ENTREES : duration_sec, color, args : duree, equipe et options.
+# RETOUR  : bool : succes ou echec via _hardware_test.
+# A SAVOIR: Teste reception et fraicheur, pas classification.
+# ----------------------------------------------------------------------
 def test_acquisition(duration_sec: float = 20, color: str = "BLUE", args=None) -> bool:
     """Teste uniquement la nouvelle lecture, sans dépendre des calculs de balises."""
     # Réutilise les paramètres de la commande, ou prépare ceux d’un appel direct.
@@ -780,6 +921,13 @@ def test_acquisition(duration_sec: float = 20, color: str = "BLUE", args=None) -
 # TEST 7 — Détection adverse depuis les scans de l’acquisition commune
 # ══════════════════════════════════════════════════════════════════════════════
 
+# ----------------------------------------------------------------------
+# FONCTION : test_detection()
+# ROLE    : Point d entree du test materiel niveau 7.
+# ENTREES : duration_sec, color, args : duree, equipe, pose et reglages.
+# RETOUR  : bool : succes ou echec via _hardware_test.
+# A SAVOIR: Observer une cible ne prouve pas son identite.
+# ----------------------------------------------------------------------
 def test_detection(duration_sec: float = 20, color: str = "BLUE", args=None) -> bool:
     """Exécute la détection ; ne certifie pas à lui seul l’identification adverse."""
     # Le robot reste immobile ; X, Y et orientation doivent correspondre au réel.
@@ -794,6 +942,13 @@ def test_detection(duration_sec: float = 20, color: str = "BLUE", args=None) -> 
 # TEST 8 — Pipeline complet avec acquisition commune (sans Teensy réelle)
 # ══════════════════════════════════════════════════════════════════════════════
 
+# ----------------------------------------------------------------------
+# FONCTION : test_full_pipeline()
+# ROLE    : Point d entree du test materiel niveau 8.
+# ENTREES : duration_sec, color, args : duree, equipe, pose et objectif.
+# RETOUR  : bool : succes ou echec via _hardware_test.
+# A SAVOIR: Teste l integration sans actionner les moteurs.
+# ----------------------------------------------------------------------
 def test_full_pipeline(duration_sec: float = 30, color: str = "BLUE", args=None) -> bool:
     """Teste localisation, détection et navigation sur les mêmes mesures réelles.
 
@@ -810,9 +965,90 @@ def test_full_pipeline(duration_sec: float = 30, color: str = "BLUE", args=None)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# TEST 9 — Synthetic detection de pierres/obstacles, sans materiel
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ----------------------------------------------------------------------
+# FONCTION : test_detection_synthetic()
+# ROLE    : Teste pierre, adversaire, obstacle, bruit et rayons sur des mesures inventees.
+# ENTREES : color : equipe (non determinante pour ces donnees).
+# RETOUR  : bool : succes ou echec.
+# A SAVOIR: Ne mesure ni la hauteur de faisceau ni la qualite des retours sur terrain reel.
+# ----------------------------------------------------------------------
+# CONTRAINTES : Valide uniquement les cas simules : ne mesure ni precision terrain ni hauteur reelle du faisceau.
+# COMPARAISON CHIFFREE : Un niveau 9 reussi ne garantit PAS une detection reelle a 35 cm.
+def test_detection_synthetic(color: str = "BLUE") -> bool:
+    header("TEST 9 — regroupement, tailles, obstacle et adversaire (synthetique)")
+    try:
+        from robot1.rasp.vision import detection
+        detection._clear_results()
+        detection.update_robot_pose(1000, 1000, 0)
+        detection.configure(stone_positions=((1300, 1200),), cluster_gap_mm=55,
+                            opponent_min_span_mm=100, opponent_max_span_mm=450,
+                            robot_radius_mm=150, avoidance_margin_mm=40,
+                            stone_physical_radius_mm=50)
+        # Cree trois surfaces separees : pierre referencee, adversaire, obstacle.
+        surfaces = [
+            [(x, 1200) for x in range(1270, 1331, 10)],
+            [(1700, y) for y in range(900, 1101, 20)],
+            [(x, 600) for x in range(1150, 1241, 15)],
+        ]
+        data = [(15, math.degrees(math.atan2(x - 1000, y - 1000)) % 360,
+                 math.hypot(x - 1000, y - 1000))
+                for surface in surfaces for x, y in surface]
+        detection.process_scan(data)
+        time.sleep(0.02)
+        detection.process_scan(data)
+        clusters = detection.get_clusters()
+        for c in clusters:
+            ok(f"{c.categorie}: ({c.x_mm:.0f}, {c.y_mm:.0f}) "
+               f"L={c.longueur_mm:.0f}, l={c.largeur_mm:.0f}, rayon={c.rayon_mm:.0f}")
+        assert any(c.categorie == "pierre_possible" for c in clusters), "Pierre absente"
+        assert any(c.categorie == "adversaire_possible" for c in clusters), "Adversaire absent"
+        assert any(c.categorie == "obstacle" for c in clusters), "Obstacle absent"
+        assert detection.get_opponent_details() is not None, "Cible non suivie"
+        assert detection.LIDAR_HEIGHT_MM is None, "Hauteur inconnue doit rester inconnue"
+        assert detection.get_obstacles(), "Obstacles absents"
+        avoidance = detection.get_avoidance_objects()
+        assert len(avoidance) == 3, f"3 enveloppes attendues, {len(avoidance)} trouvees"
+        for obj in avoidance:
+            assert obj['rayon_evitement_mm'] >= obj['rayon_observe_mm'] + 190
+            assert obj['longueur_mm'] >= 0 and obj['largeur_mm'] >= 0
+        assert any(o['categorie'] == 'pierre_possible' and
+                   o['rayon_physique_connu'] for o in avoidance)
+        # Un bruit isole ne doit pas devenir un obstacle.
+        detection.process_scan(data + [(15, 250.0, 520.0)])
+        assert len(detection.get_obstacles(include_opponent=True)) == 3
+        # Le plan seul ne cree aucune detection fantome sur un scan vide.
+        detection.process_scan([])
+        assert not detection.get_clusters(), "Pas d'objet sans retour LiDAR"
+        # Controle du fichier de plan sans affecter les modules reels.
+        import tempfile, json
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tempdir:
+            plan = Path(tempdir) / 'pierres.json'
+            plan.write_text(json.dumps({'stones': [{'x_mm': 300, 'y_mm': 400}]}))
+            assert detection.load_stones_from_plan(plan) == 1
+            assert detection.STONE_POSITIONS_MM == ((300.0, 400.0),)
+        ok("Test synthetique reussi ; ne certifie pas les performances en conditions reelles")
+        return record("detection_synthetic", True)
+    except Exception as e:
+        fail(f"Test synthetique : {e}")
+        logger.exception("Echec du test synthetique")
+        return record("detection_synthetic", False)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # RÉSUMÉ FINAL
 # ══════════════════════════════════════════════════════════════════════════════
 
+# ----------------------------------------------------------------------
+# FONCTION : print_summary()
+# ROLE    : Affiche le bilan de tous les tests executes.
+# ENTREES : Aucune ; utilise RESULTS.
+# RETOUR  : None ; ecrit dans le terminal.
+# A SAVOIR: Si aucun test n a ete execute, le lanceur renvoie un code d echec.
+# ----------------------------------------------------------------------
 def print_summary() -> None:
     """Présentation conservée : un statut par test et bilan global."""
     header("RÉSUMÉ DES TESTS")
@@ -847,17 +1083,34 @@ TESTS = {
     6: ("Acquisition LiDAR commune (scans et fraîcheur)", test_acquisition, True),
     7: ("Détection adverse sur scans communs", test_detection, True),
     8: ("Pipeline commun (localisation, détection, navigation)", test_full_pipeline, True),
+    9: ("Detection synthetique objets et pierres", test_detection_synthetic, False),
 }
 
 
 # REMPLACEMENT : organise les nouveaux niveaux et vérifie les arguments fournis.
+# ----------------------------------------------------------------------
+# FONCTION : main()
+# ROLE    : Analyse les options de ligne de commande et execute les niveaux demandes.
+# ENTREES : Arguments CLI : level, duration, color, pose, rayon, plan pierres, etc.
+# RETOUR  : int : 0 si tous les niveaux executes passent, sinon 1.
+# A SAVOIR: --level 9 : simulation ; --level 6/7/8 : necessite LiDAR et conditions adaptees.
+# ----------------------------------------------------------------------
+# CONTRAINTES : Respecter les options CLI et arreter la lecture a la fin ; eviter un second processus sur le port serie.
+# COMPARAISON CHIFFREE : --level 9 : test synthetique sans LiDAR ; --level 7 : test materiel avec pose.
 def main():
     # Construit l’aide de la commande à partir de la description du fichier.
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     # CHANGEMENT : niveau 6 par défaut ; 0 = tous ; le niveau 7 existe désormais.
-    parser.add_argument("--level", type=int, choices=range(9), default=6)
+    parser.add_argument("--level", type=int, choices=range(10), default=6)
     # Accepte une durée en secondes, éventuellement décimale.
     parser.add_argument("--duration", type=float, default=20)
+    parser.add_argument("--cluster-gap-mm", type=float, default=55.0)
+    parser.add_argument("--opp-min-span-mm", type=float, default=100.0)
+    parser.add_argument("--stones-plan", type=str, help="Fichier JSON des pierres (coordonnees du plan)")
+    parser.add_argument("--lidar-height-mm", type=float, help="Hauteur mesuree du faisceau en mm")
+    parser.add_argument("--robot-radius-mm", type=float, help="Rayon englobant du robot en mm")
+    parser.add_argument("--avoidance-margin-mm", type=float, default=50.0)
+    parser.add_argument("--stone-physical-radius-mm", type=float, help="Rayon physique de pierre, si connu")
     # Accepte BLUE/YELLOW et normalise la casse au lieu de corriger silencieusement une faute.
     parser.add_argument("--color", type=str.upper, choices=("BLUE", "YELLOW"), default="BLUE")
     # Cette option sélectionne uniquement les cinq tests sans capteur branché.
@@ -879,13 +1132,18 @@ def main():
         # Explique l’erreur et quitte avec un code d’échec.
         parser.error("--duration doit etre strictement positive et finie")
     # Vérifie les cinq arguments numériques de position et d’objectif.
-    for field in ("x", "y", "theta_deg", "goal_x", "goal_y"):
+    for field in ("x", "y", "theta_deg", "goal_x", "goal_y", "cluster_gap_mm", "opp_min_span_mm", "lidar_height_mm", "robot_radius_mm", "avoidance_margin_mm", "stone_physical_radius_mm"):
         # Récupère la valeur de l’argument dont le nom est dans field.
         value = getattr(args, field)
         # Les arguments absents restent permis jusqu’au contrôle du niveau concerné.
         if value is not None and not math.isfinite(value):
             # Indique précisément quel argument contient une valeur non finie.
             parser.error(f"--{field.replace('_', '-')} doit etre fini")
+    for field in ("cluster_gap_mm", "opp_min_span_mm", "avoidance_margin_mm"):
+        if getattr(args, field) < (0 if field == "avoidance_margin_mm" else 0.001):
+            parser.error(f"--{field.replace('_', '-')} hors limites")
+    if args.robot_radius_mm is not None and args.robot_radius_mm <= 0:
+        parser.error("--robot-radius-mm doit etre positif")
     print("\n" + "+" + "=" * 70 + "+")
     print("|" + "  CDR — TEST COMPLET ROBOT / ACQUISITION LiDAR COMMUNE".center(70) + "|")
     print("+" + "=" * 70 + "+")
@@ -894,7 +1152,7 @@ def main():
     print(f"  LiDAR requis: {'NON (--no-lidar)' if args.no_lidar else 'selon le niveau'}")
     print("  Robot immobile ; aucune commande moteur envoyée.")
     # Sans LiDAR : 1-5 ; niveau 0 : tous ; sinon : seulement le niveau demandé.
-    levels = list(range(1, 6)) if args.no_lidar else (list(TESTS) if args.level == 0 else [args.level])
+    levels = list(range(1, 6)) + [9] if args.no_lidar else (list(TESTS) if args.level == 0 else [args.level])
     # Efface les anciens résultats avant une nouvelle exécution du lanceur.
     RESULTS.clear()
     # Chaque fonction de test figure explicitement dans TESTS.
