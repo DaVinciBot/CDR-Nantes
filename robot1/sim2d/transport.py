@@ -14,7 +14,14 @@ alternative -- a second construction path in production code -- is worse.
 
 import logging
 
-from usb_com import Messages, pack_message, payload_size, unpack_message
+from usb_com import (
+    TAP_RX,
+    TAP_TX,
+    Messages,
+    pack_message,
+    payload_size,
+    unpack_message,
+)
 
 from .robot import ODOMETRY_EVERY_TICKS, OdometrySample, SimulatedRobot
 from .teensy import CONTROL_PERIOD_S
@@ -70,6 +77,7 @@ class Sim2dCom:
             )
         self.robot = _pending_robot
         self._callbacks = {}
+        self._tap = None
         self.frames_sent = 0
         self.unknown_messages = 0
         logger.info("Lien simule pret (odometrie a %.0f Hz).", ODOM_RATE_HZ)
@@ -85,6 +93,15 @@ class Sim2dCom:
         """
         self._callbacks[iid] = func
 
+    def set_tap(self, tap) -> None:
+        """Register a listener on every message, both ways (see comm/link.py).
+
+        Args:
+            tap: callable taking a direction (usb_com.TAP_RX or TAP_TX) and
+                the message as [id][payload], or None to remove it.
+        """
+        self._tap = tap
+
     def send_bytes(self, data: bytes, *, record: bool = True) -> None:
         """Receive one message from the match loop and act on it.
 
@@ -96,6 +113,8 @@ class Sim2dCom:
         """
         if not data:
             return
+        if self._tap is not None:
+            self._tap(TAP_TX, data)
         message_id = data[0]
         payload = data[1:]
 
@@ -151,7 +170,7 @@ class Sim2dCom:
         sent = 0
         while robot.odometry_samples:
             sample = robot.odometry_samples.popleft()
-            if callback is None:
+            if callback is None and self._tap is None:
                 continue
             # t_us is the micros() of the Teensy: a uint32 that wraps.
             t_us = int(round(sample.t * 1e6)) & 0xFFFFFFFF
@@ -159,6 +178,10 @@ class Sim2dCom:
                 Messages.ODOMETRY, sample.x, sample.y, sample.theta,
                 sample.vx, sample.vy, sample.omega, t_us,
             )
+            if self._tap is not None:
+                self._tap(TAP_RX, message)
+            if callback is None:
+                continue
             # A callback receives the data without the ID byte, as with Com.
             callback(message[1:])
             sent += 1

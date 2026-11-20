@@ -9,6 +9,7 @@ from robot1.rasp.clock import RealClock
 from robot1.rasp.comm import get_button, init_robot
 from robot1.rasp.nav import Disc, PathFinder, Replanner
 from robot1.rasp.strategy import StratManager, TypeAction
+from robot1.rasp.telemetry.logger import NULL_LOGGER
 from robot1.rasp.vision import detection as lidar
 from robot1.rasp.world import ROBOT_DEPLOYED_PERIMETER_MM, Terrain
 
@@ -50,7 +51,7 @@ def lire_couleur_equipe() -> str:
 
 
 class Robot:
-    def __init__(self, couleur_equipe: str, clock=None):
+    def __init__(self, couleur_equipe: str, clock=None, log=None):
         """Construit le robot et ouvre ses périphériques.
 
         Args:
@@ -59,12 +60,18 @@ class Robot:
                 défaut, donc comportement matériel inchangé ; sim2d passe une
                 horloge virtuelle pour jouer un match plus vite que le temps
                 réel, de façon reproductible.
+            log: log du run (voir robot1.rasp.telemetry.logger). Sans lui,
+                rien n'est enregistré et rien ne change.
         """
         self.logger = logging.getLogger("ROBOT")
         self.logger.info(f"Initialisation du robot en mode {couleur_equipe}...")
 
         self.couleur = couleur_equipe.upper()
         self.clock   = clock if clock is not None else RealClock()
+        self.log     = log if log is not None else NULL_LOGGER
+        # What the run log already holds, to write changes only.
+        self._logged_step  = None
+        self._logged_plans = 0
         self.x       = 0.0
         self.y       = 0.0
         self.theta   = 0.0
@@ -105,6 +112,8 @@ class Robot:
         # 4. Communication USB
         self.Messages       = Messages
         self.com, self.mode = init_robot(self.logger)
+        # From here on every message of the link is recorded, both ways.
+        self.log.attach(self.com)
 
         self.com.add_callback(
             self._handle_position,
@@ -135,6 +144,10 @@ class Robot:
             self.theta = start_theta
 
         lidar.update_robot_pose(start_x, start_y, start_theta)
+        self.log.set_meta(
+            team_color=self.couleur.lower(),
+            start_pose_table=[start_x, start_y, start_theta],
+        )
 
         msg  = self.Messages.SET_ODOMETRIE.to_bytes()
         msg += struct.pack('<ddd', start_x, start_y, start_theta)
@@ -196,6 +209,50 @@ class Robot:
 
     def update(self) -> None:
         """Boucle de décision — appelée 20 fois/seconde."""
+        self._decide()
+        if self.log.enabled:
+            self._log_tick()
+
+    def _log_tick(self) -> None:
+        """Write to the run log what this tick decided.
+
+        The state goes at every tick. The strategy step and the path only
+        when they change: they are the conclusions, the inputs they were
+        drawn from are already in the log.
+        """
+        if HAS_RERUN:
+            # The state the viewer shows: one schema for the log and for it.
+            state = rerun_bridge.snapshot_fields()
+        else:
+            with self.lock:
+                state = {"odom_x": self.x, "odom_y": self.y,
+                         "odom_theta": self.theta}
+        self.log.emit("state", **state)
+
+        step = self.strategie.etape_actuelle
+        if step != self._logged_step:
+            self._logged_step = step
+            action = self.strategie.get_action_actuelle()
+            self.log.emit(
+                "strat", step=step,
+                action=None if action is None else action.type.name,
+                target=None if action is None
+                else [action.cible_x, action.cible_y],
+            )
+
+        plans = self.navigation.plans
+        if plans != self._logged_plans:
+            self._logged_plans = plans
+            result = self.navigation.result
+            self.log.emit(
+                "path", plans=plans, reason=self.navigation.last_reason,
+                goal=list(self.navigation.goal) if self.navigation.goal else None,
+                status=result.status.value, detail=result.detail,
+                path=[list(point) for point in result.path],
+            )
+
+    def _decide(self) -> None:
+        """One tick of decision: read, plan, send the next target."""
 
         # 1. Lecture position Teensy
         with self.lock:
@@ -303,6 +360,7 @@ class Robot:
         if opponent_data is None:
             return []
         opp_x, opp_y, opp_conf = opponent_data
+        self.log.emit("opp", x=opp_x, y=opp_y, confidence=opp_conf)
         if opp_conf <= 0.1:
             return []
         self.logger.debug(

@@ -3,8 +3,11 @@ main.py
 Point d'entrée principal du robot pour la Coupe de France de Robotique.
 """
 import logging
+import time
+
 from robot1.rasp.app import Robot, lire_couleur_equipe
 from robot1.rasp.clock import RealClock
+from robot1.rasp.telemetry.logger import create_run_logger
 from robot1.rasp.world import MATCH_DURATION_S
 
 # Configuration du logger pour voir ce qui se passe dans la console
@@ -29,8 +32,16 @@ def main():
     # Idéalement, on lit un switch physique sur le robot pour savoir si on est Bleu ou Jaune
     couleur_equipe = lire_couleur_equipe()
 
+    # Run log: on or off from the launch configuration ("log_config" in
+    # config.json, or ROBOT_LOG=0 / 1). It is dated with a monotonic clock:
+    # the wall clock can jump when the network time is set. Nothing leaves
+    # the robot during the match, the folder is fetched afterwards.
+    log = create_run_logger("match", clock_ns=time.monotonic_ns,
+                            clock_name="monotonic")
+    log.emit("match", event="init", color=couleur_equipe)
+
     # On crée LE robot (qui va lui-même allumer le Lidar, la Teensy, etc.)
-    mon_robot = Robot(couleur_equipe, clock=clock)
+    mon_robot = Robot(couleur_equipe, clock=clock, log=log)
 
     logger.info(f"Robot initialisé pour l'équipe {couleur_equipe}.")
     logger.info("En attente de la tirette de départ...")
@@ -43,6 +54,7 @@ def main():
 
     # --- LE MATCH COMMENCE ICI ---
     heure_debut = clock.now()
+    log.emit("match", event="start")
     logger.info("MATCH LANCÉ !")
 
     # =================================================================
@@ -55,6 +67,7 @@ def main():
             # Vérification stricte du chronomètre
             if temps_ecoule >= TEMPS_MATCH_SECONDES:
                 logger.info("FIN DU TEMPS RÉGLEMENTAIRE !")
+                log.emit("match", event="end", elapsed_s=temps_ecoule)
                 break # On sort de la boucle !
 
             # C'est ici que toute la magie opère. Le robot lit ses capteurs,
@@ -66,13 +79,19 @@ def main():
 
     except KeyboardInterrupt:
         logger.warning("Arrêt d'urgence demandé par l'utilisateur (Ctrl+C).")
+        log.emit("match", event="abort")
 
     finally:
         # =================================================================
         # 4. ARRÊT TOTAL (Sécurité vitale)
         # =================================================================
         logger.info("Désactivation des systèmes...")
-        mon_robot.stopper_tout()
+        try:
+            mon_robot.stopper_tout()
+        finally:
+            # After the stop, so the last command is in the log; in a finally,
+            # so a stop that fails still leaves a closed, readable run.
+            log.close()
         logger.info("Extinction terminée. Bon match ! ")
 
 if __name__ == "__main__":

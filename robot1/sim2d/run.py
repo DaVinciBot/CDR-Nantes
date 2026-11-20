@@ -47,6 +47,8 @@ from usb_com import (                                                 # noqa: E4
 )
 
 from robot1.rasp.comm import init_robot                               # noqa: E402
+from robot1.rasp.telemetry import log_reader                          # noqa: E402
+from robot1.rasp.telemetry.logger import NULL_LOGGER, RunLogger       # noqa: E402
 from robot1.rasp.world import (                                      # noqa: E402
     FIELD_HEIGHT_MM,
     FIELD_WIDTH_MM,
@@ -124,6 +126,59 @@ def build_robot(x, y, theta, seed, noise):
     return sim
 
 
+def open_log(args, clock, scenario: str):
+    """Return the run log asked on the command line, or the null one.
+
+    The log is dated with the simulated clock: a 100 s match lasts under a
+    second of wall time, a wall clock would squash the whole run into it. And
+    it never drops a line: a simulated run has no real time to keep, so the
+    loop waits for the writer instead.
+
+    Args:
+        args: parsed command line (log, log_dir, seed, noise, color).
+        clock: the clock of the scenario.
+        scenario: name of the scenario, used in the folder name.
+
+    Returns:
+        RunLogger, or NULL_LOGGER without --log.
+    """
+    if not args.log:
+        return NULL_LOGGER
+    return RunLogger(
+        args.log_dir, f"sim2d_{scenario}", mode="sim2d",
+        clock_ns=lambda: int(round(clock.now() * 1e9)), clock_name="sim",
+        lossless=True,
+        meta={"scenario": scenario, "seed": args.seed, "noise": args.noise},
+    )
+
+
+def close_log(log, odometry_frames: int = None) -> int:
+    """Close the run log, read it back and print whether it is whole.
+
+    Args:
+        log: the log returned by open_log().
+        odometry_frames: ODOMETRY frames the simulated link delivered; the
+            log must hold exactly as many.
+
+    Returns:
+        int: 0 when the log is whole (or off), 1 otherwise.
+    """
+    if not log.enabled:
+        return 0
+    log.close()
+    check = log_reader.check_run(log.folder)
+    if odometry_frames is not None:
+        logged = check.streams.get("odometry", 0)
+        if logged != odometry_frames:
+            check.problems.append(
+                f"{logged} trames d'odometrie dans le log pour "
+                f"{odometry_frames} delivrees"
+            )
+    print()
+    print(check.summary())
+    return 0 if check.ok else 1
+
+
 # ── Scenario: square ──────────────────────────────────────────────────────
 
 def scenario_carre(args) -> int:
@@ -142,6 +197,8 @@ def scenario_carre(args) -> int:
     sim = build_robot(x0, y0, 0.0, args.seed, args.noise)
     com, mode = init_robot(logger)
     print(f"Mode de communication : {mode}")
+    log = open_log(args, clock, "carre")
+    log.attach(com)
 
     # Same callback contract as app.py: the loop only ever sees the odometry.
     reported = {"pose": (x0, y0, 0.0), "frames": 0}
@@ -181,7 +238,8 @@ def scenario_carre(args) -> int:
         else:
             print(f"ECHEC : cote {index} non atteint en {LEG_TIMEOUT_S:.0f} s")
 
-    return report_carre(sim, reported, legs_done, len(corners) - 1, args)
+    code = report_carre(sim, reported, legs_done, len(corners) - 1, args)
+    return code | close_log(log, reported["frames"])
 
 
 def report_carre(sim, reported, legs_done, legs_total, args) -> int:
@@ -303,6 +361,8 @@ def scenario_ligne(args) -> int:
     com, mode = init_robot(logger)
     print(f"Mode de communication : {mode}")
     print(f"Acceleration du profil : {args.accel:.0f} mm/s^2")
+    log = open_log(args, clock, "ligne")
+    log.attach(com)
 
     frames = {"count": 0}
     com.add_callback(lambda _data: frames.update(count=frames["count"] + 1),
@@ -384,13 +444,14 @@ def scenario_ligne(args) -> int:
     print("l'arret vrai inclut la derive d'odometrie.")
     print(f"Trames d'odometrie      : {frames['count']}")
 
+    log_code = close_log(log, frames["count"])
     print()
     if failures:
         for item in failures:
             print(f"ECHEC : {item}")
         return 1
     print("LIGNE : OK — 1 m/s atteint, arret sans depassement hors zone morte.")
-    return 0
+    return log_code
 
 
 # ── Scenario: full match ──────────────────────────────────────────────────
@@ -419,10 +480,13 @@ def scenario_match(args) -> int:
     if args.rerun:
         viz.init()
 
-    robot = app.Robot(couleur, clock=clock)
+    log = open_log(args, clock, "match")
+    log.emit("match", event="init", color=couleur)
+    robot = app.Robot(couleur, clock=clock, log=log)
     com = robot.com
     com.publish_odometry(clock.now(), force=True)
     robot.attendre_tirette()
+    log.emit("match", event="start")
 
     wall_start = time.perf_counter()
     time_in_sim = 0.0
@@ -448,9 +512,11 @@ def scenario_match(args) -> int:
         clock.sleep(TICK_S)
 
     wall_elapsed = time.perf_counter() - wall_start
+    log.emit("match", event="end", elapsed_s=clock.now() - begin)
     robot.stopper_tout()
-    return report_match(sim, com, start_pose, ticks, wall_elapsed,
+    code = report_match(sim, com, start_pose, ticks, wall_elapsed,
                         time_in_sim, time_in_update, args)
+    return code | close_log(log, com.frames_sent)
 
 
 def report_match(sim, com, start_pose, ticks, wall_elapsed, time_in_sim,
@@ -549,7 +615,9 @@ def scenario_tournee(args) -> int:
     if args.rerun:
         viz.init()
 
-    robot = app.Robot(couleur, clock=clock)
+    log = open_log(args, clock, "tournee")
+    log.emit("match", event="init", color=couleur)
+    robot = app.Robot(couleur, clock=clock, log=log)
     targets = [mirror_for_team(t, couleur) for t in TOUR_TARGETS]
     robot.strategie.liste_actions = [
         Action(TypeAction.DEPLACEMENT, cible_x=x, cible_y=y)
@@ -574,6 +642,7 @@ def scenario_tournee(args) -> int:
     com = robot.com
     com.publish_odometry(clock.now(), force=True)
     robot.attendre_tirette()
+    log.emit("match", event="start")
 
     contact = app.OPPONENT_RADIUS_MM + finder.robot_radius
     min_gap = math.inf
@@ -599,7 +668,9 @@ def scenario_tournee(args) -> int:
         clock.sleep(TICK_S)
 
     wall_elapsed = time.perf_counter() - wall_start
+    log.emit("match", event="end", elapsed_s=clock.now() - begin)
     robot.stopper_tout()
+    log_code = close_log(log, com.frames_sent)
     reached = robot.strategie.etape_actuelle
     nav = robot.navigation
 
@@ -636,7 +707,7 @@ def scenario_tournee(args) -> int:
             print(f"ECHEC : {item}")
         return 1
     print("TOURNEE : OK — 100 s de deplacements, budget tenu.")
-    return 0
+    return log_code
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────
@@ -666,6 +737,11 @@ def main() -> int:
                         help="budget de temps mur pour un match, en secondes")
     parser.add_argument("--verbose", action="store_true",
                         help="logs de la boucle de production")
+    parser.add_argument("--log", action="store_true",
+                        help="enregistrer le run (meme format que sur le "
+                             "robot), puis le relire et le verifier")
+    parser.add_argument("--log-dir", default="logs",
+                        help="dossier qui recoit les dossiers de run")
     args = parser.parse_args()
 
     logging.basicConfig(

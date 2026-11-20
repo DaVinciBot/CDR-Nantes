@@ -12,5 +12,13 @@
         "port": "/dev/ttyUSB0",
         "baudrate": 256000,
         "timeout": 3
+    },
+    "log_config": {
+        "_comment": "Log du run, lu par telemetry/logger.py. enabled : ecrire un dossier par run sous dir (surcharge par la variable ROBOT_LOG=0 ou 1). pid_trace / log_tick : messages par tick demandes a la Teensy (SET_TRACE). lidar_raw : garder les scans bruts.",
+        "enabled": true,
+        "dir": "logs",
+        "pid_trace": true,
+        "log_tick": true,
+        "lidar_raw": false
     }
 }

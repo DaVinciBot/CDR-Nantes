@@ -12,6 +12,13 @@ Modes :
   --mode serve        -> serve_grpc port 9876 (stream vers PC distant)
   --mode connect      -> connect_grpc vers viewer externe
 
+serve et connect sont des outils de mise au point, jamais un mode de match : le
+règlement interdit toute communication avec l'extérieur de la table pendant un
+match. Ils n'existent que dans le main() de ce module. Le chemin de match
+(main.py -> app.py) n'appelle que les update_*(), qui remplissent un état en
+mémoire : il n'ouvre aucune connexion, et ça doit le rester. Ce qui s'est passé
+pendant un match se lit après, dans le log du run (telemetry/logger.py).
+
 Depuis un autre script (exemple complet : robot1/sim2d/viz.py) :
   from robot1.rasp.telemetry import rerun_bridge as rb
   rb.rr.init(...)  +  rb.rr.spawn() ou rb.rr.serve_grpc()
@@ -157,6 +164,21 @@ class _State:
 
 
 _st = _State()
+
+
+def snapshot_fields() -> dict:
+    """Return the current state as a plain dict, for the run log.
+
+    Same field names as _State, so the log, the viewer and any page fed from
+    this state share one schema. The LiDAR cloud is left out: the raw scans
+    have their own file, writing them here too would store every scan twice.
+    """
+    snapshot = _st.snap()
+    return {
+        name: getattr(snapshot, name)
+        for name in snapshot.__dataclass_fields__
+        if name not in ("_lock", "lidar_cloud")
+    }
 
 # ─────────────────────────────────────────────────────────────────────────────
 # API publique — appelée depuis robot.py / update()

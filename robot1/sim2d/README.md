@@ -33,6 +33,8 @@ aussi qu'un run simulé n'ouvre jamais un port série par accident.
 | `--accel A` | `900` | accélération du profil du scénario `ligne`, mm/s² |
 | `--budget S` | `1.0` | budget de temps mur pour un match, en secondes |
 | `--verbose` | non | logs de la boucle de production |
+| `--log` | non | enregistre le run dans un dossier, au même format que sur le robot, puis le relit : le verdict `LOG : OK` dit qu'il est complet, et un log incomplet fait échouer le scénario. Daté avec l'horloge simulée. Format : `robot1/rasp/telemetry/README.md` |
+| `--log-dir D` | `logs` | dossier qui reçoit les dossiers de run |
 
 ## Les quatre scénarios
 
