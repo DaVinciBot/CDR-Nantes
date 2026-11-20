@@ -101,6 +101,20 @@ enum HealthFlag : uint8_t {
     MEAS_REJECTED = 1u << 2,
 };
 
+/**
+ * What the last step() did with its optical sample, OR-ed into the byte
+ * returned by step_flags(). For the logs: a replay compares its own decisions
+ * with these, tick by tick. Same bits as LOG_EST_* of the USB protocol.
+ */
+enum StepFlag : uint8_t {
+    /** The optical step moved the pose. */
+    STEP_OPTICAL_USED = 1u << 0,
+    /** The optical step was dropped as an outlier. */
+    STEP_OPTICAL_REJECTED = 1u << 1,
+    /** The optical step was dropped because the wheels turn in place. */
+    STEP_PURE_ROTATION = 1u << 2,
+};
+
 /** @brief The interface the control loop talks to. */
 class PoseEstimator {
 public:
@@ -117,6 +131,10 @@ public:
 
     /** @return HealthFlag bits. */
     virtual uint8_t health_flags() const = 0;
+
+    /** @return StepFlag bits of the last step(); 0 for an estimator that does
+     *  not report them. */
+    virtual uint8_t step_flags() const { return 0; }
 
     /** @return A short name for logs. */
     virtual const char *name() const = 0;

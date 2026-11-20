@@ -55,7 +55,7 @@ bool MKSServo::sendPacket(uint8_t cmd, const uint8_t* payload, size_t payloadLen
 // cut encoder frames short whenever a payload byte equalled the running sum:
 // about 1.6 % of the 0x31 reads per wheel, and a whole 256-count window every
 // 65536 counts where every read of that wheel failed.
-bool MKSServo::readResponse(uint8_t expectedCmd,
+ReadResult MKSServo::readResponse(uint8_t expectedCmd,
                             size_t expectedPayloadLen,
                             uint8_t* payload,
                             size_t payloadCapacity,
@@ -64,10 +64,14 @@ bool MKSServo::readResponse(uint8_t expectedCmd,
     payloadLen = 0;
     uint8_t frame[32];
     const size_t frameLen = 4 + expectedPayloadLen;
-    if (frameLen > sizeof(frame) || expectedPayloadLen > payloadCapacity) return false;
+    if (frameLen > sizeof(frame) || expectedPayloadLen > payloadCapacity) {
+        return ReadResult::SHORT_FRAME;
+    }
 
     const uint32_t start = millis();
     size_t received = 0;
+    // Cause of the last frame refused, reported if nothing better comes.
+    ReadResult refused = ReadResult::NO_ANSWER;
 
     while ((millis() - start) < timeoutMs) {
         while (serial.available() > 0) {
@@ -80,15 +84,16 @@ bool MKSServo::readResponse(uint8_t expectedCmd,
             frame[received++] = b;
             if (received < frameLen) continue;
 
-            const bool valid = computeCRC(frame, frameLen - 1) == frame[frameLen - 1] &&
-                               frame[1] == addr && frame[2] == expectedCmd;
-            if (valid) {
+            const bool checksum_ok = computeCRC(frame, frameLen - 1) == frame[frameLen - 1];
+            const bool ours = frame[1] == addr && frame[2] == expectedCmd;
+            if (checksum_ok && ours) {
                 for (size_t i = 0; i < expectedPayloadLen; ++i) {
                     payload[i] = frame[3 + i];
                 }
                 payloadLen = expectedPayloadLen;
-                return true;
+                return ReadResult::OK;
             }
+            refused = checksum_ok ? ReadResult::BAD_ADDRESS : ReadResult::BAD_CHECKSUM;
 
             // Not our frame (a corrupted byte, or a header that was a payload
             // byte): restart from the next header among the bytes already read
@@ -101,7 +106,9 @@ bool MKSServo::readResponse(uint8_t expectedCmd,
             }
         }
     }
-    return false;
+    // A frame started but the timeout cut it.
+    if (received > 0) return ReadResult::SHORT_FRAME;
+    return refused;
 }
 
 // ─── ENABLE / DISABLE ────────────────────────────────────────────────────────
@@ -174,14 +181,15 @@ bool MKSServo::sendReadRequest() {
     // Fire & forget: envoie la requête, ne bloque pas
 }
 
-bool MKSServo::readEncoderResponse(int64_t& encoderCount, uint32_t timeoutMs) {
+ReadResult MKSServo::readEncoderResponse(int64_t& encoderCount, uint32_t timeoutMs) {
     encoderCount = 0;
     // 0x31 answers a signed 48-bit count: FB addr 31 [6 bytes] checksum.
     uint8_t payload[6];
     size_t payloadLen = 0;
-    if (!readResponse(0x31, sizeof(payload), payload, sizeof(payload), payloadLen,
-                      timeoutMs)) {
-        return false;
+    const ReadResult result = readResponse(0x31, sizeof(payload), payload, sizeof(payload),
+                                           payloadLen, timeoutMs);
+    if (result != ReadResult::OK) {
+        return result;
     }
 
     int64_t value = 0;
@@ -195,7 +203,7 @@ bool MKSServo::readEncoderResponse(int64_t& encoderCount, uint32_t timeoutMs) {
     }
 
     encoderCount = value;
-    return true;
+    return ReadResult::OK;
 }
 
 // ─── READ ENCODER (synchrone, wrapper) ───────────────────────────────────────────
@@ -204,7 +212,7 @@ bool MKSServo::readEncoderResponse(int64_t& encoderCount, uint32_t timeoutMs) {
 
 bool MKSServo::readEncoder(int64_t& encoderCount) {
     if (!sendReadRequest()) return false;
-    return readEncoderResponse(encoderCount, 50);
+    return readEncoderResponse(encoderCount, 50) == ReadResult::OK;
 }
 
 // ─── CALIBRATION ─────────────────────────────────────────────────────────────
@@ -218,7 +226,7 @@ bool MKSServo::calibrate(uint32_t timeoutMs) {
         // FB addr 80 [status] checksum
         uint8_t rsp[1];
         size_t rspLen = 0;
-        if (readResponse(0x80, sizeof(rsp), rsp, sizeof(rsp), rspLen, 100)) {
+        if (readResponse(0x80, sizeof(rsp), rsp, sizeof(rsp), rspLen, 100) == ReadResult::OK) {
             if (rspLen >= 1) {
                 if (rsp[0] == 1) return true;
                 if (rsp[0] == 2) return false;

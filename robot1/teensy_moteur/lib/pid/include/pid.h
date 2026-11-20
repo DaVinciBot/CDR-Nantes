@@ -89,6 +89,11 @@ class PID {
     double lastIntegral() const { return _lastI; }
     double lastDerivative() const { return _lastD; }
 
+    /** @brief Current gains, as set by the constructor or updateParameters(). */
+    double kp() const { return _kp; }
+    double ki() const { return _ki; }
+    double kd() const { return _kd; }
+
    private:
     double _kp, _ki, _kd;
     double _minOutput, _maxOutput;

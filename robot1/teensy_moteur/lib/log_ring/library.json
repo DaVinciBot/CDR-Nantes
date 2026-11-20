@@ -1,0 +1,8 @@
+{
+    "name": "log_ring",
+    "version": "0.1.0",
+    "description": "Ring buffer of log frames between the control tick and the USB link: the tick never waits for the host. Arduino-free, tested on the host.",
+    "keywords": "log, ring buffer",
+    "frameworks": "*",
+    "platforms": "*"
+  }

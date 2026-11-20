@@ -62,6 +62,26 @@ struct OpticalSample {
     uint32_t seq;
 };
 
+/**
+ * @brief The last burst read as the sensor gave it, for the logs: sensor axes,
+ * before the mounting rotation and before any software scale, so that a
+ * calibration can be redone off the robot.
+ */
+struct OtosRaw {
+    /** False until a first read succeeded. */
+    bool valid;
+    /** Position since the last reset of the sensor: x, y (mm), h (rad). */
+    float pos[3];
+    /** Velocity: mm/s, mm/s, rad/s. */
+    float vel[3];
+    /** Acceleration: mm/s^2, mm/s^2, rad/s^2. */
+    float acc[3];
+    /** Duration of that read, us. */
+    uint32_t read_us;
+    /** micros() at the end of that read. */
+    uint32_t timestamp_us;
+};
+
 /** @brief Durations of the burst reads, us. */
 struct ReadStats {
     uint32_t count;
@@ -96,6 +116,9 @@ public:
     /** @return A copy of the last sample; safe from the ISR. */
     OpticalSample latest() const;
 
+    /** @return A copy of the last raw read; safe from the ISR. */
+    OtosRaw raw() const;
+
     /** @return A copy of the read durations. */
     ReadStats read_stats() const;
 
@@ -119,6 +142,8 @@ private:
 
     // Written by poll() (loop), read by latest() (ISR).
     OpticalSample sample_ = {false, 0.0f, 0.0f, 0, 0.0f, 0.0f, 0, 0};
+    OtosRaw raw_ = {false, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f},
+                    {0.0f, 0.0f, 0.0f}, 0, 0};
 
     ReadStats stats_ = {0, 0, 0xFFFFFFFFu, 0, 0.0f};
     uint64_t stats_sum_us_ = 0;

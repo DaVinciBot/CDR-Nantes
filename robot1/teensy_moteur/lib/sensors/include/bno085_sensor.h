@@ -30,6 +30,16 @@ struct HeadingSample {
     uint32_t timestamp_us;
 };
 
+/** @brief The last sample as the sensor gave it, for the logs. */
+struct HeadingRaw {
+    /** Yaw of the game rotation vector, before the offset, rad. */
+    float raw_yaw_rad;
+    /** Offset applied: heading = raw yaw - offset, wrapped, rad. */
+    float yaw_offset_rad;
+    /** Accuracy status of the report, 0 (unreliable) to 3 (high). */
+    uint8_t accuracy;
+};
+
 class Bno085Sensor {
 public:
     /** @param reset_pin Reset pin of the BNO085, -1 if not wired. */
@@ -69,6 +79,9 @@ public:
     /** @return A copy of the last sample; safe from the ISR. */
     HeadingSample latest() const;
 
+    /** @return A copy of the last raw sample; safe from the ISR. */
+    HeadingRaw raw() const;
+
     /** @return True once begin() succeeded. */
     bool available() const { return available_; }
 
@@ -82,6 +95,7 @@ private:
     double raw_yaw_ = 0.0;
     bool valid_ = false;
     uint32_t timestamp_us_ = 0;
+    uint8_t accuracy_ = 0;
 
     // loop() only: a heading to apply to the first sample, and a sensor reset
     // to bridge at the next sample.

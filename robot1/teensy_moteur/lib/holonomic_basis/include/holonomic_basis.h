@@ -95,7 +95,8 @@ class Holonomic_Basis {
     pose::PoseEstimator* active_estimator() const { return estimator; }
     // One control tick, called from the ISR after update_odometry(): position
     // PIDs on the error to the target, plus the velocity feed-forward, shaped
-    // into wheel speeds by lib/motion. No I/O. `com` is unused.
+    // into wheel speeds by lib/motion. No I/O. `com` is unused: the telemetry
+    // reads last_control() instead.
     void handle(Point target_position, Com* com);
 
     // Velocity of the trajectory at the target, table frame (mm/s, rad/s),
@@ -131,6 +132,48 @@ class Holonomic_Basis {
     std::atomic<bool> need_read_imu{false};
     std::atomic<bool> need_read_optical{false};
 
+    // Synthetic bench only: takes three counts as if the drivers had answered
+    // them (same path as a successful read_encoders_nonblocking()). Call from
+    // loop().
+    void inject_encoder_read(int64_t e1, int64_t e2, int64_t e3);
+
+    // ===== STATE OF THE LAST TICK, for the logs =====
+
+    // Outcome of the last encoder read. Written by read_encoders_nonblocking()
+    // (loop) under noInterrupts(); read it from the ISR.
+    struct EncoderRead {
+        int64_t counts[3] = {0, 0, 0};  // last counts that reached the estimator
+        uint32_t t_us_mid = 0;          // middle of the last read attempt
+        uint8_t ok_mask = 0;            // bit i: wheel i + 1 answered it
+        uint8_t fail[3] = {0, 0, 0};    // ReadResult of each wheel
+    };
+
+    // What handle() computed. Written and read in the ISR.
+    struct ControlRecord {
+        double target[3] = {0.0, 0.0, 0.0};        // reference chased: the target
+                                                   // moved on by the feed-forward
+        double velocity_cmd[3] = {0.0, 0.0, 0.0};  // PID output + feed-forward,
+                                                   // table frame
+        double p[3] = {0.0, 0.0, 0.0};             // PID terms of x, y, theta
+        double i[3] = {0.0, 0.0, 0.0};
+        double d[3] = {0.0, 0.0, 0.0};
+        bool integral_frozen = false;              // anti-windup held them
+    };
+
+    // ISR only, after update_odometry() / handle() of the same tick.
+    const pose::EstimatorInput& last_input() const { return last_input_; }
+    const pose::PoseEstimate& last_estimate() const { return last_estimate_; }
+    uint8_t last_estimator_health() const { return last_est_health_; }
+    uint8_t last_step_flags() const { return last_step_flags_; }
+    const ControlRecord& last_control() const { return control_; }
+    const EncoderRead& last_encoder_read() const { return encoder_read_; }
+    // The last speed commands could not be sent to every driver.
+    bool last_write_failed() const { return write_failed_; }
+
+    // Since boot. loop() only.
+    uint32_t rs485_read_failures() const { return rs485_read_failures_; }
+    uint32_t rs485_write_failures() const { return rs485_write_failures_; }
+
     // Getter pour les encodeurs bruts (thread-safe avec interrupts)
     void get_raw_encoders(int64_t& e1, int64_t& e2, int64_t& e3) {
         noInterrupts();
@@ -146,6 +189,20 @@ class Holonomic_Basis {
     uint32_t feed_forward_us = 0;  // micros() of the last set_velocity_feedforward()
 
     pose::PoseEstimator* estimator = nullptr;
+
+    // Logged state of the tick (see the accessors above)
+    pose::EstimatorInput last_input_ = pose::empty_input();
+    pose::PoseEstimate last_estimate_ = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    uint8_t last_est_health_ = 0;
+    uint8_t last_step_flags_ = 0;
+    ControlRecord control_;
+    EncoderRead encoder_read_;
+    volatile bool write_failed_ = false;
+    uint32_t rs485_read_failures_ = 0;
+    uint32_t rs485_write_failures_ = 0;
+
+    // Stores counts read from the drivers for the next tick (loop).
+    void store_encoders(int64_t e1, int64_t e2, int64_t e3);
     sensors::Bno085Sensor* imu = nullptr;
     sensors::OtosSensor* optical = nullptr;
 

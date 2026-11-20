@@ -17,18 +17,20 @@ void MKSGroup::normalize(double& w1, double& w2, double& w3, double maxAbsRpm) c
     }
 }
 
-void MKSGroup::setSpeedsSynced(double w1, double w2, double w3, uint8_t acc) {
+bool MKSGroup::setSpeedsSynced(double w1, double w2, double w3, uint8_t acc) {
     normalize(w1, w2, w3, MAX_SPEED_RPM);
 
+    bool ok = true;
     if (wheel1) {
-        wheel1->setSpeed(w1, acc);
+        ok = wheel1->setSpeed(w1, acc) && ok;
     }
     if (wheel2) {
-        wheel2->setSpeed(w2, acc);
+        ok = wheel2->setSpeed(w2, acc) && ok;
     }
     if (wheel3) {
-        wheel3->setSpeed(w3, acc);
+        ok = wheel3->setSpeed(w3, acc) && ok;
     }
+    return ok;
 }
 
 void MKSGroup::stopAll() {
@@ -85,34 +87,32 @@ bool MKSGroup::readAllEncoders(int64_t& enc1, int64_t& enc2, int64_t& enc3) {
 //           read response wheel1 → read response wheel2 → read response wheel3
 // Les servos répondent en parallèle, gain de ~30-40ms en pratique
 
-bool MKSGroup::readAllEncodersSynced(int64_t& enc1, int64_t& enc2, int64_t& enc3) {
+bool MKSGroup::readAllEncodersSynced(int64_t& enc1, int64_t& enc2, int64_t& enc3,
+                                     uint8_t* fail) {
     enc1 = enc2 = enc3 = 0;
-    
-    // Phase 1 : Envoyer 3 requêtes 0x31 en rafale (~0.3ms de décalage)
-    bool send_ok = true;
-    if (wheel1) {
-        send_ok = wheel1->sendReadRequest() && send_ok;
+    MKSServo* wheels[3] = {wheel1, wheel2, wheel3};
+    int64_t* counts[3] = {&enc1, &enc2, &enc3};
+    ReadResult result[3] = {ReadResult::OK, ReadResult::OK, ReadResult::OK};
+
+    // Phase 1: the three 0x31 requests in a burst (~0.3 ms apart)
+    bool sent[3] = {false, false, false};
+    for (int i = 0; i < 3; ++i) {
+        if (wheels[i]) sent[i] = wheels[i]->sendReadRequest();
     }
-    if (wheel2) {
-        send_ok = wheel2->sendReadRequest() && send_ok;
-    }
-    if (wheel3) {
-        send_ok = wheel3->sendReadRequest() && send_ok;
-    }
-    
-    if (!send_ok) return false;
-    
-    // Phase 2 : Lire 3 réponses (timeout = 50ms par servo, mais réponses en //è)
+
+    // Phase 2: the three answers (50 ms timeout each; the drivers answer in
+    // parallel). Every wheel is read, so a failure is reported per wheel.
     bool ok = true;
-    if (wheel1) {
-        ok = wheel1->readEncoderResponse(enc1, 50) && ok;
+    for (int i = 0; i < 3; ++i) {
+        if (!wheels[i]) continue;
+        result[i] = sent[i] ? wheels[i]->readEncoderResponse(*counts[i], 50)
+                            : ReadResult::NO_ANSWER;
+        if (result[i] != ReadResult::OK) ok = false;
     }
-    if (wheel2) {
-        ok = wheel2->readEncoderResponse(enc2, 50) && ok;
+
+    if (fail) {
+        for (int i = 0; i < 3; ++i) fail[i] = static_cast<uint8_t>(result[i]);
     }
-    if (wheel3) {
-        ok = wheel3->readEncoderResponse(enc3, 50) && ok;
-    }
-    
     return ok;
 }
+

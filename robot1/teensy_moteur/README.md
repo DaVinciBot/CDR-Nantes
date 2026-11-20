@@ -4,10 +4,12 @@ Firmware de la base roulante : pilotage des trois moteurs MKS SERVO57D (RS485), 
 capteurs d'odométrie (encodeurs, IMU BNO085, capteur optique Qwiic OTOS), estimation de pose et
 asservissement en position.
 
-> État : `src/main.cpp` est un **firmware de test** (translation de 100 mm en Y, résultats sur le
-> port série). Il n'ouvre pas la liaison USB avec la Raspberry Pi. Le firmware de match de la CDR
-> 2026 (boucle USB, watchdog) est dans le tag `archive/precoupe-2026-05`. Les bibliothèques de
-> `lib/`, elles, sont celles de la refonte du bas niveau.
+> État : `src/main.cpp` est le **squelette du firmware de match** : liaison USB avec la Raspberry
+> Pi, consignes, watchdog, `ODOMETRY` et `STATUS`, logs (`LOG_*`, `PID_TRACE`). Il ne fait pas
+> encore : états de mouvement et timeout, détection de blocage, perte d'alimentation des drivers,
+> bornes des PID en unités physiques. Il remplace l'ancien firmware de test (translation de
+> 100 mm en Y, résultats en texte sur le port série), qui reste dans l'historique git. Le
+> firmware de match de la CDR 2026 est dans le tag `archive/precoupe-2026-05`.
 
 ---
 
@@ -16,11 +18,16 @@ asservissement en position.
 Depuis `robot1/teensy_moteur/` :
 
 ```bash
-pio run                    # firmware Teensy (environnement par défaut : teensy41)
-pio run -t upload          # flash (teensy-gui)
-pio test -e native         # tests des algorithmes, sur le PC, sans carte
-pio test -e teensy41       # mesure du temps de calcul de l'EKF, carte branchée
+pio run                              # firmware de match (environnement par défaut : teensy41)
+pio run -t upload                    # flash (teensy-gui)
+pio run -e teensy41_synthetic -t upload   # firmware de match sans drivers (voir plus bas)
+pio test -e native                   # tests des algorithmes, sur le PC, sans carte
+pio test -e teensy41                 # mesure du temps de calcul de l'EKF, carte branchée
 ```
+
+Avant chaque build,
+`scripts/fw_version.py` écrit `fw_version.h` dans le dossier de build (`git describe` et date) :
+c'est ce que porte `LOG_FW_INFO`.
 
 L'environnement `native` sert **uniquement** à `pio test`. `pio run -e native` échoue : il
 essaierait de compiler `src/main.cpp`, qui dépend d'Arduino.
@@ -31,11 +38,13 @@ essaierait de compiler `src/main.cpp`, qui dépend d'Arduino.
 
 ```text
 teensy_moteur/
-├── platformio.ini         environnements teensy41 et native
+├── platformio.ini         environnements teensy41, teensy41_synthetic, native
+├── scripts/
+│   └── fw_version.py      version du firmware pour LOG_FW_INFO, à chaque build
 ├── include/
 │   └── config.h           toute la configuration de la carte (pins, géométrie, gains, limites)
 ├── src/
-│   └── main.cpp           firmware de test (voir État)
+│   └── main.cpp           squelette du firmware de match (voir État)
 ├── lib/
 │   ├── holonomic_basis/   chef d'orchestre : boucle d'asservissement, odométrie, moteurs
 │   ├── MKSServo/          pilotes RS485 des MKS SERVO57D
@@ -44,7 +53,9 @@ teensy_moteur/
 │   ├── kinematics/        équations des roues, unique exemplaire
 │   ├── pose_estimator/    interface commune des estimateurs + filtre complémentaire
 │   ├── kalman/            EKF 3 et 6 états, écrit à la main
-│   └── sensors/           BNO085 et OTOS, lecture non bloquante sur I2C
+│   ├── sensors/           BNO085 et OTOS, lecture non bloquante sur I2C
+│   ├── telemetry/         construction des trames LOG_* et PID_TRACE
+│   └── log_ring/          tampon circulaire entre le tick et la liaison USB
 └── test/                  tests Unity (voir Tests)
 ```
 
@@ -57,9 +68,10 @@ La bibliothèque `com` (protocole USB) n'est pas dans `lib/` : elle vient de
 ## Dépendances entre bibliothèques
 
 ```text
-                         src/main.cpp
-                              |
-                       holonomic_basis                       [Arduino]
+                         src/main.cpp -------------+
+                              |                    telemetry  [Arduino]
+                       holonomic_basis  [Arduino]      |
+                              |                    log_ring
       +-----------+-----------+-----------+-----------+
       |           |           |           |           |
   MKSServo       pid       sensors      motion   pose_estimator
@@ -73,13 +85,15 @@ La bibliothèque `com` (protocole USB) n'est pas dans `lib/` : elle vient de
 
 Deux familles :
 
-- **Les bibliothèques sans Arduino** : `kinematics`, `motion`, `kalman`, `pose_estimator`. Ce sont
-  les algorithmes. Elles se compilent sur le PC et sont testées dans l'environnement `native`.
+- **Les bibliothèques sans Arduino** : `kinematics`, `motion`, `kalman`, `pose_estimator`,
+  `log_ring`. Ce sont les algorithmes. Elles se compilent sur le PC et sont testées dans l'environnement `native`.
   Elles ne lisent jamais `config.h` : la géométrie et les paramètres leur sont passés à la
   construction. **Aucun `#include <Arduino.h>` ne doit y entrer**, sinon `pio test -e native` ne
   compile plus.
-- **Les bibliothèques liées au matériel** : `MKSServo`, `sensors`, `pid`, `holonomic_basis`.
-  Elles ne se testent que sur la carte.
+- **Les bibliothèques liées au matériel** : `MKSServo`, `sensors`, `pid`, `holonomic_basis`,
+  `telemetry`. Elles ne se testent que sur la carte (`telemetry` n'a besoin que de `messages.h`,
+  de `micros()` et des interruptions : ses trames se vérifient aussi sur le PC avec un faux
+  `Arduino.h`).
 
 ---
 
@@ -89,20 +103,26 @@ Le travail est coupé en deux, parce que le RS485 et l'I2C sont trop lents et bl
 interruption :
 
 ```text
-IntervalTimer (période ASSERVISSEMENT_FREQUENCY, 15 ms)         -> compute_loop(), en ISR
+IntervalTimer (période ASSERVISSEMENT_FREQUENCY, 15 ms)         -> control_tick(), en ISR
     update_odometry()   construit l'EstimatorInput depuis les buffers des capteurs,
                         fait avancer l'estimateur actif, recopie la pose dans X / Y / THETA
-    handle(target)      PID sur l'erreur de position + feed-forward, mis en forme par motion
+    handle(target)      seulement si une consigne est tenue : PID sur l'erreur de position
+                        + feed-forward, mis en forme par motion
     lève need_read_encoders / need_send_movement (et need_read_imu / need_read_optical)
+    prépare ODOMETRY un tick sur deux
+    telemetry           si SET_TRACE l'a demandé : LOG_TICK et PID_TRACE copiés dans le tampon
 
 loop(), hors ISR
+    com->handle_callback()               un message USB, puis le watchdog
     read_encoders_nonblocking()          RS485 : lit les trois encodeurs dans un buffer
     send_movement_commands_nonblocking() RS485 : envoie les trois vitesses calculées
     imu.poll() / otos.poll()             I2C : un échantillon de plus dans le buffer du capteur
+    ODOMETRY, STATUS                     par send_log(), jamais bloquant
+    telem.drain()                        au plus 16 trames du tampon vers la liaison USB
 ```
 
 L'ISR ne fait jamais d'entrée-sortie : elle lit des buffers remplis par `loop()` et en remplit
-d'autres que `loop()` enverra.
+d'autres que `loop()` enverra. Rien n'écrit de texte sur `Serial`, qui porte le protocole.
 
 ---
 
@@ -137,6 +157,10 @@ Le `library.json` s'appelle encore `rolling_basis`, l'ancien nom du dossier.
 - `MKSGroup` : les trois roues ensemble. Envoi des trois vitesses et lecture des trois encodeurs
   en rafale synchronisée, arrêt de tous les moteurs. `setSpeedsSynced` re-borne les vitesses à
   `MAX_SPEED_RPM` en garde-fou.
+- Une lecture ratée dit pourquoi, roue par roue (`ReadResult`) : pas de réponse, somme de
+  contrôle fausse, trame coupée, mauvaise adresse. Les valeurs sont celles de `RS485_*` dans
+  `messages.h`, que `LOG_TICK` transporte. Le tampon de l'odométrie n'est rafraîchi que si les
+  trois roues ont répondu.
 
 Pas de `library.json` : `holonomic_basis` l'inclut par chemin relatif. Les encodeurs comptent
 `MKS_COUNTS_PER_REV` = 16384 pas par tour et gardent leur position absolue entre deux démarrages,
@@ -189,6 +213,9 @@ Unités : mm, rad, repère robot (x vers l'avant).
   son drapeau, il n'envoie jamais de zéros ;
 - `PoseEstimate` : pose et vitesse, repère table ;
 - `health_flags()` : `FILTER_READY`, `OPTICAL_OK`, `MEAS_REJECTED`.
+- `step_flags()` : ce que le dernier tick a fait de l'échantillon optique (servi, rejeté,
+  écarté pour rotation sur place), pour les logs. 0 pour un estimateur qui ne le dit pas
+  (l'EKF aujourd'hui).
 
 Deux implémentations, toutes deux compilées, une seule active :
 
@@ -232,6 +259,41 @@ une copie prise interruptions coupées.
   jamais utilisé ; facteurs d'échelle refusés hors de [0.95, 1.05] ; le bras de levier est
   compensé dans l'EKF seulement. La durée de chaque lecture est enregistrée.
 
+### `telemetry` et `log_ring` - les logs de la carte
+
+`log_ring` est un tampon circulaire de trames (511 trames de 191 octets au plus, en `DMAMEM`,
+~3,8 s des deux flux par tick). Le tick y copie ses trames et rend la main ; `loop()` le vide vers
+la liaison avec `Com::send_log()`, qui n'écrit rien si la trame ne tient pas tout de suite. Une
+trame refusée reste en tête pour le passage suivant ; une trame n'est perdue que tampon plein,
+et elle est alors comptée.
+
+`telemetry` construit les trames :
+
+| Message | Quand | Remarque |
+| --- | --- | --- |
+| `LOG_TICK` | à chaque tick, si le bit 1 de `SET_TRACE` est levé | un flux coupé ne coûte rien au tick |
+| `PID_TRACE` | à chaque tick, si le bit 0 de `SET_TRACE` est levé | au repos, cible = pose et termes PID à zéro |
+| `LOG_EVENT` | au démarrage, `SET_ODOMETRIE`, `STOP`, watchdog, changement d'estimateur | toujours émis |
+| `LOG_FW_INFO`, `LOG_PARAMS` | au démarrage, puis **à chaque `SET_TRACE` reçu** | la Rasp ouvre souvent le port après le démarrage de la carte, les trames du démarrage sont alors perdues |
+| `PRINT` | toutes les 5 s | coût du cycle : moyenne, 99e centile, maximum de `work_us`, dépassements, masque actif |
+
+`work_us` est le travail d'un tick : son ISR, plus ce que `loop()` a fait pour lui (RS485,
+capteurs, envoi des trames). Comme la trame est construite au début du tick, elle porte le
+travail du tick **précédent**. La ligne `PRINT` toutes les 5 s donne le même coût quand
+`LOG_TICK` est coupé : c'est elle qui mesure le coût de chaque flux.
+
+`ODOMETRY` et `STATUS` partent aussi par `send_log()` : un message périodique est remplacé par le
+suivant, il ne doit ni bloquer `loop()` sur un hôte qui ne lit plus, ni être renvoyé sur un NACK.
+
+### Firmware sans drivers (`teensy41_synthetic`)
+
+Compilé avec `-D SYNTHETIC_ENCODERS`, le firmware ne lit pas les encodeurs sur le RS485 : il les
+calcule à partir des vitesses envoyées aux roues, comme des roues qui suivraient parfaitement leur
+consigne. Une lecture RS485 sans driver attendrait 50 ms par roue. Tout le reste est le vrai
+chemin : estimateur (encodeurs seuls, l'IMU et l'OTOS absents ne démarrent pas), PID, logs,
+liaison USB. Une Teensy seule sur un bureau répond donc aux consignes et produit des logs
+complets : c'est le banc des essais de logs.
+
 ---
 
 ## `include/config.h`
@@ -260,6 +322,7 @@ sont indépendants : ne jamais les aligner.
 | `test_ekf6`           | `native`  | Filtre 6 états                                                              |
 | `test_pose_estimator` | `native`  | Les deux estimateurs derrière le contrat commun                             |
 | `test_motion`         | `native`  | Freinage, normalisation, limite d'accélération                              |
+| `test_log_ring`       | `native`  | Tampon des trames de log : ordre, intégrité, tampon plein, débordement d'indices |
 | `test_ekf_timing`     | `teensy41`| Temps d'un cycle d'EKF sur la vraie puce (Teensy nue, rien de branché)      |
 
 `test/support/dense_reference.h` contient la version matricielle dense et générique de chaque

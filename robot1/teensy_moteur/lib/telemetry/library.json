@@ -1,0 +1,8 @@
+{
+    "name": "telemetry",
+    "version": "0.1.0",
+    "description": "Telemetry of the base: builds the LOG_* and PID_TRACE frames in the control tick and sends them without ever waiting for the host.",
+    "keywords": "telemetry, log",
+    "frameworks": "arduino",
+    "platforms": "teensy"
+  }

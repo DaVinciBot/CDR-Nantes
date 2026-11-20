@@ -25,6 +25,7 @@ void ComplementaryEstimator::reset(float x_mm, float y_mm, float theta_rad) {
     omega_ = 0.0;
     optical_used_ = false;
     optical_rejected_ = false;
+    pure_rotation_ = false;
     for (int i = 0; i < 3; ++i) carry_[i] = 0;
 }
 
@@ -45,6 +46,7 @@ bool ComplementaryEstimator::is_pure_rotation(double d1, double d2, double d3) c
 void ComplementaryEstimator::step(const EstimatorInput &in) {
     optical_used_ = false;
     optical_rejected_ = false;
+    pure_rotation_ = false;
 
     // The first tick only sets the encoder reference, which the caller holds.
     if (in.first_frame) {
@@ -95,8 +97,11 @@ void ComplementaryEstimator::step(const EstimatorInput &in) {
         if (speed > params_.optical_outlier_mm_s) {
             ++optical_outlier_count_;
             optical_rejected_ = true;
-        } else if (speed >= params_.optical_noise_mm_s &&
-                   !is_pure_rotation(d[0], d[1], d[2])) {
+        } else if (speed < params_.optical_noise_mm_s) {
+            // Noise: neither used nor rejected.
+        } else if (is_pure_rotation(d[0], d[1], d[2])) {
+            pure_rotation_ = true;
+        } else {
             optical_dx = vx * dt_s;
             optical_dy = vy * dt_s;
             optical_used_ = true;
@@ -154,6 +159,14 @@ uint8_t ComplementaryEstimator::health_flags() const {
     if (ready_) flags |= FILTER_READY;
     if (optical_used_) flags |= OPTICAL_OK;
     if (optical_rejected_) flags |= MEAS_REJECTED;
+    return flags;
+}
+
+uint8_t ComplementaryEstimator::step_flags() const {
+    uint8_t flags = 0;
+    if (optical_used_) flags |= STEP_OPTICAL_USED;
+    if (optical_rejected_) flags |= STEP_OPTICAL_REJECTED;
+    if (pure_rotation_) flags |= STEP_PURE_ROTATION;
     return flags;
 }
 

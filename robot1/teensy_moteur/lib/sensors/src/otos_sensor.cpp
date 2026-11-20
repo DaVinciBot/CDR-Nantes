@@ -128,6 +128,23 @@ bool OtosSensor::poll() {
     if (duration_us > stats_.max_us) stats_.max_us = duration_us;
     stats_.mean_us = static_cast<float>(stats_sum_us_) / static_cast<float>(stats_.count);
 
+    // Raw values for the logs, kept from the very first read (the reference
+    // read too): metres to millimetres, nothing else.
+    noInterrupts();
+    raw_.valid = true;
+    raw_.pos[0] = pos.x * 1000.0f;
+    raw_.pos[1] = pos.y * 1000.0f;
+    raw_.pos[2] = pos.h;
+    raw_.vel[0] = vel.x * 1000.0f;
+    raw_.vel[1] = vel.y * 1000.0f;
+    raw_.vel[2] = vel.h;
+    raw_.acc[0] = acc.x * 1000.0f;
+    raw_.acc[1] = acc.y * 1000.0f;
+    raw_.acc[2] = acc.h;
+    raw_.read_us = duration_us;
+    raw_.timestamp_us = now_us;
+    interrupts();
+
     // The first read after a reset only sets the reference of the steps.
     if (!has_reference_) {
         has_reference_ = true;
@@ -164,6 +181,13 @@ bool OtosSensor::poll() {
 OpticalSample OtosSensor::latest() const {
     noInterrupts();
     const OpticalSample copy = sample_;
+    interrupts();
+    return copy;
+}
+
+OtosRaw OtosSensor::raw() const {
+    noInterrupts();
+    const OtosRaw copy = raw_;
     interrupts();
     return copy;
 }

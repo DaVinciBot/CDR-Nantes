@@ -328,6 +328,7 @@ static void test_complementary_optical_outlier_is_rejected_and_counted(void) {
 
     TEST_ASSERT_EQUAL_UINT32(1, est.optical_outlier_count());
     TEST_ASSERT_TRUE(est.health_flags() & MEAS_REJECTED);
+    TEST_ASSERT_EQUAL_UINT8(STEP_OPTICAL_REJECTED, est.step_flags());
     TEST_ASSERT_FLOAT_WITHIN(1e-6f, 0.0f, est.pose().x_mm);
 }
 
@@ -360,6 +361,7 @@ static void test_complementary_pure_rotation_drops_the_optical(void) {
         in.encoders_fresh = true;
         est.step(with_optical(in, 5.0f, 0.0f));
         TEST_ASSERT_EQUAL_UINT8(0, est.health_flags() & OPTICAL_OK);
+        TEST_ASSERT_EQUAL_UINT8(STEP_PURE_ROTATION, est.step_flags());
     }
     // Equal wheel deltas: no translation from the encoders, optical dropped.
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, est.pose().x_mm);

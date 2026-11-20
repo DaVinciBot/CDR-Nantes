@@ -214,6 +214,11 @@ que le temps de cycle permet en match. La valeur 1 garde le sens qu'elle avait q
 était un simple marche / arrêt de `PID_TRACE`. Après un redémarrage de la carte, les deux
 retombent : l'état réel se lit dans `STATUS`.
 
+Chaque `SET_TRACE` reçu fait aussi renvoyer `LOG_FW_INFO` et `LOG_PARAMS`, quel que soit le
+masque : la Rasp ouvre souvent le port après le démarrage de la carte, et les trames du
+démarrage sont alors perdues. Un enregistreur qui envoie `SET_TRACE` en s'accrochant reçoit donc
+toujours de quoi dater et rejouer son enregistrement.
+
 #### `HEARTBEAT` (12) : entretien du watchdog
 
 Sans données. Le firmware s'arrête s'il ne reçoit aucun message pendant `WATCHDOG_TIMEOUT_MS`
@@ -320,7 +325,7 @@ partent par `send_log()`, jamais par `send_msg()`.
 | 0 | uint8 | `schema_version` | |
 | 1-2 | uint16 | `seq` | +1 par message de ce type : un trou est une perte |
 | 3-6 | uint32 | `tick` | ticks d'asservissement depuis le démarrage |
-| 7-10 | uint32 | `t_us` | `micros()` au début du tick |
+| 7-10 | uint32 | `t_us` | `micros()` au début du tick (`LOG_TICK`), à l'événement (`LOG_EVENT`) |
 
 #### `LOG_TICK` (200) : une ligne de log par tick
 
@@ -348,9 +353,9 @@ pour qu'une calibration puisse être refaite sur un enregistrement.
 | 59-66 | float[2] | `optical_vx_mm_s`, `optical_vy_mm_s` | vitesse optique, repère robot |
 | 67 | uint8 | `input_flags` | drapeaux `LOG_IN_*`, ci-dessous |
 | | | **Encodeurs bruts** | |
-| 68-91 | int64[3] | `enc_counts` | compteurs absolus des roues 1, 2, 3 |
+| 68-91 | int64[3] | `enc_counts` | compteurs absolus des roues 1, 2, 3, ceux que l'estimateur a reçus (rafraîchis seulement quand les trois roues répondent) |
 | 92-95 | uint32 | `enc_t_us_mid` | milieu de la lecture |
-| 96 | uint8 | `enc_read_ok` | bit i : la roue i + 1 a répondu à ce tick |
+| 96 | uint8 | `enc_read_ok` | bit i : la roue i + 1 a répondu à la dernière lecture |
 | | | **Capteur optique brut, axes du capteur** | |
 | 97-108 | float[3] | `otos_pos` | x, y (mm), h (rad), depuis sa dernière remise à zéro |
 | 109-120 | float[3] | `otos_vel` | mm/s, mm/s, rad/s |
@@ -368,11 +373,11 @@ pour qu'une calibration puisse être refaite sur un enregistrement.
 | 168-169 | uint16 | `cmd_count` | `SET_TARGET` acceptés depuis le démarrage |
 | 170-173 | uint32 | `cmd_t_us` | `micros()` à la prise en compte du dernier |
 | | | **Santé du cycle** | |
-| 174-175 | uint16 | `work_us` | durée du travail de ce tick |
+| 174-175 | uint16 | `work_us` | travail du tick **précédent** : son ISR, plus ce que `loop()` a fait pour lui (RS485, capteurs, envoi des trames). Saturé à 65535 |
 | 176 | uint8 | `health_flags` | drapeaux `LOG_HEALTH_*`, ci-dessous |
 | 177-179 | uint8[3] | `rs485_fail` | cause de l'échec de lecture des roues 1, 2, 3, ci-dessous |
 | 180-181 | uint16 | `log_dropped` | trames de log perdues depuis le démarrage |
-| 182-183 | uint16 | `otos_read_us` | durée de la lecture du capteur optique |
+| 182-183 | uint16 | `otos_read_us` | durée de la dernière lecture du capteur optique |
 
 `cmd_count` sert à mesurer la latence de commande sans numéroter `SET_TARGET` : chaque fois qu'il
 augmente, une consigne a été prise en compte à ce tick, et la n-ième s'apparie avec la n-ième
@@ -415,7 +420,7 @@ Envoyé une fois quand l'événement se produit, quel que soit `SET_TRACE`.
 
 | Valeur | Événement | `value` / `arg` |
 | ---: | --- | --- |
-| 0 | `LOG_EVENT_BOOT` | |
+| 0 | `LOG_EVENT_BOOT` | `arg` : bit 0 = IMU démarrée, bit 1 = OTOS démarré |
 | 1 | `LOG_EVENT_ESTIMATOR_SELECTED` | `arg` = `ESTIMATOR_*` |
 | 2 | `LOG_EVENT_POSE_SET` | `value` = x, y, theta imposés à l'estimateur |
 | 3 | `LOG_EVENT_WATCHDOG` | |
@@ -429,7 +434,7 @@ tick.
 
 #### `LOG_FW_INFO` (202) : le firmware qui tourne
 
-Envoyé au démarrage.
+Envoyé au démarrage et à chaque `SET_TRACE` reçu.
 
 | Octets | Type | Champ | Contenu |
 | --- | --- | --- | --- |
@@ -439,8 +444,9 @@ Envoyé au démarrage.
 
 #### `LOG_PARAMS` (203) : les constantes dont dépend un rejeu
 
-Envoyé au démarrage. Un enregistrement qui ne les porte pas ne dit pas avec quels réglages il a
-été fait.
+Envoyé au démarrage, à chaque `SET_TRACE` reçu, et quand un réglage change (`SET_PID`,
+`SET_ESTIMATOR` accepté). Un enregistrement qui ne les porte pas ne dit pas avec quels réglages
+il a été fait.
 
 | Octets | Type | Champ | Contenu |
 | --- | --- | --- | --- |

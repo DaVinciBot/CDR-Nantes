@@ -262,9 +262,13 @@ void Holonomic_Basis::update_odometry() {
     odo_data.prev_read_fresh = fresh_read;
     odo_data.last_tick_us = now_us;
 
+    last_input_ = in;
     if (!estimator) return;
     estimator->step(in);
     const pose::PoseEstimate p = estimator->pose();
+    last_estimate_ = p;
+    last_est_health_ = estimator->health_flags();
+    last_step_flags_ = estimator->step_flags();
     this->X = p.x_mm;
     this->Y = p.y_mm;
     this->THETA = p.theta_rad;
@@ -309,16 +313,33 @@ void Holonomic_Basis::handle(Point target_position, Com* com) {
     // is over; dropping it there made the robot stop and restart in jerks.
     const bool arrived = distance_error < ARRIVED_DISTANCE_MM &&
                          fabs(theta_error) < ARRIVED_ANGLE_RAD;
+    bool capped = false;
     if (!arrived) {
         // Anti-windup: while the previous command was capped after the PIDs,
         // their error is not theirs to correct; hold the integrals.
         const motion::ShapedCommand& previous = shaper.last();
-        const bool capped = previous.braking || previous.speed_saturated ||
-                            previous.accel_limited;
+        capped = previous.braking || previous.speed_saturated ||
+                 previous.accel_limited;
         position_loop.vx_mm_s = this->x_pid.compute(xerr, capped);
         position_loop.vy_mm_s = this->y_pid.compute(yerr, capped);
         position_loop.omega_rad_s = this->theta_pid.compute(theta_error, capped);
     }
+
+    // Kept for the PID trace. In the dead zone the PIDs did not run: their
+    // terms are reported as zero, which is what the command got from them.
+    control_.target[0] = target_position.x;
+    control_.target[1] = target_position.y;
+    control_.target[2] = target_position.theta;
+    control_.velocity_cmd[0] = position_loop.vx_mm_s + ff.vx_mm_s;
+    control_.velocity_cmd[1] = position_loop.vy_mm_s + ff.vy_mm_s;
+    control_.velocity_cmd[2] = position_loop.omega_rad_s + ff.omega_rad_s;
+    const PID* pids[3] = {&this->x_pid, &this->y_pid, &this->theta_pid};
+    for (int k = 0; k < 3; ++k) {
+        control_.p[k] = arrived ? 0.0 : pids[k]->lastProportional();
+        control_.i[k] = arrived ? 0.0 : pids[k]->lastIntegral();
+        control_.d[k] = arrived ? 0.0 : pids[k]->lastDerivative();
+    }
+    control_.integral_frozen = capped;
 
     const motion::ShapedCommand& command =
         shaper.step(position_loop, ff, this->THETA, distance_error,
@@ -368,65 +389,69 @@ void Holonomic_Basis::emergency_stop() {
 
 // ===== ARCHITECTURE NON-BLOQUANTE: RS485 SORTIS DE L'ISR =====
 
-// Lire les encodeurs DEPUIS loop() - rafale synchronisée, ~2ms total
+// Encoder read, from loop(): one synchronised burst, ~2 ms. The buffer the ISR
+// reads is refreshed only when the three wheels answered: deltas must span the
+// same interval on every wheel. Each wheel's outcome is kept for the logs.
 bool Holonomic_Basis::read_encoders_nonblocking() {
     if (!mksGroup) return false;
-    
+
     int64_t enc1 = 0, enc2 = 0, enc3 = 0;
-    
-    // Appel RS485 bloquant optimisé : envoie 3 requêtes en rafale, lit 3 réponses en parallèle
-    // ~2ms au lieu de ~150ms avec readAllEncoders() séquentiel
-    bool success = mksGroup->readAllEncodersSynced(enc1, enc2, enc3);
-    
-    if (success) {
-        // Stocker dans buffers pour que update_odometry() (ISR) puisse les lire.
-        // 64-bit values: written with interrupts off so the ISR never sees half.
-        noInterrupts();
-        odo_data.buffered_enc1 = enc1;
-        odo_data.buffered_enc2 = enc2;
-        odo_data.buffered_enc3 = enc3;
-        odo_data.buffer_timestamp_us = micros();
-        odo_data.buffer_seq++;
-        interrupts();
-        
-        #ifdef DEBUG_RS485
-        static uint32_t enc_read_counter = 0;
-        if (++enc_read_counter >= 10) {  // Log toutes les 10 lectures
-            enc_read_counter = 0;
-            Serial.printf("[RS485 OK] Enc: %lld, %lld, %lld\n", enc1, enc2, enc3);
-        }
-        #endif
-    } else {
-        // Timeout RS485 - log mais pas de crash
-        static uint32_t enc_fail_counter = 0;
-        if (++enc_fail_counter >= 5) {  // Log une fois sur 5
-            enc_fail_counter = 0;
-            Serial.printf("[RS485 TIMEOUT] readAllEncoders() failed, retry next loop\n");
-        }
+    uint8_t fail[3] = {0, 0, 0};
+    const uint32_t start_us = micros();
+    const bool success = mksGroup->readAllEncodersSynced(enc1, enc2, enc3, fail);
+    const uint32_t end_us = micros();
+
+    uint8_t ok_mask = 0;
+    for (int i = 0; i < 3; ++i) {
+        if (fail[i] == static_cast<uint8_t>(ReadResult::OK)) ok_mask |= (1u << i);
     }
-    
+
+    noInterrupts();
+    encoder_read_.t_us_mid = start_us + (end_us - start_us) / 2;
+    encoder_read_.ok_mask = ok_mask;
+    for (int i = 0; i < 3; ++i) encoder_read_.fail[i] = fail[i];
+    interrupts();
+
+    if (success) {
+        store_encoders(enc1, enc2, enc3);
+    } else {
+        ++rs485_read_failures_;
+    }
     return success;
 }
 
-// Envoyer les commandes vitesse DEPUIS loop() - 30ms max (3x 10ms), pas d'impact sur ISR
+void Holonomic_Basis::inject_encoder_read(int64_t e1, int64_t e2, int64_t e3) {
+    noInterrupts();
+    encoder_read_.t_us_mid = micros();
+    encoder_read_.ok_mask = 0x07;
+    for (int i = 0; i < 3; ++i) encoder_read_.fail[i] = 0;
+    interrupts();
+    store_encoders(e1, e2, e3);
+}
+
+void Holonomic_Basis::store_encoders(int64_t e1, int64_t e2, int64_t e3) {
+    // 64-bit values: written with interrupts off so the ISR never sees half.
+    noInterrupts();
+    odo_data.buffered_enc1 = e1;
+    odo_data.buffered_enc2 = e2;
+    odo_data.buffered_enc3 = e3;
+    odo_data.buffer_timestamp_us = micros();
+    odo_data.buffer_seq++;
+    encoder_read_.counts[0] = e1;
+    encoder_read_.counts[1] = e2;
+    encoder_read_.counts[2] = e3;
+    interrupts();
+}
+
+// Speed commands, from loop(): three 0xF6 frames, fire and forget.
 bool Holonomic_Basis::send_movement_commands_nonblocking() {
     if (!mksGroup) return false;
-    
-    // Appel RS485 bloquant - c'est OK ici, on est dans loop() pas dans ISR
-    // setSpeedsSynced envoie 3 commandes 0xF6 (10ms timeout chacune)
-    mksGroup->setSpeedsSynced(filtered_wheel1_rpm,
-                              filtered_wheel2_rpm,
-                              filtered_wheel3_rpm,
-                              MKS_ACC);
-    
-    #ifdef DEBUG_RS485
-    static uint32_t movement_counter = 0;
-    if (++movement_counter >= 10) {  // Log toutes les 10 fois
-        movement_counter = 0;
-        Serial.printf("[RS485 MOVE] W1: %.0f, W2: %.0f, W3: %.0f RPM\n",
-                      filtered_wheel1_rpm, filtered_wheel2_rpm, filtered_wheel3_rpm);
-    }
-    #endif
-    
-    return true;  // On considère OK même si timeout silencieux (moteur peut fonctionner)
+
+    const bool ok = mksGroup->setSpeedsSynced(filtered_wheel1_rpm,
+                                              filtered_wheel2_rpm,
+                                              filtered_wheel3_rpm,
+                                              MKS_ACC);
+    write_failed_ = !ok;
+    if (!ok) ++rs485_write_failures_;
+    return ok;
 }

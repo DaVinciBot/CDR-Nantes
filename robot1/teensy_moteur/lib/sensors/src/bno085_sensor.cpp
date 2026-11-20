@@ -86,6 +86,7 @@ bool Bno085Sensor::poll() {
     raw_yaw_ = yaw;
     valid_ = true;
     timestamp_us_ = micros();
+    accuracy_ = sv.status & 0x03;
     interrupts();
     heading_pending_ = false;
     reset_pending_ = false;
@@ -118,6 +119,16 @@ HeadingSample Bno085Sensor::latest() const {
     interrupts();
     s.heading_rad = static_cast<float>(wrap_pi(yaw - offset));
     return s;
+}
+
+HeadingRaw Bno085Sensor::raw() const {
+    HeadingRaw r;
+    noInterrupts();
+    r.raw_yaw_rad = static_cast<float>(raw_yaw_);
+    r.yaw_offset_rad = static_cast<float>(yaw_offset_);
+    r.accuracy = accuracy_;
+    interrupts();
+    return r;
 }
 
 }  // namespace sensors

@@ -93,6 +93,7 @@ public:
     void step(const EstimatorInput &input) override;
     PoseEstimate pose() const override;
     uint8_t health_flags() const override;
+    uint8_t step_flags() const override;
     const char *name() const override { return "complementary"; }
 
     // === DIAGNOSTICS ===
@@ -129,6 +130,7 @@ private:
     uint32_t optical_outlier_count_ = 0;
     bool optical_used_ = false;
     bool optical_rejected_ = false;
+    bool pure_rotation_ = false;
 
     double encoder_x_acc_ = 0.0;
     double encoder_y_acc_ = 0.0;
