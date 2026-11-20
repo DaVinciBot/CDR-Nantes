@@ -50,8 +50,12 @@ _dummy = _load_module("usb_com.python.com.dummy", _PYTHON_DIR / "com" / "dummy.p
 FRAME_DELIMITER = _messages.FRAME_DELIMITER
 MAX_PAYLOAD_SIZE = _messages.MAX_PAYLOAD_SIZE
 Messages = _messages.Messages
+PAYLOAD_FIELDS = _messages.PAYLOAD_FIELDS
 PAYLOAD_FORMATS = _messages.PAYLOAD_FORMATS
+StatusFlag = _messages.StatusFlag
+TraceMask = _messages.TraceMask
 pack_message = _messages.pack_message
+unpack_fields = _messages.unpack_fields
 unpack_message = _messages.unpack_message
 compute_crc8 = _framing.compute_crc8
 cobs_encode = _framing.cobs_encode
@@ -166,7 +170,90 @@ class TestWireCompatibility(unittest.TestCase):
         "set_target": "01010103c8420101010101010101010101010101010101010102ab00",
         "odometry": "028004509a44088086c2db0fc93f01010101010348430101010615cd5b071000",
         "signature": "0602badd1cc5010101023e00",
+        # LOG_* messages, every field set BY NAME to its rank in the C++ struct
+        # (1 for the first one), then sent by Com::send_log().
+        "log_tick": (
+            "04c801020203010102040101020501010206010102070101020801010209010101010420410b01"
+            "01020c0101020d01010101036041010470411001010101038841010590411314010101010101"
+            "021501010101010102160101010101010217010102180103c8410103d0410103d8410103e041"
+            "0103e8410103f0410103f84101010242010304420103084201040c4224010314420103184201"
+            "031c420103204201032442010628422b2c2d022e0101022f0630313233340235023d00"
+        ),
+        "log_event": "04c90102020301010204010102050103c0400103e04001010341090101022d00",
+        "log_fw_info": (
+            "13ca0176302e332d31322d67653466356136620101010101010114323032372d30312d303620"
+            "31343a33323a3030025f00"
+        ),
+        "log_params": (
+            "05cb010203010101010380400103a0400103c0400103e0400101024101031041010320410103"
+            "304101034041010450410e0101010103704101038041010388410103904101049841140103a8"
+            "410103b0410103b8410103c0410103c8410103d0410103d8410103e0410103e8410103f04101"
+            "03f84101010242010304420103084201030c4201041042e900"
+        ),
     }
+
+    # What the C++ side wrote in those frames, name by name. Written out, not
+    # derived from PAYLOAD_FIELDS: two names swapped there must fail here.
+    CPP_LOG_TICK = {
+        "schema_version": 1, "seq": 2, "tick": 3, "t_us": 4,
+        "d": [5, 6, 7], "dt_us": 8, "encoder_age_us": 9, "heading_rad": 10.0,
+        "imu_timestamp_us": 11, "imu_age_us": 12, "optical_timestamp_us": 13,
+        "optical_dx_mm": 14.0, "optical_dy_mm": 15.0, "optical_step_dt_us": 16,
+        "optical_vx_mm_s": 17.0, "optical_vy_mm_s": 18.0, "input_flags": 19,
+        "enc_counts": [20, 21, 22], "enc_t_us_mid": 23, "enc_read_ok": 24,
+        "otos_pos": [25.0, 26.0, 27.0], "otos_vel": [28.0, 29.0, 30.0],
+        "otos_acc": [31.0, 32.0, 33.0],
+        "imu_raw_yaw_rad": 34.0, "imu_yaw_offset_rad": 35.0, "imu_accuracy": 36,
+        "est_pose": [37.0, 38.0, 39.0], "est_vel": [40.0, 41.0, 42.0],
+        "est_health": 43, "est_flags": 44,
+        "cmd_count": 45, "cmd_t_us": 46,
+        "work_us": 47, "health_flags": 48, "rs485_fail": [49, 50, 51],
+        "log_dropped": 52, "otos_read_us": 53,
+    }
+    CPP_LOG_EVENT = {
+        "schema_version": 1, "seq": 2, "tick": 3, "t_us": 4,
+        "event": 5, "value": [6.0, 7.0, 8.0], "arg": 9,
+    }
+    CPP_LOG_FW_INFO = {
+        "schema_version": 1,
+        "git_describe": "v0.3-12-ge4f5a6b",
+        "build_date": "2027-01-06 14:32:00",
+    }
+    CPP_LOG_PARAMS = {
+        "schema_version": 1, "estimator": 2, "period_us": 3,
+        "robot_radius_mm": 4.0, "wheel_diameter_mm": [5.0, 6.0, 7.0],
+        "wheel_angle_rad": [8.0, 9.0, 10.0], "counts_per_rev": 11.0,
+        "alpha_encoders": 12.0, "encoder_noise_counts": 13.0, "imu_max_age_us": 14,
+        "optical_outlier_mm_s": 15.0, "optical_noise_mm_s": 16.0,
+        "pure_rotation_min_rad": 17.0, "pure_rotation_min_counts": 18.0,
+        "pure_rotation_tolerance": 19.0, "use_encoders": 20,
+        "otos_linear_scalar": 21.0, "otos_angular_scalar": 22.0,
+        "otos_linear_scale_soft": 23.0, "otos_angular_scale_soft": 24.0,
+        "otos_mount_angle_rad": 25.0,
+        "kp": [26.0, 27.0, 28.0], "ki": [29.0, 30.0, 31.0], "kd": [32.0, 33.0, 34.0],
+        "max_wheel_rpm": 35.0, "max_wheel_accel_rpm_s": 36.0,
+    }
+
+    def test_log_messages_match_cpp(self) -> None:
+        cases = (
+            ("log_tick", Messages.LOG_TICK, self.CPP_LOG_TICK),
+            ("log_event", Messages.LOG_EVENT, self.CPP_LOG_EVENT),
+            ("log_fw_info", Messages.LOG_FW_INFO, self.CPP_LOG_FW_INFO),
+            ("log_params", Messages.LOG_PARAMS, self.CPP_LOG_PARAMS),
+        )
+        for name, message, expected in cases:
+            with self.subTest(name):
+                frame = bytes.fromhex(self.CPP_FRAMES[name])
+                decoded = decode_frame(frame)
+                self.assertIsNotNone(decoded)
+                message_id, data = decoded
+                self.assertEqual(message_id, message.value)
+                fields = unpack_fields(message, data)
+                self.assertEqual(fields, expected)
+                # Same order as the struct, and the Python side builds the
+                # very same bytes.
+                self.assertEqual(list(fields), list(expected))
+                self.assertEqual(encode_frame(message.to_bytes() + data), frame)
 
     def test_set_target_matches_cpp(self) -> None:
         self.assertEqual(encode_frame(SET_TARGET_PAYLOAD).hex(), self.CPP_FRAMES["set_target"])
@@ -220,6 +307,10 @@ class TestMessageLayouts(unittest.TestCase):
         Messages.ODOMETRY: 29,
         Messages.STATUS: 17,
         Messages.PID_TRACE: 114,
+        Messages.LOG_TICK: 185,
+        Messages.LOG_EVENT: 29,
+        Messages.LOG_FW_INFO: 46,
+        Messages.LOG_PARAMS: 136,
     }
 
     def test_sizes_match_the_cpp_structs(self) -> None:
@@ -236,6 +327,91 @@ class TestMessageLayouts(unittest.TestCase):
         self.assertEqual(payload[0], Messages.STATUS.value)
         self.assertEqual(unpack_message(Messages.STATUS, payload[1:]), status)
         self.assertEqual(pack_message(Messages.HEARTBEAT), Messages.HEARTBEAT.to_bytes())
+
+    def test_every_format_has_its_field_names(self) -> None:
+        self.assertEqual(set(PAYLOAD_FIELDS), set(PAYLOAD_FORMATS))
+        for message, fmt in PAYLOAD_FORMATS.items():
+            values = struct.unpack(fmt, bytes(struct.calcsize(fmt)))
+            named = sum(count for _, count in PAYLOAD_FIELDS[message])
+            self.assertEqual(named, len(values), message.name)
+            names = [name for name, _ in PAYLOAD_FIELDS[message]]
+            self.assertEqual(len(names), len(set(names)), message.name)
+
+    def test_log_tick_round_trip(self) -> None:
+        fmt = PAYLOAD_FORMATS[Messages.LOG_TICK]
+        count = len(struct.unpack(fmt, bytes(struct.calcsize(fmt))))
+        # One distinct small integer per value: exact in every field type, and a
+        # field read at the wrong offset cannot go unnoticed.
+        values = tuple(range(1, count + 1))
+        payload = pack_message(Messages.LOG_TICK, *values)
+        self.assertEqual(payload[0], 200)
+        self.assertEqual(len(payload), 185)
+        self.assertEqual(unpack_message(Messages.LOG_TICK, payload[1:]), values)
+
+        fields = unpack_fields(Messages.LOG_TICK, payload[1:])
+        self.assertEqual(list(fields)[:4], ["schema_version", "seq", "tick", "t_us"])
+        self.assertEqual(fields["schema_version"], 1)
+        # Ranks counted on the C++ struct: 4 values of header, 15 of estimator
+        # input, 5 of raw encoders, 9 of optical, 3 of IMU, 8 of estimator
+        # output, 2 of commands, 7 of health.
+        self.assertEqual(count, 53)
+        self.assertEqual(fields["d"], [5, 6, 7])
+        self.assertEqual(fields["input_flags"], 19)
+        self.assertEqual(fields["enc_counts"], [20, 21, 22])
+        self.assertEqual(fields["otos_acc"], [31.0, 32.0, 33.0])
+        self.assertEqual(fields["imu_accuracy"], 36)
+        self.assertEqual(fields["est_pose"], [37.0, 38.0, 39.0])
+        self.assertEqual(fields["cmd_count"], 45)
+        self.assertEqual(fields["rs485_fail"], [49, 50, 51])
+        self.assertEqual(fields["otos_read_us"], 53)
+
+        # A LOG_TICK survives the wire, zeros included
+        frame = encode_frame(payload)
+        self.assertEqual(decode_frame(frame), (Messages.LOG_TICK.value, payload[1:]))
+
+    def test_unpack_fields_strings_and_scalars(self) -> None:
+        payload = pack_message(Messages.LOG_FW_INFO, 1, b"v0.3-12-ge4f5a6b", b"2027-01-06 14:32:00")
+        self.assertEqual(
+            unpack_fields(Messages.LOG_FW_INFO, payload[1:]),
+            {
+                "schema_version": 1,
+                "git_describe": "v0.3-12-ge4f5a6b",
+                "build_date": "2027-01-06 14:32:00",
+            },
+        )
+        odometry = pack_message(Messages.ODOMETRY, 1.0, 2.0, 0.5, 0.0, 0.0, 0.0, 42)
+        self.assertEqual(
+            unpack_fields(Messages.ODOMETRY, odometry[1:]),
+            {"x": 1.0, "y": 2.0, "theta": 0.5, "vx": 0.0, "vy": 0.0, "omega": 0.0, "t_us": 42},
+        )
+        self.assertEqual(unpack_fields(Messages.STOP, b""), {})
+
+    def test_trace_mask(self) -> None:
+        # 1 was "PID_TRACE on" when SET_TRACE carried an on / off byte: it must
+        # still mean exactly that.
+        self.assertEqual(TraceMask.PID_TRACE, 1)
+        self.assertEqual(TraceMask.LOG_TICK, 2)
+        both = TraceMask.PID_TRACE | TraceMask.LOG_TICK
+        payload = pack_message(Messages.SET_TRACE, both)
+        self.assertEqual(payload, bytes([11, 3]))
+        self.assertEqual(unpack_fields(Messages.SET_TRACE, payload[1:]), {"mask": 3})
+        self.assertEqual(pack_message(Messages.SET_TRACE, TraceMask.NONE), bytes([11, 0]))
+
+    def test_status_flags_do_not_overlap(self) -> None:
+        self.assertEqual(StatusFlag.TRACE_ON, 1 << 7)
+        self.assertEqual(StatusFlag.LOG_TICK_ON, 1 << 10)
+        values = [flag.value for flag in StatusFlag]
+        self.assertEqual(len(values), len(set(values)))
+        self.assertLess(max(values), 1 << 16)  # STATUS carries them on 16 bits
+
+    def test_log_messages_are_in_the_teensy_range(self) -> None:
+        for message in (
+            Messages.LOG_TICK,
+            Messages.LOG_EVENT,
+            Messages.LOG_FW_INFO,
+            Messages.LOG_PARAMS,
+        ):
+            self.assertGreaterEqual(message.value, 128, message.name)
 
 
 class TestMalformedFrames(unittest.TestCase):

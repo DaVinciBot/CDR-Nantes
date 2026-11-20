@@ -85,6 +85,26 @@ Le thread récepteur démarre avec `Com` (sauf en mode dummy). Un callback reço
 sans l'ID**. Une trame invalide est ignorée et un `NACK` est renvoyé. La lecture a un timeout de
 0,1 s, et une trame arrivée en plusieurs morceaux est réassemblée.
 
+### Écouter tout le lien
+
+```python
+from usb_com import TAP_RX, TAP_RX_REJECTED, TAP_TX
+
+def tap(direction: int, payload: bytes) -> None:
+    ...   # payload = [ID][données]
+
+com.set_tap(tap)      # com.set_tap(None) pour l'enlever
+```
+
+Un callback ne voit qu'un ID, et seulement en réception. Le point d'écoute reçoit **tous** les
+messages, dans les deux sens : `TAP_RX` (message reçu valide), `TAP_TX` (message envoyé, NACK et
+heartbeat compris), `TAP_RX_REJECTED` (trame refusée, telle que lue sur le port). C'est ce qu'il
+faut à un enregistreur.
+
+Il est appelé dans le thread récepteur et dans le thread de celui qui envoie : il doit rendre la
+main tout de suite (pousser dans une file, rien de plus). Une exception qu'il lève est écrite dans
+le journal et abandonnée, elle n'atteint jamais le lien.
+
 ### Heartbeat et arrêt
 
 ```python
@@ -107,8 +127,29 @@ l'autre dans le même commit. La table complète des messages est dans
   empaquetés par leurs appelants.
 - `pack_message(message, *champs)`, `unpack_message(message, données)`,
   `payload_size(message)`.
+- `PAYLOAD_FIELDS` : le nom de chaque champ, dans l'ordre du format, avec son nombre de valeurs
+  (1 pour un scalaire, n pour un tableau). Mêmes noms que les structures C++.
+- `unpack_fields(message, données)` : le message en dictionnaire `nom -> valeur`, tableaux en
+  listes et chaînes sans leur remplissage. Il ne contient que des valeurs Python simples : il
+  passe tel quel dans `json.dumps`.
 - `Estimator`, `StatusFlag`, `TraceFlag` : valeurs et drapeaux de `SET_ESTIMATOR`, `STATUS` et
   `PID_TRACE`.
+- `TraceMask` : masque de `SET_TRACE`, un bit par message émis à chaque tick.
+- `LOG_SCHEMA_VERSION`, `LogInputFlag`, `LogEstFlag`, `LogHealthFlag`, `Rs485Fail`, `LogEvent` :
+  version et valeurs des messages `LOG_*`.
+
+```python
+from usb_com import Messages, TraceMask, pack_message, unpack_fields
+
+# Ask the Teensy for both per-tick messages
+com.send_bytes(pack_message(Messages.SET_TRACE, TraceMask.PID_TRACE | TraceMask.LOG_TICK))
+
+def handle_log_tick(data: bytes) -> None:
+    fields = unpack_fields(Messages.LOG_TICK, data)
+    # fields["tick"], fields["enc_counts"], fields["est_pose"], ...
+
+com.add_callback(handle_log_tick, Messages.LOG_TICK.value)
+```
 
 ---
 
@@ -121,7 +162,9 @@ python -m unittest discover common/usb_com/python/tests
 Depuis la racine du dépôt, sans port série ni Teensy. Ils couvrent :
 
 - COBS ;
-- les trames de référence produites par le C++ ;
+- les trames de référence produites par le C++, dont une par message `LOG_*` relue champ par
+  champ sous son nom ;
 - les tailles des messages contre les `sizeof` C++ ;
+- les noms de `PAYLOAD_FIELDS` contre les formats ;
 - les trames invalides et la resynchronisation ;
 - le port factice.

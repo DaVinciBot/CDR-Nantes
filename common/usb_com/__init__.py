@@ -1,21 +1,29 @@
 """USB communication utilities."""
 
 from usb_com.python.com import Com
+from usb_com.python.com.com import TAP_RX, TAP_RX_REJECTED, TAP_TX
 from usb_com.python.messages import (
     FRAME_DELIMITER,
     Messages,
+    TraceMask,
     pack_message,
     payload_size,
+    unpack_fields,
     unpack_message,
 )
 
 __all__ = [
     "FRAME_DELIMITER",
+    "TAP_RX",
+    "TAP_RX_REJECTED",
+    "TAP_TX",
     "Com",
     "Messages",
+    "TraceMask",
     "get_all_serial_number",
     "pack_message",
     "payload_size",
+    "unpack_fields",
     "unpack_message",
 ]
 

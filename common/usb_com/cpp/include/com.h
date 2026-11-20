@@ -118,6 +118,25 @@ class Com {
     void send_msg(byte* msg, byte size, bool is_nack = false);
 
     /**
+     * @brief Sends a log message without ever waiting for the host.
+     *
+     * Same frame as send_msg(), with three differences:
+     *   - nothing is written unless the whole frame fits in the transmit
+     *     buffer right now: a host that stopped reading must cost a dropped
+     *     frame, not a blocked control loop;
+     *   - the message is not kept for retransmission: on a NACK, a stale log
+     *     line must never be sent again in place of a real message;
+     *   - the stream is not flushed.
+     *
+     * Call from loop(), like send_msg(): both share the same scratch buffers.
+     *
+     * @param msg Pointer to the message data to send (ID first).
+     * @param size Size of the message data (at most COM_MAX_PAYLOAD).
+     * @return True if the frame was written, false if it was dropped.
+     */
+    bool send_log(const byte* msg, byte size);
+
+    /**
      * @brief Sends a debug text message.
      *
      * This function sends a text message for debugging purposes. The message

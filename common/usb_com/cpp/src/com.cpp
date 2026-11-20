@@ -182,6 +182,40 @@ void Com::send_msg(byte* msg, byte size, bool is_nack) {
 }
 
 /**
+ * @brief Sends a log message without ever waiting for the host.
+ *
+ * All or nothing: a write that does not fit would block until the host reads
+ * again, and a frame cut in the middle would take the next one down with it.
+ * The room is checked against the largest encoded size, before any work, so a
+ * host that is not reading costs almost nothing per call.
+ *
+ * @param msg Pointer to the message data to send (ID first).
+ * @param size The size of the message data (at most COM_MAX_PAYLOAD).
+ * @return True if the frame was written, false if it was dropped.
+ */
+bool Com::send_log(const byte* msg, byte size) {
+    if (size == 0)
+        return false;
+
+    // Encoded frame at most, plus the delimiter
+    const size_t needed = cobs_max_encoded_size(size + 1) + 1;
+    const int room = this->stream->availableForWrite();
+    if (room < 0 || static_cast<size_t>(room) < needed)
+        return false;
+
+    // [ID][data][CRC8]. last_msg is left alone: a log line is never resent.
+    CRC crc;
+    memcpy(this->_tx_raw, msg, size);
+    this->_tx_raw[size] = crc.digest(this->_tx_raw, size);
+
+    const size_t encoded = cobs_encode(this->_tx_raw, size + 1, this->_tx_encoded);
+
+    this->stream->write(this->_tx_encoded, encoded);
+    this->stream->write(FRAME_DELIMITER);
+    return true;
+}
+
+/**
  * @brief Sends a debug text message.
  *
  * This function sends a text message for debugging purposes. The message must

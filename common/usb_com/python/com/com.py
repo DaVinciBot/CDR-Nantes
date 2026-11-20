@@ -27,6 +27,14 @@ MAX_PENDING_BYTES = 1024
 # Default heartbeat period, well under the 3 s watchdog of the Teensy.
 HEARTBEAT_PERIOD_S = 0.5
 
+# Direction handed to a tap (see Com.set_tap).
+TAP_RX = 0
+"""A valid message received: ``[ID][data]``."""
+TAP_TX = 1
+"""A message sent: ``[ID][data]``."""
+TAP_RX_REJECTED = 2
+"""A frame received and rejected (bad COBS, bad CRC), as read on the port."""
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -85,6 +93,9 @@ class Com:
 
         self.last_message: bytes | None = None
         self.message_id_callback: dict[int, Callable[[bytes], None]] = {}
+
+        # Listener on every message of the link, both ways (see set_tap).
+        self._tap: Callable[[int, bytes], None] | None = None
 
         # Bytes of a frame not complete yet: a read can stop on its timeout in
         # the middle of a frame, the rest comes with the next read.
@@ -174,6 +185,7 @@ class Com:
                 frame = decode_frame(raw, enable_crc=self.enable_crc)
 
                 if frame is None:
+                    self._notify_tap(TAP_RX_REJECTED, raw)
                     self.logger.warning(
                         f"Invalid frame, sending NACK ... [{raw.hex(sep=' ')}]",
                     )
@@ -183,6 +195,9 @@ class Com:
                     continue
 
                 message_id, data = frame
+                # Before the callback: the tap dates the message, and a slow
+                # callback must not make it look late.
+                self._notify_tap(TAP_RX, bytes([message_id]) + data)
 
                 try:
                     if message_id == NACK_ID:
@@ -253,6 +268,7 @@ class Com:
                 resending a NACK. Defaults to ``True``.
         """
         frame = encode_frame(data, enable_crc=self.enable_crc)
+        self._notify_tap(TAP_TX, data)
 
         # The receiver thread also sends (NACKs, retransmissions), so the write
         # must be atomic. The former reset_output_buffer() call was dropped: it
@@ -333,5 +349,33 @@ class Com:
             self.logger.warning(f"Callback for message id {iid} already exists !")
 
         self.message_id_callback[iid] = func
+
+    def set_tap(self, tap: Callable[[int, bytes], None] | None) -> None:
+        """Registers a listener on every message of the link, both ways.
+
+        The tap is called with a direction (``TAP_RX``, ``TAP_TX`` or
+        ``TAP_RX_REJECTED``) and the message as ``[ID][data]`` (for a rejected
+        frame: the bytes as read). Unlike a callback it sees every ID, sent
+        or received, which is what a recorder needs.
+
+        It runs in the receiver thread and in the thread of whoever sends: it
+        must return at once (push to a queue, nothing more). An exception it
+        raises is logged and dropped, it never reaches the link.
+
+        Args:
+            tap (Callable[[int, bytes], None] | None): The listener, or
+                ``None`` to remove it.
+        """
+        self._tap = tap
+
+    def _notify_tap(self, direction: int, payload: bytes) -> None:
+        """Hands a message to the tap, if there is one."""
+        tap = self._tap
+        if tap is None:
+            return
+        try:
+            tap(direction, payload)
+        except Exception as e:  # noqa: BLE001
+            self.logger.error(f"Link tap crashed: {e}")
 
     # endregion
