@@ -33,8 +33,9 @@ aussi qu'un run simulé n'ouvre jamais un port série par accident.
 | `--accel A` | `900` | accélération du profil du scénario `ligne`, mm/s² |
 | `--budget S` | `1.0` | budget de temps mur pour un match, en secondes |
 | `--verbose` | non | logs de la boucle de production |
-| `--log` | non | enregistre le run dans un dossier, au même format que sur le robot, puis le relit : le verdict `LOG : OK` dit qu'il est complet, et un log incomplet fait échouer le scénario. Daté avec l'horloge simulée. Format : `robot1/rasp/telemetry/README.md` |
+| `--log` | non | enregistre le run dans un dossier, au même format que sur le robot, puis le relit : le verdict `LOG : OK` dit qu'il est complet, et un log incomplet fait échouer le scénario. Daté avec l'horloge simulée. Format : `robot1/rasp/telemetry/README.md` ; exploitation : `robot1/replay/README.md` |
 | `--log-dir D` | `logs` | dossier qui reçoit les dossiers de run |
+| `--trace` | non | avec `--log` : demande `PID_TRACE`, le dossier contient le flux `ctrl` (suivi, échelons, roues dans `replay/report.py`). Jamais `LOG_TICK` : aucun capteur simulé. Coûte ~0,4 s de temps mur sur 100 s : `tournee --log --trace` sort du budget d'1 s |
 
 ## Les quatre scénarios
 
@@ -96,7 +97,13 @@ sous `data/sim2d/`.
 - le protocole USB au niveau message : `SET_TARGET` (pose et vitesse), `SET_ODOMETRIE`, et
   `ODOMETRY` à 33 Hz, un échantillon tous les deux ticks de commande comme le firmware de match
   prévu. Une boucle à 20 Hz en reçoit une ou deux par tour. La vitesse publiée est la vitesse
-  vraie en repère table, faute d'estimateur de vitesse simulé.
+  vraie en repère table, faute d'estimateur de vitesse simulé ;
+- `SET_TRACE` et `PID_TRACE` : la trace est coupée au démarrage comme sur le firmware, et
+  `SET_TRACE` (bit `PID_TRACE`) l'active. Une trame par tick, livrée avec les `ODOMETRY` du même
+  tick, dans l'ordre du firmware. Cible = référence extrapolée, terme P par axe, I et D à zéro (loi
+  P seule). Roues idéales : la vitesse « mesurée » est la consigne du tick précédent, donc le
+  retard pur et le τ_v que `replay/report.py` trouve sur un run `sim2d` valent zéro. Le bit
+  `LOG_TICK` est accepté et ignoré.
 
 La boucle de position suit le firmware de match **spécifié**, pas le firmware de test
 `src/main.cpp` : sorties bornées en unités physiques (±1000 mm/s, ±3 rad/s), là où `main.cpp`
@@ -127,7 +134,7 @@ Trois niveaux de confiance dans les constantes, à connaître avant de croire un
 | `clock.py` | `VirtualClock` (n'attend jamais) et `ScaledClock` (cadencée sur le temps réel) |
 | `kinematics.py` | cinématique inverse et directe des 3 roues, constantes de `config.h` |
 | `teensy.py` | `TeensyController` : loi de commande du firmware, de `SET_TARGET` aux rpm des roues |
-| `robot.py` | `SimulatedRobot` : pose vraie, pose odométrique, `DriftModel`, ticks de 15 ms, échantillons `ODOMETRY` |
+| `robot.py` | `SimulatedRobot` : pose vraie, pose odométrique, `DriftModel`, ticks de 15 ms, échantillons `ODOMETRY` et `PID_TRACE` |
 | `transport.py` | `Sim2dCom`, retourné par `get_com_class()` en mode `sim2d` |
 | `viz.py` | vue Rerun, best effort : son absence n'empêche jamais un run |
 | `run.py` | ligne de commande et scénarios |
@@ -162,6 +169,11 @@ Trois niveaux de confiance dans les constantes, à connaître avant de croire un
 - **Le budget « 100 s en moins d'1 s »** : la boucle ne relance l'A\* que sur événement
   (`nav/replanner.py`). `tournee`, qui roule pendant les 100 s, tient en ~0,7 s, dont ~0,2 s
   d'A\* pour ~180 plans. Si le budget saute, regarder d'abord le nombre de plans.
+- **L'horloge de la boucle et le temps simulé ne coïncident pas tout à fait.** La boucle publie au
+  début de son pas les trames que la Teensy simulée a produites pendant ce pas : vu par
+  `replay/align.py`, la Teensy est en avance d'environ 45 ms. En `match`, `attendre_tirette()`
+  avance encore l'horloge de 0,3 s sans faire tourner le robot. Le décalage est constant :
+  l'alignement le retrouve, avec une dérive nulle.
 - **Aucun scan LiDAR n'est simulé** : `match` ne teste **pas** l'évitement, et `tournee` ne
   teste que la planification autour d'une position d'adversaire donnée, pas la détection.
   `detection.use_pushed_scans()` est appelé pour n'ouvrir aucun LiDAR, et rien n'est poussé. Ne

@@ -19,6 +19,8 @@ import math
 import random
 from dataclasses import dataclass
 
+from usb_com.python.messages import TraceFlag
+
 from .kinematics import (
     MM_S_TO_RPM,
     forward_kinematics,
@@ -44,6 +46,27 @@ class OdometrySample:
     vx: float         # velocity, table frame, mm/s and rad/s
     vy: float
     omega: float
+
+
+@dataclass
+class TraceSample:
+    """What the firmware would put in one PID_TRACE frame.
+
+    The wheels of the simulator turn exactly at their command, so the
+    "measured" speed is the command held over the period that just ended: one
+    tick behind the command, never off it. Pure delay, time constant and slip
+    of the real drivers are measured on the bench, not here.
+    """
+
+    t: float                  # simulated time of the tick, s
+    target: tuple             # reference pose, mm and rad (table frame)
+    pose: tuple               # odometry pose the controller used
+    velocity_cmd: tuple       # P output + feed-forward, table frame
+    wheel_requested: tuple    # rpm, before the acceleration limit
+    wheel_cmd: tuple          # rpm, sent to the drivers
+    wheel_measured: tuple     # rpm, held over the previous period
+    p_term: tuple             # P output of x, y, theta
+    flags: int                # usb_com TraceFlag
 
 
 @dataclass
@@ -99,6 +122,10 @@ class SimulatedRobot:
         self._next_tick = 0.0
         self._ticks = 0
         self.odometry_samples = collections.deque(maxlen=ODOMETRY_BACKLOG)
+        # PID_TRACE, off at boot like on the firmware: SET_TRACE turns it on.
+        # Off, no sample is built.
+        self.trace_enabled = False
+        self.trace_samples = collections.deque(maxlen=ODOMETRY_BACKLOG)
 
         self.vx = 0.0            # true velocity, field frame, mm/s
         self.vy = 0.0
@@ -202,8 +229,34 @@ class SimulatedRobot:
         # commanding "go to your current estimated pose", which leaves a
         # permanent error when the estimate is not the truth, and the robot
         # crept 1.2 m out of the table over a match (measured 22/09/2026).
-        self.wheel_rpm = self.controller.tick(self.time, self.odometry_pose())
+        measured = tuple(self.wheel_rpm)
+        pose = self.odometry_pose()
+        self.wheel_rpm = self.controller.tick(self.time, pose)
         self._update_velocity()
+        if self.trace_enabled:
+            self.trace_samples.append(self._trace_sample(pose, measured))
+
+    def _trace_sample(self, pose: tuple, measured: tuple) -> TraceSample:
+        """The PID_TRACE of the tick that just ran."""
+        controller = self.controller
+        flags = 0
+        if controller.braking:
+            flags |= TraceFlag.BRAKING
+        if controller.speed_saturated:
+            flags |= TraceFlag.SPEED_SATURATED
+        if controller.accel_limited:
+            flags |= TraceFlag.ACCEL_LIMITED
+        return TraceSample(
+            t=self.time,
+            target=tuple(controller.reference_pose),
+            pose=tuple(pose),
+            velocity_cmd=tuple(controller.velocity_cmd),
+            wheel_requested=tuple(controller.wheel_requested),
+            wheel_cmd=tuple(self.wheel_rpm),
+            wheel_measured=measured,
+            p_term=tuple(controller.p_term),
+            flags=int(flags),
+        )
 
     def _update_velocity(self) -> None:
         """True field-frame velocity produced by the current wheel speeds.

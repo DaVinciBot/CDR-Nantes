@@ -116,6 +116,14 @@ class TeensyController:
         self.accel_limited = False
         self.arrived = True
 
+        # Values of the last tick, for PID_TRACE: reference pose, P output and
+        # velocity command (table frame), wheel speeds before the
+        # acceleration limit (rpm).
+        self.reference_pose = (x, y, theta)
+        self.p_term = (0.0, 0.0, 0.0)
+        self.velocity_cmd = (0.0, 0.0, 0.0)
+        self.wheel_requested = [0.0, 0.0, 0.0]
+
     def set_target(self, now: float, x: float, y: float, theta: float,
                    vx: float = 0.0, vy: float = 0.0,
                    omega: float = 0.0) -> None:
@@ -190,6 +198,8 @@ class TeensyController:
             vy = _p_output(yerr, KP_XY, MAX_SPEED_MM_S,
                            OUTPUT_DEADBAND_XY_MM_S)
             omega = _p_output(theta_error, KP_THETA, MAX_OMEGA_RAD_S)
+        self.reference_pose = (tx, ty, ttheta)
+        self.p_term = (vx, vy, omega)
 
         # 1. Braking cap on the position-loop part, then the feed-forward:
         # a moving target brakes through its own profile.
@@ -209,6 +219,7 @@ class TeensyController:
         vx += ff_vx
         vy += ff_vy
         omega += ff_omega
+        self.velocity_cmd = (vx, vy, omega)
 
         # 2. Table frame to robot frame, by the heading the robot believes in.
         c, s = math.cos(theta), math.sin(theta)
@@ -223,6 +234,7 @@ class TeensyController:
         self.speed_saturated = fastest > MAX_WHEEL_RPM
         if self.speed_saturated:
             requested = [v * MAX_WHEEL_RPM / fastest for v in requested]
+        self.wheel_requested = list(requested)
 
         # 5. Synchronised acceleration limit, per wheel: the three changes are
         # scaled by the same factor, so the robot keeps its heading in a ramp.

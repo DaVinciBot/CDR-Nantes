@@ -131,6 +131,9 @@ Teensy. Code de retour non nul sinon. `--rebuild` réécrit `log.jsonl` à parti
 
 Depuis du code : `log_reader.check_run(dossier)`, `read_lines()`, `read_raw()`, `read_meta()`.
 
+Exploiter un run sur PC (temps commun Teensy / Rasp, tables par flux, rapport, export Rerun) :
+[../../replay/README.md](../../replay/README.md).
+
 ### Brancher un producteur
 
 ```python

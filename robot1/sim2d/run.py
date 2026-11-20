@@ -41,6 +41,7 @@ os.environ["ROBOT_MODE"] = "sim2d"
 
 from usb_com import (                                                 # noqa: E402
     Messages,
+    TraceMask,
     pack_message,
     payload_size,
     unpack_message,
@@ -144,9 +145,14 @@ def open_log(args, clock, scenario: str):
     """
     if not args.log:
         return NULL_LOGGER
+    # PID_TRACE only when asked: one frame per tick costs about 0.4 s of wall
+    # time over a 100 s match, which the time budget does not have. Never
+    # LOG_TICK: the simulator has no sensors, it would be a stream meta.json
+    # promises and the run never holds.
     return RunLogger(
         args.log_dir, f"sim2d_{scenario}", mode="sim2d",
         clock_ns=lambda: int(round(clock.now() * 1e9)), clock_name="sim",
+        trace_mask=TraceMask.PID_TRACE if args.trace else TraceMask.NONE,
         lossless=True,
         meta={"scenario": scenario, "seed": args.seed, "noise": args.noise},
     )
@@ -742,7 +748,12 @@ def main() -> int:
                              "robot), puis le relire et le verifier")
     parser.add_argument("--log-dir", default="logs",
                         help="dossier qui recoit les dossiers de run")
+    parser.add_argument("--trace", action="store_true",
+                        help="avec --log : demander PID_TRACE (une trame par "
+                             "tick), pour replay/report.py")
     args = parser.parse_args()
+    if args.trace and not args.log:
+        parser.error("--trace ne sert qu'avec --log")
 
     logging.basicConfig(
         level=logging.INFO if args.verbose else logging.WARNING,

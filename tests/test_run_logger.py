@@ -33,43 +33,9 @@ from robot1.rasp.telemetry.logger import (
     create_run_logger,
 )
 
+from log_helpers import FakeClock, FakeCom
+
 TICK_NS = 15_000_000  # control period of the Teensy
-
-
-class FakeClock:
-    """Time that moves only when told to, in nanoseconds."""
-
-    def __init__(self):
-        self.t = 0
-
-    def __call__(self):
-        return self.t
-
-
-class FakeCom:
-    """The least a transport is: a tap, and a record of what was sent."""
-
-    def __init__(self):
-        self.tap = None
-        self.sent = []
-
-    def add_callback(self, func, iid):
-        pass
-
-    def read_bytes(self):
-        return b""
-
-    def set_tap(self, tap):
-        self.tap = tap
-
-    def send_bytes(self, data):
-        self.sent.append(bytes(data))
-        if self.tap is not None:
-            self.tap(TAP_TX, data)
-
-    def receive(self, payload):
-        """Deliver one message as if the Teensy had sent it."""
-        self.tap(TAP_RX, payload)
 
 
 def log_tick(seq, tick):

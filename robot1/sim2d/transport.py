@@ -18,12 +18,18 @@ from usb_com import (
     TAP_RX,
     TAP_TX,
     Messages,
+    TraceMask,
     pack_message,
     payload_size,
     unpack_message,
 )
 
-from .robot import ODOMETRY_EVERY_TICKS, OdometrySample, SimulatedRobot
+from .robot import (
+    ODOMETRY_EVERY_TICKS,
+    OdometrySample,
+    SimulatedRobot,
+    TraceSample,
+)
 from .teensy import CONTROL_PERIOD_S
 
 logger = logging.getLogger("SIM2D_COM")
@@ -34,6 +40,11 @@ logger = logging.getLogger("SIM2D_COM")
 ODOM_RATE_HZ = 1.0 / (ODOMETRY_EVERY_TICKS * CONTROL_PERIOD_S)
 
 _pending_robot = None
+
+
+def _t_us(sim_time: float) -> int:
+    """micros() of the Teensy at a simulated time: a uint32 that wraps."""
+    return int(round(sim_time * 1e6)) & 0xFFFFFFFF
 
 
 def set_robot(robot: SimulatedRobot) -> None:
@@ -132,6 +143,12 @@ class Sim2dCom:
                 logger.info(
                     "Odometrie forcee a (%.0f, %.0f, %.2f).", x, y, theta
                 )
+        elif message_id == Messages.SET_TRACE.value:
+            fields = self._unpack(Messages.SET_TRACE, payload)
+            if fields is not None:
+                # LOG_TICK is accepted and not sent: the simulator has no
+                # sensors to report.
+                self.robot.trace_enabled = bool(fields[0] & TraceMask.PID_TRACE)
         else:
             self.unknown_messages += 1
             logger.debug("Message %d ignore par la simulation.", message_id)
@@ -152,13 +169,17 @@ class Sim2dCom:
         The pose is the drifting odometry, as on the real link. The velocity
         is the true one, table frame: the simulator has no velocity estimator.
 
+        The PID_TRACE frames of the same ticks go out too, when SET_TRACE asked
+        for them, in the order the firmware sends them: by tick, ODOMETRY
+        first.
+
         Args:
             sim_time: current simulated time, in seconds. Only used by force.
             force: also send the current pose now, used for the first frame,
                 before any step.
 
         Returns:
-            int: number of frames delivered.
+            int: number of ODOMETRY frames delivered to the callback.
         """
         robot = self.robot
         if force:
@@ -166,27 +187,45 @@ class Sim2dCom:
                 sim_time, *robot.odometry_pose(),
                 robot.vx, robot.vy, robot.omega,
             ))
-        callback = self._callbacks.get(Messages.ODOMETRY.value)
+        frames = [(sample.t, 0, self._odometry_message(sample))
+                  for sample in robot.odometry_samples]
+        frames += [(sample.t, 1, self._trace_message(sample))
+                   for sample in robot.trace_samples]
+        robot.odometry_samples.clear()
+        robot.trace_samples.clear()
+        frames.sort(key=lambda frame: frame[:2])
+
         sent = 0
-        while robot.odometry_samples:
-            sample = robot.odometry_samples.popleft()
-            if callback is None and self._tap is None:
-                continue
-            # t_us is the micros() of the Teensy: a uint32 that wraps.
-            t_us = int(round(sample.t * 1e6)) & 0xFFFFFFFF
-            message = pack_message(
-                Messages.ODOMETRY, sample.x, sample.y, sample.theta,
-                sample.vx, sample.vy, sample.omega, t_us,
-            )
+        for _, _, message in frames:
             if self._tap is not None:
                 self._tap(TAP_RX, message)
+            callback = self._callbacks.get(message[0])
             if callback is None:
                 continue
             # A callback receives the data without the ID byte, as with Com.
             callback(message[1:])
-            sent += 1
+            if message[0] == Messages.ODOMETRY.value:
+                sent += 1
         self.frames_sent += sent
         return sent
+
+    @staticmethod
+    def _odometry_message(sample: OdometrySample) -> bytes:
+        """Pack one ODOMETRY frame."""
+        return pack_message(
+            Messages.ODOMETRY, sample.x, sample.y, sample.theta,
+            sample.vx, sample.vy, sample.omega, _t_us(sample.t),
+        )
+
+    @staticmethod
+    def _trace_message(sample: TraceSample) -> bytes:
+        """Pack one PID_TRACE frame. No I nor D in the 2027 law: zeros."""
+        return pack_message(
+            Messages.PID_TRACE, _t_us(sample.t), *sample.target, *sample.pose,
+            *sample.velocity_cmd, *sample.wheel_requested, *sample.wheel_cmd,
+            *sample.wheel_measured, *sample.p_term, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, sample.flags,
+        )
 
     @staticmethod
     def _unpack(message: Messages, payload: bytes):
