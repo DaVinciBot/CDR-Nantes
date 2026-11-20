@@ -56,6 +56,9 @@ logger = logging.getLogger("rerun_bridge")
 
 _DIR         = Path(__file__).parent
 PLAYMAT_PATH = _DIR / "map_assets" / "playmat2027" / "Field.png"
+# Playmat width in --mode serve: 1181 x 788 px of raw RGB is ~2.8 MB, a quarter
+# of the source texture (4724 x 3150, ~45 MB) on each side.
+SERVE_PLAYMAT_WIDTH = 1181
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Terrain
@@ -159,9 +162,14 @@ _RV, _RT    = _cylinder_mesh(0, 0, 0, ROBOT_R_MM, ROBOT_H_MM)
 # Carte statique
 # ─────────────────────────────────────────────────────────────────────────────
 
-def log_static_map() -> None:
-    """Publie tous les objets fixes (static=True)."""
-    _log_playmat()
+def log_static_map(playmat_max_width: Optional[int] = None) -> None:
+    """Log every fixed object of the table (static=True).
+
+    Args:
+        playmat_max_width: maximum width of the playmat texture, in pixels.
+            None keeps the full resolution (local viewer).
+    """
+    _log_playmat(playmat_max_width)
 
     # Murs
     rr.log("world/map/walls", rr.Boxes3D(
@@ -208,7 +216,13 @@ def log_static_map() -> None:
     )
 
 
-def _log_playmat() -> None:
+def _log_playmat(max_width: Optional[int] = None) -> None:
+    """Log the textured playmat, or a plain green table if it is unavailable.
+
+    Args:
+        max_width: if set and smaller than the texture, downscale the texture
+            to this width (aspect ratio kept). None keeps the full resolution.
+    """
     if not PLAYMAT_PATH.exists():
         logger.warning("Playmat introuvable -> table verte unie")
         rr.log("world/map/table", rr.Boxes3D(
@@ -218,6 +232,9 @@ def _log_playmat() -> None:
     try:
         from PIL import Image as PILImage
         img     = PILImage.open(PLAYMAT_PATH).convert("RGB")
+        if max_width is not None and img.width > max_width:
+            height = round(img.height * max_width / img.width)
+            img = img.resize((max_width, height), PILImage.Resampling.LANCZOS)
         img_arr = np.array(img, dtype=np.uint8)
         verts   = np.array([[0., 0., 0.], [W, 0., 0.], [W, H, 0.], [0., H, 0.]], dtype=np.float32)
         uvs     = np.array([[0.,1.],[1.,1.],[1.,0.],[0.,0.]], dtype=np.float32)
@@ -724,7 +741,9 @@ def main() -> None:
         logger.info(" Connecté au viewer gRPC %s:%d", args.host, args.port)
 
     rr.send_blueprint(create_blueprint())
-    log_static_map()
+    # Over the network every viewer that connects receives the static map
+    # first: the full-size texture is ~45 MB of raw RGB, too much over Wi-Fi.
+    log_static_map(SERVE_PLAYMAT_WIDTH if args.mode == "serve" else None)
 
     lidar_poll = None
     if args.with_lidar:

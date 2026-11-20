@@ -1,18 +1,27 @@
+# Exact versions, validated with Python 3.14 (see requires-python in pyproject.toml).
+# Change a version on purpose, never by letting pip float it.
+
 # Core communication
 pyserial==3.5          # module `serial` (+ serial.tools.list_ports)
 crc8==0.1.0
-loggerplusplus>=1.2.0
+loggerplusplus==1.2.0
 pyusb==1.2.1
 
 # Lidar and visualization
-numpy>=1.26
-matplotlib>=3.8        # pyplot, animation, backends.backend_tkagg (needs Tk, see below)
+numpy==2.5.4
+matplotlib==3.11.2     # pyplot, animation, backends.backend_tkagg (needs Tk)
 rplidar-roboticia==0.9.5   # module `rplidar` (RPLidar)
-rerun-sdk>=0.31.0      # modules `rerun`, `rerun.blueprint`
-pillow>=10.0           # module `PIL` (playmat texture, rerun map exporter)
+# The viewer on the PC must run this exact version: the gRPC stream of
+# `--mode serve` is not compatible across Rerun versions.
+rerun-sdk==0.40.0      # modules `rerun`, `rerun.blueprint`
+pillow==13.0.0         # module `PIL` (playmat texture, rerun map exporter)
 
 # GLB generation (terrain model)
-pygltflib>=0.7.0
+pygltflib==1.16.5
 
-# Raspberry Pi only (GPIO buttons in robot.py) - not installable on dev machines
-gpiozero>=2.0
+# GPIO buttons. gpiozero is pure Python and installs anywhere; on a Pi 5 it needs
+# the lgpio pin factory (RPi.GPIO does not support the Pi 5). lgpio has no
+# Python 3.14 wheel: pip builds it from source, which needs
+# `sudo apt install swig liblgpio-dev` on the Pi first.
+gpiozero==2.0.1
+lgpio==0.2.2.0 ; sys_platform == "linux" and platform_machine == "aarch64"
