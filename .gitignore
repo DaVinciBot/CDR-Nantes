@@ -219,3 +219,7 @@ __marimo__/
 
 schema_info.drawio.svg
 robot1/teensy_moteur/test/.gitkeep
+
+# Run logs written by robot1/rasp/telemetry/logger.py: one folder per run,
+# fetched from the robot, never committed.
+logs/
