@@ -138,6 +138,22 @@ struct OpticalUpdate {
     bool stale;
 };
 
+/** @brief The measurement behind one scalar update. */
+enum class UpdateSource : uint8_t {
+    WHEEL_1 = 0,
+    WHEEL_2 = 1,
+    WHEEL_3 = 2,
+    OPTICAL_X = 3,
+    OPTICAL_Y = 4,
+    HEADING = 5,
+};
+
+/** @brief One scalar update of the current tick, gated or not. */
+struct TickUpdate {
+    UpdateSource source;
+    UpdateResult result;
+};
+
 class Ekf6 {
 public:
     static constexpr size_t N = 6;
@@ -242,6 +258,22 @@ public:
     uint32_t optical_ratio_windows() const { return ratio_windows_; }
     uint32_t optical_ratio_windows_out_of_band() const { return ratio_windows_out_; }
 
+    // === UPDATES OF THE CURRENT TICK ===
+    // Every scalar update since the last process_tick() (or reset()), in the
+    // order applied: wheels, then whatever the caller feeds (EkfEstimator:
+    // heading, then optical). NisStats only keeps sums; the whiteness of the
+    // innovations needs each one, which is what an offline replay reads here.
+
+    /** Capacity: three wheels, two optical axes, one heading. */
+    static constexpr size_t MAX_TICK_UPDATES = 6;
+
+    size_t tick_update_count() const { return tick_update_count_; }
+    /** @param i Index below tick_update_count(). */
+    const TickUpdate &tick_update(size_t i) const { return tick_updates_[i]; }
+    /** @return Updates not recorded because the tick was already full: only a
+     *  caller feeding a source twice in one tick gets there. */
+    uint32_t tick_updates_overflow() const { return tick_updates_overflow_; }
+
     // === MODEL, EXPOSED FOR THE TESTS ===
     // predict() uses the same linearisation, from a sparse list of the terms of
     // F. The tests check it against these dense forms, and these against finite
@@ -260,8 +292,10 @@ public:
     Vec<N> wheel_row(size_t wheel) const;
 
 private:
-    /** Applies one scalar update, keeps theta wrapped, records the NIS. */
-    UpdateResult apply(const Vec<N> &h, float innovation, float r, NisStats &stats);
+    /** Applies one scalar update, keeps theta wrapped, records the NIS and the
+     *  update of the tick. */
+    UpdateResult apply(const Vec<N> &h, float innovation, float r, NisStats &stats,
+                       UpdateSource source);
 
     /** Feeds one optical sample to the optical / wheel speed ratio window. */
     void feed_ratio(float optical_vx, float optical_vy);
@@ -286,6 +320,10 @@ private:
     uint32_t heading_last_us_ = 0;
 
     uint32_t optical_consecutive_rejections_ = 0;
+
+    TickUpdate tick_updates_[MAX_TICK_UPDATES];
+    size_t tick_update_count_ = 0;
+    uint32_t tick_updates_overflow_ = 0;
 
     /** Robot-centre speed from the wheels, this tick; the ratio's reference. */
     bool wheel_speed_fresh_ = false;

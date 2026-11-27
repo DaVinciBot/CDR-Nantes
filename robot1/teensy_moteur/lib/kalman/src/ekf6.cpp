@@ -139,6 +139,7 @@ void Ekf6::reset(float x_mm, float y_mm, float theta_rad, float sigma_xy_mm,
     variance[VY] = sigma_v_mm_s * sigma_v_mm_s;
     variance[OMEGA] = sigma_omega_rad_s * sigma_omega_rad_s;
     P_ = Mat<N>::diagonal(variance);
+    tick_update_count_ = 0;
 }
 
 void Ekf6::reset(const Vec<N> &state, const Mat<N> &covariance) {
@@ -146,9 +147,13 @@ void Ekf6::reset(const Vec<N> &state, const Mat<N> &covariance) {
     x_[THETA] = wrap_pi(x_[THETA]);
     P_ = covariance;
     symmetrize(P_);
+    tick_update_count_ = 0;
 }
 
 bool Ekf6::process_tick(const OdometryTick &tick) {
+    // A new tick: forget the updates of the previous one, even if this one is
+    // skipped, so that a skipped tick reads as a tick without updates.
+    tick_update_count_ = 0;
     // A first frame's deltas are measured against nothing, and its dt against
     // no previous tick either.
     if (tick.first_frame) {
@@ -229,7 +234,8 @@ void Ekf6::update_wheels(const OdometryTick &tick) {
         for (size_t i = 0; i < N; ++i) {
             predicted += h[i] * x_[i];
         }
-        apply(h, z - predicted, floor_mm_s * floor_mm_s + slip * slip, wheel_stats_);
+        apply(h, z - predicted, floor_mm_s * floor_mm_s + slip * slip, wheel_stats_,
+              static_cast<UpdateSource>(static_cast<uint8_t>(UpdateSource::WHEEL_1) + wheel));
     }
 
     // Reference speed for the optical ratio: the robot centre, from the wheels
@@ -265,12 +271,14 @@ OpticalUpdate Ekf6::update_optical(float vx_mm_s, float vy_mm_s, uint32_t timest
     Vec<N> hx = Vec<N>::zero();
     hx[VX] = 1.0f;
     hx[OMEGA] = -ry;
-    out.x = apply(hx, vx_mm_s - (x_[VX] - x_[OMEGA] * ry), r, optical_stats_);
+    out.x = apply(hx, vx_mm_s - (x_[VX] - x_[OMEGA] * ry), r, optical_stats_,
+                  UpdateSource::OPTICAL_X);
 
     Vec<N> hy = Vec<N>::zero();
     hy[VY] = 1.0f;
     hy[OMEGA] = rx;
-    out.y = apply(hy, vy_mm_s - (x_[VY] + x_[OMEGA] * rx), r, optical_stats_);
+    out.y = apply(hy, vy_mm_s - (x_[VY] + x_[OMEGA] * rx), r, optical_stats_,
+                  UpdateSource::OPTICAL_Y);
 
     if (out.x.accepted && out.y.accepted) {
         optical_consecutive_rejections_ = 0;
@@ -291,7 +299,8 @@ UpdateResult Ekf6::update_heading(float heading_rad, uint32_t timestamp_us) {
     Vec<N> h = Vec<N>::zero();
     h[THETA] = 1.0f;
     return apply(h, angle_innovation(heading_rad, x_[THETA]),
-                 params_.heading_sigma_rad * params_.heading_sigma_rad, heading_stats_);
+                 params_.heading_sigma_rad * params_.heading_sigma_rad, heading_stats_,
+                 UpdateSource::HEADING);
 }
 
 bool Ekf6::covariance_healthy() const {
@@ -380,12 +389,20 @@ Vec<Ekf6::N> Ekf6::wheel_row(size_t wheel) const {
     return h;
 }
 
-UpdateResult Ekf6::apply(const Vec<N> &h, float innovation, float r, NisStats &stats) {
+UpdateResult Ekf6::apply(const Vec<N> &h, float innovation, float r, NisStats &stats,
+                         UpdateSource source) {
     const UpdateResult result = scalar_update(x_, P_, h, innovation, r, CHI2_1DOF_99);
     // A correction can push theta just past +-pi, through its correlations
     // even when h does not touch it.
     x_[THETA] = wrap_pi(x_[THETA]);
     stats.record(result);
+    if (tick_update_count_ < MAX_TICK_UPDATES) {
+        tick_updates_[tick_update_count_].source = source;
+        tick_updates_[tick_update_count_].result = result;
+        ++tick_update_count_;
+    } else {
+        ++tick_updates_overflow_;
+    }
     return result;
 }
 

@@ -294,6 +294,58 @@ void test_samples_not_newer_than_the_last_are_dropped(void) {
     TEST_ASSERT_EQUAL_UINT32(before + 1, filter.stale_samples());
 }
 
+void test_every_update_of_the_tick_is_recorded_in_order(void) {
+    Ekf6 filter(GEOMETRY, provisional_ekf6_params(DT));
+    // Wide velocity prior: every update of the first tick passes the gate, so
+    // NisStats (accepted updates only) sees all six.
+    filter.reset(0.0f, 0.0f, 0.0f, 0.0f, 0.1f, 500.0f, 0.1f);
+    const Vec<6> truth = make_state(0.0f, 0.0f, 0.0f, 200.0f, 0.0f, 0.0f);
+
+    // A tick as EkfEstimator feeds it: wheels, heading, optical.
+    TEST_ASSERT_TRUE(filter.process_tick(wheel_tick(filter, provisional_ekf6_params(DT), truth, false)));
+    filter.update_heading(0.0f, 1000);
+    filter.update_optical(200.0f, 0.0f, 1000);
+
+    const UpdateSource expected[6] = {UpdateSource::WHEEL_1, UpdateSource::WHEEL_2,
+                                      UpdateSource::WHEEL_3, UpdateSource::HEADING,
+                                      UpdateSource::OPTICAL_X, UpdateSource::OPTICAL_Y};
+    TEST_ASSERT_EQUAL_UINT32(6, filter.tick_update_count());
+    float nis_sum = 0.0f;
+    for (size_t i = 0; i < 6; ++i) {
+        const TickUpdate &u = filter.tick_update(i);
+        TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(expected[i]), static_cast<uint8_t>(u.source));
+        TEST_ASSERT_TRUE(u.result.variance > 0.0f);
+        TEST_ASSERT_FLOAT_WITHIN(1e-6f, u.result.innovation * u.result.innovation / u.result.variance,
+                                 u.result.nis);
+        nis_sum += u.result.nis;
+    }
+    // The same updates NisStats summed.
+    const float stats_sum = filter.wheel_stats().nis_sum + filter.optical_stats().nis_sum +
+                            filter.heading_stats().nis_sum;
+    TEST_ASSERT_FLOAT_WITHIN(1e-5f, stats_sum, nis_sum);
+
+    // A stale sample is not an update.
+    filter.update_heading(0.0f, 1000);
+    TEST_ASSERT_EQUAL_UINT32(6, filter.tick_update_count());
+
+    // A full tick does not overflow its buffer: it counts.
+    filter.update_heading(0.0f, 2000);
+    TEST_ASSERT_EQUAL_UINT32(6, filter.tick_update_count());
+    TEST_ASSERT_EQUAL_UINT32(1, filter.tick_updates_overflow());
+
+    // The next tick starts empty, even when it is skipped.
+    OdometryTick first = wheel_tick(filter, provisional_ekf6_params(DT), truth, false);
+    first.first_frame = true;
+    TEST_ASSERT_FALSE(filter.process_tick(first));
+    TEST_ASSERT_EQUAL_UINT32(0, filter.tick_update_count());
+
+    // And so does a reset.
+    filter.update_heading(0.0f, 3000);
+    TEST_ASSERT_EQUAL_UINT32(1, filter.tick_update_count());
+    filter.reset(0.0f, 0.0f, 0.0f, 0.0f, 0.1f, 10.0f, 0.1f);
+    TEST_ASSERT_EQUAL_UINT32(0, filter.tick_update_count());
+}
+
 // === MEASUREMENTS ===
 
 void test_heading_update_crosses_pi_the_short_way(void) {
@@ -635,6 +687,7 @@ int main(void) {
     RUN_TEST(test_first_frame_and_bad_dt_are_refused);
     RUN_TEST(test_invalid_encoders_still_predict_but_skip_the_wheels);
     RUN_TEST(test_samples_not_newer_than_the_last_are_dropped);
+    RUN_TEST(test_every_update_of_the_tick_is_recorded_in_order);
 
     RUN_TEST(test_heading_update_crosses_pi_the_short_way);
     RUN_TEST(test_lever_arm_removes_the_phantom_velocity_of_a_spinning_robot);
