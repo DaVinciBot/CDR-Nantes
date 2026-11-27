@@ -25,10 +25,15 @@ from .kinematics import (
     MM_S_TO_RPM,
     forward_kinematics,
 )
+from .sensors import SimSensors, t_us as sensors_t_us
 from .teensy import CONTROL_PERIOD_S, TeensyController
 
 # The firmware sends ODOMETRY every second control tick (30 ms, 33.3 Hz).
 ODOMETRY_EVERY_TICKS = 2
+
+# pose_estimator.h HealthFlag: FILTER_READY | OPTICAL_OK. The odometry of the
+# simulator is always ready and its optical sensor always agrees.
+SIM_ESTIMATOR_HEALTH = 0b011
 
 # Samples kept for the transport. Bounded so a run that never reads them
 # cannot grow without limit; a reader that keeps up never sees more than two.
@@ -67,6 +72,18 @@ class TraceSample:
     wheel_measured: tuple     # rpm, held over the previous period
     p_term: tuple             # P output of x, y, theta
     flags: int                # usb_com TraceFlag
+
+
+@dataclass
+class LogTickSample:
+    """What the firmware would put in one LOG_TICK, header seq aside.
+
+    fields holds every LOG_TICK field but schema_version and seq, named as in
+    usb_com PAYLOAD_FIELDS: the transport numbers the frames it sends.
+    """
+
+    t: float                  # simulated time of the tick, s
+    fields: dict
 
 
 @dataclass
@@ -126,6 +143,14 @@ class SimulatedRobot:
         # Off, no sample is built.
         self.trace_enabled = False
         self.trace_samples = collections.deque(maxlen=ODOMETRY_BACKLOG)
+        # LOG_TICK, off at boot too. The sensors follow the motion anyway, so
+        # a LOG_TICK turned on mid-run starts from consistent counts.
+        self.sensors = SimSensors()
+        self.log_tick_enabled = False
+        self.log_tick_samples = collections.deque(maxlen=ODOMETRY_BACKLOG)
+        # SET_TARGET taken so far (u16, wraps) and time of the last one.
+        self.cmd_count = 0
+        self.cmd_time = 0.0
 
         self.vx = 0.0            # true velocity, field frame, mm/s
         self.vy = 0.0
@@ -157,6 +182,8 @@ class SimulatedRobot:
         from now, as on the Teensy.
         """
         self.controller.set_target(self.time, x, y, theta, vx, vy, omega)
+        self.cmd_count = (self.cmd_count + 1) & 0xFFFF
+        self.cmd_time = self.time
 
     @property
     def target_x(self) -> float:
@@ -231,10 +258,35 @@ class SimulatedRobot:
         # crept 1.2 m out of the table over a match (measured 22/09/2026).
         measured = tuple(self.wheel_rpm)
         pose = self.odometry_pose()
+        if self.log_tick_enabled:
+            self.log_tick_samples.append(self._log_tick_sample(pose, measured))
+        else:
+            self.sensors.skip(self.time)
         self.wheel_rpm = self.controller.tick(self.time, pose)
         self._update_velocity()
         if self.trace_enabled:
             self.trace_samples.append(self._trace_sample(pose, measured))
+
+    def _log_tick_sample(self, pose: tuple, measured: tuple) -> LogTickSample:
+        """The LOG_TICK of the tick about to run, before the new command.
+
+        Sensors read over the period that just ended; estimator output = the
+        odometry pose the controller is about to use, and the velocity the
+        ODOMETRY of this tick carries.
+        """
+        fields = self.sensors.sample(self.time, self.true_theta, measured)
+        fields.update(
+            tick=self._ticks,
+            t_us=sensors_t_us(self.time),
+            est_pose=list(pose),
+            est_vel=[self.vx, self.vy, self.omega],
+            est_health=SIM_ESTIMATOR_HEALTH,
+            est_flags=0,
+            cmd_count=self.cmd_count,
+            cmd_t_us=sensors_t_us(self.cmd_time),
+            log_dropped=0,
+        )
+        return LogTickSample(t=self.time, fields=fields)
 
     def _trace_sample(self, pose: tuple, measured: tuple) -> TraceSample:
         """The PID_TRACE of the tick that just ran."""
@@ -293,6 +345,7 @@ class SimulatedRobot:
         self.true_y += dy
         self.true_theta = _wrap_angle(self.true_theta + dtheta)
         self._update_velocity()
+        self.sensors.integrate(self.wheel_rpm, dt)
 
         self.distance_travelled_mm += math.hypot(dx, dy)
         self.angle_travelled_rad += abs(dtheta)

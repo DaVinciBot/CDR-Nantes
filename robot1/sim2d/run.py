@@ -145,14 +145,18 @@ def open_log(args, clock, scenario: str):
     """
     if not args.log:
         return NULL_LOGGER
-    # PID_TRACE only when asked: one frame per tick costs about 0.4 s of wall
-    # time over a 100 s match, which the time budget does not have. Never
-    # LOG_TICK: the simulator has no sensors, it would be a stream meta.json
-    # promises and the run never holds.
+    # The per-tick streams only when asked: one frame per tick costs wall time
+    # over a 100 s match, which the time budget does not have. LOG_TICK carries
+    # sensors rebuilt from the true motion (sensors.py).
+    trace_mask = TraceMask.NONE
+    if args.trace:
+        trace_mask |= TraceMask.PID_TRACE
+    if args.log_tick:
+        trace_mask |= TraceMask.LOG_TICK
     return RunLogger(
         args.log_dir, f"sim2d_{scenario}", mode="sim2d",
         clock_ns=lambda: int(round(clock.now() * 1e9)), clock_name="sim",
-        trace_mask=TraceMask.PID_TRACE if args.trace else TraceMask.NONE,
+        trace_mask=trace_mask,
         lossless=True,
         meta={"scenario": scenario, "seed": args.seed, "noise": args.noise},
     )
@@ -233,10 +237,10 @@ def scenario_carre(args) -> int:
         deadline = clock.now() + LEG_TIMEOUT_S
         while clock.now() < deadline:
             sim.step(TICK_S)
+            clock.sleep(TICK_S)
             com.publish_odometry(clock.now())
             if args.rerun:
                 viz.publish(clock.now(), sim)
-            clock.sleep(TICK_S)
             true_x, true_y, _ = sim.true_pose()
             if math.hypot(target_x - true_x, target_y - true_y) < ARRIVED_MM:
                 legs_done += 1
@@ -394,6 +398,7 @@ def scenario_ligne(args) -> int:
 
         while sim.time - t_start < duration + LINE_SETTLE_S:
             sim.step(TICK_S)
+            clock.sleep(TICK_S)
             com.publish_odometry(clock.now())
             odom_x, odom_y, _ = sim.odometry_pose()
             along = (odom_x - x0) * ux + (odom_y - y0) * uy
@@ -418,7 +423,6 @@ def scenario_ligne(args) -> int:
             ))
             if args.rerun:
                 viz.publish(clock.now(), sim)
-            clock.sleep(TICK_S)
 
         overshoot = max_along - length
         odom_x, odom_y, _ = sim.odometry_pose()
@@ -492,6 +496,7 @@ def scenario_match(args) -> int:
     com = robot.com
     com.publish_odometry(clock.now(), force=True)
     robot.attendre_tirette()
+    catch_up(sim, clock)
     log.emit("match", event="start")
 
     wall_start = time.perf_counter()
@@ -504,6 +509,7 @@ def scenario_match(args) -> int:
     while clock.now() - begin < MATCH_DURATION_S:
         t0 = time.perf_counter()
         sim.step(TICK_S)
+        clock.sleep(TICK_S)
         com.publish_odometry(clock.now())
         t1 = time.perf_counter()
         robot.update()
@@ -515,7 +521,6 @@ def scenario_match(args) -> int:
         time_in_sim += t1 - t0
         time_in_update += t2 - t1
         ticks += 1
-        clock.sleep(TICK_S)
 
     wall_elapsed = time.perf_counter() - wall_start
     log.emit("match", event="end", elapsed_s=clock.now() - begin)
@@ -648,6 +653,7 @@ def scenario_tournee(args) -> int:
     com = robot.com
     com.publish_odometry(clock.now(), force=True)
     robot.attendre_tirette()
+    catch_up(sim, clock)
     log.emit("match", event="start")
 
     contact = app.OPPONENT_RADIUS_MM + finder.robot_radius
@@ -661,6 +667,7 @@ def scenario_tournee(args) -> int:
         opponent["y"] = centre[1] + TOUR_OPPONENT_RADIUS_MM * math.sin(angle)
 
         sim.step(TICK_S)
+        clock.sleep(TICK_S)
         com.publish_odometry(clock.now())
         robot.update()
 
@@ -671,7 +678,6 @@ def scenario_tournee(args) -> int:
             ticks_in_contact += 1
         if args.rerun:
             viz.publish(clock.now(), sim)
-        clock.sleep(TICK_S)
 
     wall_elapsed = time.perf_counter() - wall_start
     log.emit("match", event="end", elapsed_s=clock.now() - begin)
@@ -718,6 +724,18 @@ def scenario_tournee(args) -> int:
 
 # ── Helpers ───────────────────────────────────────────────────────────────
 
+def catch_up(sim, clock) -> None:
+    """Run the robot, at rest, up to the time of the loop.
+
+    The Teensy keeps ticking while the match loop waits (the starting cord):
+    without this, the simulated time would lag the loop for the whole run and
+    every frame would look sent before the Pi asked for it.
+    """
+    lag = clock.now() - sim.time
+    if lag > 0.0:
+        sim.step(lag)
+
+
 def main() -> int:
     """Parse the command line and run the requested scenario."""
     parser = argparse.ArgumentParser(
@@ -751,9 +769,15 @@ def main() -> int:
     parser.add_argument("--trace", action="store_true",
                         help="avec --log : demander PID_TRACE (une trame par "
                              "tick), pour replay/report.py")
+    parser.add_argument("--log-tick", action="store_true",
+                        help="avec --log : demander LOG_TICK (capteurs "
+                             "reconstruits du mouvement vrai, entree et "
+                             "sortie de l'estimateur, commandes)")
     args = parser.parse_args()
     if args.trace and not args.log:
         parser.error("--trace ne sert qu'avec --log")
+    if args.log_tick and not args.log:
+        parser.error("--log-tick ne sert qu'avec --log")
 
     logging.basicConfig(
         level=logging.INFO if args.verbose else logging.WARNING,

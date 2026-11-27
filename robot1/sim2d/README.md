@@ -35,7 +35,8 @@ aussi qu'un run simulé n'ouvre jamais un port série par accident.
 | `--verbose` | non | logs de la boucle de production |
 | `--log` | non | enregistre le run dans un dossier, au même format que sur le robot, puis le relit : le verdict `LOG : OK` dit qu'il est complet, et un log incomplet fait échouer le scénario. Daté avec l'horloge simulée. Format : `robot1/rasp/telemetry/README.md` ; exploitation : `robot1/replay/README.md` |
 | `--log-dir D` | `logs` | dossier qui reçoit les dossiers de run |
-| `--trace` | non | avec `--log` : demande `PID_TRACE`, le dossier contient le flux `ctrl` (suivi, échelons, roues dans `replay/report.py`). Jamais `LOG_TICK` : aucun capteur simulé. Coûte ~0,4 s de temps mur sur 100 s : `tournee --log --trace` sort du budget d'1 s |
+| `--trace` | non | avec `--log` : demande `PID_TRACE`, le dossier contient le flux `ctrl` (suivi, échelons, roues dans `replay/report.py`). Coûte ~0,2 s de temps mur sur 100 s : `tournee --log --trace` sort du budget d'1 s |
+| `--log-tick` | non | avec `--log` : demande `LOG_TICK` (capteurs reconstruits du mouvement vrai, entrée et sortie de l'estimateur, commandes, santé du cycle) ; sections `cycles` et `commandes` de `replay/report.py`, entrées des rejeux d'estimateur. Coûte ~0,6 s de temps mur sur 100 s (six lignes JSONL par tick) |
 
 ## Les quatre scénarios
 
@@ -102,8 +103,33 @@ sous `data/sim2d/`.
   `SET_TRACE` (bit `PID_TRACE`) l'active. Une trame par tick, livrée avec les `ODOMETRY` du même
   tick, dans l'ordre du firmware. Cible = référence extrapolée, terme P par axe, I et D à zéro (loi
   P seule). Roues idéales : la vitesse « mesurée » est la consigne du tick précédent, donc le
-  retard pur et le τ_v que `replay/report.py` trouve sur un run `sim2d` valent zéro. Le bit
-  `LOG_TICK` est accepté et ignoré.
+  retard pur et le τ_v que `replay/report.py` trouve sur un run `sim2d` valent zéro ;
+- `LOG_TICK` (bit `LOG_TICK` de `SET_TRACE`, coupé au démarrage) : une trame par tick, entre
+  l'`ODOMETRY` et le `PID_TRACE` du même tick (`sensors.py`). Voir ci-dessous.
+
+### `LOG_TICK` en simulation
+
+`sim2d` n'a pas de capteurs : `sensors.py` les reconstruit à partir du **mouvement vrai**, en
+recopiant la construction de l'entrée de l'estimateur (`holonomic_basis.cpp`) et la lecture de
+l'OTOS (`OtosSensor::poll()`).
+
+| Bloc | Contenu en `sim2d` |
+|---|---|
+| encodeurs | rotation vraie des roues, 16384 points par tour, signe MKS inversé ; deltas « avant », exacts à l'arrondi d'un point près, sans dérive d'arrondi |
+| entrée estimateur | `first_frame` au premier tick, puis encodeurs frais à chaque tick ; cap IMU vrai, âge 0 ; un pas optique par tick, sauf au premier (référence seule, comme `poll()`) |
+| OTOS brut | pose de suivi intégrée à partir des déplacements de la base, jamais lue sur la pose vraie : un `SET_ODOMETRIE` ne fait pas sauter l'OTOS ; accélération par différence des vitesses |
+| IMU brute | cap vrai, décalage d'origine nul, précision 3 |
+| sortie estimateur | pose et vitesse de l'`ODOMETRY` du même tick, donc l'odométrie qui dérive (`DriftModel`) |
+| commandes | `cmd_count` compte les `SET_TARGET` reçus, `cmd_t_us` date le dernier |
+| santé | `work_us` et `otos_read_us` à 0 (coût CPU non simulé), aucun échec RS485, aucune trame perdue |
+
+**Écart voulu** : les capteurs sont **exacts** et la sortie estimateur **dérive**. Un rejeu du
+complémentaire sur ces entrées retrouve la pose vraie, pas `est_pose` : le complémentaire n'est
+pas simulé, et l'écart entre rejeu et `est_pose` est la dérive injectée. Pas de défauts capteurs
+(sous-comptage optique, dérive gyro, glissement) pour l'instant.
+
+Les capteurs suivent le mouvement même quand `LOG_TICK` est coupé (~35 ms de temps mur sur un
+match de 100 s), pour qu'un `LOG_TICK` allumé en cours de run parte de deltas sur un seul tick.
 
 La boucle de position suit le firmware de match **spécifié**, pas le firmware de test
 `src/main.cpp` : sorties bornées en unités physiques (±1000 mm/s, ±3 rad/s), là où `main.cpp`
@@ -134,7 +160,8 @@ Trois niveaux de confiance dans les constantes, à connaître avant de croire un
 | `clock.py` | `VirtualClock` (n'attend jamais) et `ScaledClock` (cadencée sur le temps réel) |
 | `kinematics.py` | cinématique inverse et directe des 3 roues, constantes de `config.h` |
 | `teensy.py` | `TeensyController` : loi de commande du firmware, de `SET_TARGET` aux rpm des roues |
-| `robot.py` | `SimulatedRobot` : pose vraie, pose odométrique, `DriftModel`, ticks de 15 ms, échantillons `ODOMETRY` et `PID_TRACE` |
+| `robot.py` | `SimulatedRobot` : pose vraie, pose odométrique, `DriftModel`, ticks de 15 ms, échantillons `ODOMETRY`, `LOG_TICK` et `PID_TRACE` |
+| `sensors.py` | `SimSensors` : encodeurs, OTOS et IMU reconstruits du mouvement vrai, champs capteurs de `LOG_TICK` |
 | `transport.py` | `Sim2dCom`, retourné par `get_com_class()` en mode `sim2d` |
 | `viz.py` | vue Rerun, best effort : son absence n'empêche jamais un run |
 | `run.py` | ligne de commande et scénarios |
@@ -169,11 +196,14 @@ Trois niveaux de confiance dans les constantes, à connaître avant de croire un
 - **Le budget « 100 s en moins d'1 s »** : la boucle ne relance l'A\* que sur événement
   (`nav/replanner.py`). `tournee`, qui roule pendant les 100 s, tient en ~0,7 s, dont ~0,2 s
   d'A\* pour ~180 plans. Si le budget saute, regarder d'abord le nombre de plans.
-- **L'horloge de la boucle et le temps simulé ne coïncident pas tout à fait.** La boucle publie au
-  début de son pas les trames que la Teensy simulée a produites pendant ce pas : vu par
-  `replay/align.py`, la Teensy est en avance d'environ 45 ms. En `match`, `attendre_tirette()`
-  avance encore l'horloge de 0,3 s sans faire tourner le robot. Le décalage est constant :
-  l'alignement le retrouve, avec une dérive nulle.
+- **L'horloge de la boucle et le temps simulé coïncident.** Chaque pas de boucle fait avancer le
+  robot, **puis** l'horloge, et seulement ensuite publie les trames et laisse la boucle de match
+  commander : une trame n'est jamais reçue avant d'avoir été produite, et une consigne est datée
+  à l'instant où la Teensy simulée la prend. En `match` et `tournee`, le robot rattrape à l'arrêt
+  l'attente de la tirette (`catch_up()`). Vu par `replay/align.py` : décalage +5 ms (la plus
+  petite attente d'une trame avant publication), dérive nulle ; la latence des commandes sort à
+  5 ms pour une latence vraie nulle. Avant ce réglage, la Teensy paraissait en avance de 45 ms
+  (+255 ms en `match`), ce qui faussait l'appariement des commandes.
 - **Aucun scan LiDAR n'est simulé** : `match` ne teste **pas** l'évitement, et `tournee` ne
   teste que la planification autour d'une position d'adversaire donnée, pas la détection.
   `detection.use_pushed_scans()` est appelé pour n'ouvrir aucun LiDAR, et rien n'est poussé. Ne

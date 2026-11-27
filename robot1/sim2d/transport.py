@@ -23,13 +23,20 @@ from usb_com import (
     payload_size,
     unpack_message,
 )
+from usb_com.python.messages import (
+    LOG_SCHEMA_VERSION,
+    PAYLOAD_FIELDS,
+    PAYLOAD_FORMATS,
+)
 
 from .robot import (
     ODOMETRY_EVERY_TICKS,
+    LogTickSample,
     OdometrySample,
     SimulatedRobot,
     TraceSample,
 )
+from .sensors import t_us as _t_us
 from .teensy import CONTROL_PERIOD_S
 
 logger = logging.getLogger("SIM2D_COM")
@@ -42,9 +49,42 @@ ODOM_RATE_HZ = 1.0 / (ODOMETRY_EVERY_TICKS * CONTROL_PERIOD_S)
 _pending_robot = None
 
 
-def _t_us(sim_time: float) -> int:
-    """micros() of the Teensy at a simulated time: a uint32 that wraps."""
-    return int(round(sim_time * 1e6)) & 0xFFFFFFFF
+def _pack_named(message: Messages, fields: dict) -> bytes:
+    """Pack a message from its field names (usb_com PAYLOAD_FIELDS).
+
+    Every field must be given: a schema that gains or renames one fails here,
+    loudly, instead of shifting the values of the frame.
+    """
+    values = []
+    for name, count in PAYLOAD_FIELDS[message]:
+        value = fields[name]
+        if count == 1:
+            values.append(value)
+        else:
+            if len(value) != count:
+                raise ValueError(f"{message.name}.{name}: {count} valeurs "
+                                 f"attendues, {len(value)} recues")
+            values.extend(value)
+    # struct refuses a float for an integer field.
+    return pack_message(message, *(
+        int(value) if code in "bBhHiIqQ" else value
+        for code, value in zip(_format_codes(message), values)))
+
+
+def _format_codes(message: Messages) -> list:
+    """One struct code per value of a payload format ("<3fI" -> f, f, f, I)."""
+    codes = []
+    count = ""
+    for char in PAYLOAD_FORMATS[message].lstrip("<>=!@"):
+        if char.isdigit():
+            count += char
+            continue
+        if char == "s":
+            codes.append("s")
+        else:
+            codes.extend(char * int(count or 1))
+        count = ""
+    return codes
 
 
 def set_robot(robot: SimulatedRobot) -> None:
@@ -91,6 +131,7 @@ class Sim2dCom:
         self._tap = None
         self.frames_sent = 0
         self.unknown_messages = 0
+        self._log_tick_seq = 0
         logger.info("Lien simule pret (odometrie a %.0f Hz).", ODOM_RATE_HZ)
 
     # ── ComLink ───────────────────────────────────────────────────────────
@@ -146,9 +187,9 @@ class Sim2dCom:
         elif message_id == Messages.SET_TRACE.value:
             fields = self._unpack(Messages.SET_TRACE, payload)
             if fields is not None:
-                # LOG_TICK is accepted and not sent: the simulator has no
-                # sensors to report.
-                self.robot.trace_enabled = bool(fields[0] & TraceMask.PID_TRACE)
+                mask = fields[0]
+                self.robot.trace_enabled = bool(mask & TraceMask.PID_TRACE)
+                self.robot.log_tick_enabled = bool(mask & TraceMask.LOG_TICK)
         else:
             self.unknown_messages += 1
             logger.debug("Message %d ignore par la simulation.", message_id)
@@ -169,9 +210,10 @@ class Sim2dCom:
         The pose is the drifting odometry, as on the real link. The velocity
         is the true one, table frame: the simulator has no velocity estimator.
 
-        The PID_TRACE frames of the same ticks go out too, when SET_TRACE asked
-        for them, in the order the firmware sends them: by tick, ODOMETRY
-        first.
+        The LOG_TICK and PID_TRACE frames of the same ticks go out too, when
+        SET_TRACE asked for them, in the order the firmware sends them: by
+        tick, ODOMETRY first, then LOG_TICK, then PID_TRACE
+        (Telemetry::emit_tick()).
 
         Args:
             sim_time: current simulated time, in seconds. Only used by force.
@@ -189,9 +231,12 @@ class Sim2dCom:
             ))
         frames = [(sample.t, 0, self._odometry_message(sample))
                   for sample in robot.odometry_samples]
-        frames += [(sample.t, 1, self._trace_message(sample))
+        frames += [(sample.t, 1, self._log_tick_message(sample))
+                   for sample in robot.log_tick_samples]
+        frames += [(sample.t, 2, self._trace_message(sample))
                    for sample in robot.trace_samples]
         robot.odometry_samples.clear()
+        robot.log_tick_samples.clear()
         robot.trace_samples.clear()
         frames.sort(key=lambda frame: frame[:2])
 
@@ -216,6 +261,13 @@ class Sim2dCom:
             Messages.ODOMETRY, sample.x, sample.y, sample.theta,
             sample.vx, sample.vy, sample.omega, _t_us(sample.t),
         )
+
+    def _log_tick_message(self, sample: LogTickSample) -> bytes:
+        """Pack one LOG_TICK, numbered like the firmware (seq, u16)."""
+        fields = dict(sample.fields, schema_version=LOG_SCHEMA_VERSION,
+                      seq=self._log_tick_seq)
+        self._log_tick_seq = (self._log_tick_seq + 1) & 0xFFFF
+        return _pack_named(Messages.LOG_TICK, fields)
 
     @staticmethod
     def _trace_message(sample: TraceSample) -> bytes:
