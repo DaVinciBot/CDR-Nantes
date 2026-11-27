@@ -211,7 +211,10 @@ def test_ground_truth_and_written_report(full_report):
     assert truth["error_mm"] == pytest.approx(5.0, abs=0.1)
 
     text = "\n".join(report.format_report(result))
-    assert "non disponible" not in text
+    # Every section but the replays of the estimators, which are run apart.
+    assert not result["rejeu"]["available"]
+    assert not result["ekf"]["available"]
+    assert text.count("non disponible") == 2
     written = json.loads(report.write_report(result, folder).read_text("utf-8"))
     assert written["roues"]["wheels"]["1"]["delay_ticks"] == 1
 

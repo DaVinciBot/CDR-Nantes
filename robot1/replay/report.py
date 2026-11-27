@@ -24,7 +24,14 @@ Sections:
               and ODOMETRY);
   roues       pure delay, time constant and gain of each wheel, fitted on
               the command and the measured speed (PID_TRACE);
-  verite      estimated end pose (or turns) against the ground truth.
+  verite      estimated end pose (or turns) against the ground truth;
+  rejeu       replay of the complementary filter against the board, read
+              from est_replay.json (written by estimators/complementary.py,
+              which needs the est_replay tool: the report does not run it);
+  ekf         the EKF run offline on the logged inputs, its consistency
+              (NIS, bias, whiteness, 2-sigma coverage) and its end error
+              against the board's, read from ekf_report.json (written by
+              estimators/ekf.py, same reason).
 
 The thresholds below are first values, to revisit with the first real runs.
 """
@@ -577,6 +584,34 @@ def section_truth(run: Run) -> dict:
 
 # ── Report ────────────────────────────────────────────────────────────────
 
+def section_replay(run: Run) -> dict:
+    """Replay of the complementary filter, if it was run on this folder."""
+    from .estimators.complementary import RESULT_FILE
+
+    path = run.folder / RESULT_FILE
+    if not path.exists():
+        return unavailable("rejeu non lance (python -m "
+                           "robot1.replay.estimators.complementary)")
+    result = json.loads(path.read_text(encoding="utf-8"))
+    if not result.get("available"):
+        return unavailable(result.get("reason", "rejeu impossible"))
+    return result
+
+
+def section_ekf(run: Run) -> dict:
+    """Offline EKF, if it was run on this folder."""
+    from .estimators.ekf import RESULT_FILE as EKF_FILE
+
+    path = run.folder / EKF_FILE
+    if not path.exists():
+        return unavailable("EKF hors ligne non lance (python -m "
+                           "robot1.replay.estimators.ekf)")
+    result = json.loads(path.read_text(encoding="utf-8"))
+    if not result.get("available"):
+        return unavailable(result.get("reason", "EKF hors ligne impossible"))
+    return result
+
+
 SECTIONS = (
     ("lien", section_link),
     ("cycles", section_cycles),
@@ -585,6 +620,8 @@ SECTIONS = (
     ("echelons", section_steps),
     ("roues", section_wheels),
     ("verite", section_truth),
+    ("rejeu", section_replay),
+    ("ekf", section_ekf),
 )
 
 
@@ -741,6 +778,18 @@ def _lines_truth(s: dict) -> list[str]:
             f"{s['truth_turns']:+.3f}, ecart {s['error_rad']:+.4f} rad"]
 
 
+def _lines_replay(s: dict) -> list[str]:
+    from .estimators.complementary import format_result
+
+    return format_result(s)
+
+
+def _lines_ekf(s: dict) -> list[str]:
+    from .estimators.ekf import format_result
+
+    return format_result(s)
+
+
 _FORMATTERS = {
     "lien": _lines_link,
     "cycles": _lines_cycles,
@@ -749,6 +798,8 @@ _FORMATTERS = {
     "echelons": _lines_steps,
     "roues": _lines_wheels,
     "verite": _lines_truth,
+    "rejeu": _lines_replay,
+    "ekf": _lines_ekf,
 }
 
 
